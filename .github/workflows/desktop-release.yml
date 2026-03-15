@@ -60,6 +60,7 @@ jobs:
         run: npm run desktop:prepare
 
       - name: Validate updater signing secrets
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -74,6 +75,7 @@ jobs:
 
       - name: Resolve Apple signing availability
         if: ${{ matrix.platform == 'macos-latest' }}
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -96,6 +98,7 @@ jobs:
 
       - name: Import Apple Developer ID certificate
         if: ${{ matrix.platform == 'macos-latest' && env.APPLE_READY == 'true' }}
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -125,6 +128,7 @@ jobs:
 
       - name: Write App Store Connect API key
         if: ${{ matrix.platform == 'macos-latest' }}
+        shell: bash
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
