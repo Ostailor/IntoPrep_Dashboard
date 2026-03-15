@@ -7,6 +7,7 @@ import type { AccountStatus, Cohort, UserRole } from "@/lib/domain";
 import {
   canManageCohortAssignments,
   canDeleteRole,
+  canRevokeSessions,
   canSendPasswordResetForRole,
   canSuspendRole,
   getManageableRoleOptions,
@@ -17,6 +18,7 @@ import type { LiveSettingsUserRow } from "@/lib/live-portal";
 interface RoleManagementPanelProps {
   viewerId: string;
   viewerRole: UserRole;
+  viewerMode: "preview" | "live" | "live-role-preview";
   users: LiveSettingsUserRow[] | null;
   cohorts: Pick<Cohort, "id" | "name">[];
 }
@@ -46,6 +48,7 @@ function getDefaultProvisionRole(
 export function RoleManagementPanel({
   viewerId,
   viewerRole,
+  viewerMode,
   users,
   cohorts,
 }: RoleManagementPanelProps) {
@@ -99,8 +102,21 @@ export function RoleManagementPanel({
     () => new Map(sortedCohorts.map((cohort) => [cohort.id, cohort.name])),
     [sortedCohorts],
   );
+  const readOnly = viewerMode === "live-role-preview";
+  const isEngineer = viewerRole === "engineer";
+
+  const requireTypedConfirmation = (message: string, expected: string) => {
+    const typed = window.prompt(`${message}\n\nType ${expected} to continue.`);
+    return typed === expected;
+  };
 
   const handleCreate = () => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
     if (
       createForm.fullName.trim().length === 0 ||
       createForm.email.trim().length === 0 ||
@@ -157,6 +173,12 @@ export function RoleManagementPanel({
   };
 
   const handleSave = (user: LiveSettingsUserRow) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
     const nextRole = draftRoles[user.id] ?? user.role;
 
     if (nextRole === user.role) {
@@ -196,7 +218,24 @@ export function RoleManagementPanel({
   };
 
   const handleStatusChange = (user: LiveSettingsUserRow, nextStatus: AccountStatus) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
     const verb = nextStatus === "suspended" ? "suspend" : "reactivate";
+
+    if (
+      nextStatus === "suspended" &&
+      user.role === "admin" &&
+      !requireTypedConfirmation(
+        `Suspending ${user.name} will block admin access immediately.`,
+        "SUSPEND",
+      )
+    ) {
+      return;
+    }
 
     if (
       !window.confirm(
@@ -247,6 +286,12 @@ export function RoleManagementPanel({
   };
 
   const handlePasswordReset = (user: LiveSettingsUserRow) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
     if (
       !window.confirm(
         `Send a password reset email to ${user.email ?? user.name}? This will also require a password change before the next portal session.`,
@@ -287,9 +332,17 @@ export function RoleManagementPanel({
   };
 
   const handleDelete = (user: LiveSettingsUserRow) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
+    const expected = user.email ?? user.name;
     if (
-      !window.confirm(
-        `Delete ${user.name}'s account permanently? This removes login access and deletes the account record.`,
+      !requireTypedConfirmation(
+        `Removing ${user.name} will disable login and preserve only audit history.`,
+        expected,
       )
     ) {
       return;
@@ -326,7 +379,66 @@ export function RoleManagementPanel({
     });
   };
 
+  const handleSessionRevoke = (user: LiveSettingsUserRow) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
+    if (
+      !requireTypedConfirmation(
+        `Revoking ${user.name}'s active sessions will force a fresh login on all devices.`,
+        "REVOKE",
+      )
+    ) {
+      return;
+    }
+
+    const issueReference = window.prompt(`Issue reference for revoking ${user.name}'s sessions:`)?.trim() ?? "";
+    if (issueReference.length === 0) {
+      return;
+    }
+
+    setPendingKey(`revoke:${user.id}`);
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/settings/users/revoke-session", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            issueReference,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Session revoke failed.");
+        }
+
+        setSuccess(`${user.name}'s active sessions were revoked.`);
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Session revoke failed.");
+      } finally {
+        setPendingKey(null);
+      }
+    });
+  };
+
   const handleAssignmentSave = (user: LiveSettingsUserRow) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
     const nextAssignments = draftAssignments[user.id] ?? [];
 
     setPendingKey(`assignments:${user.id}`);
@@ -372,6 +484,11 @@ export function RoleManagementPanel({
         provision, suspend, reset, and delete staff, TA, and instructor accounts. Self-signup is
         disabled.
       </p>
+      {readOnly ? (
+        <div className="mt-5 rounded-[1.5rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+          Role preview is read-only. Exit preview to create accounts or change access.
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mt-5 rounded-[1.5rem] border border-rose-200 bg-rose-100/90 px-4 py-3 text-sm text-rose-800">
@@ -405,13 +522,14 @@ export function RoleManagementPanel({
                   Full name
                 </span>
                 <input
-                  value={createForm.fullName}
+              value={createForm.fullName}
                   onChange={(event) => {
                     const fullName = event.currentTarget.value;
                     setCreateForm((current) => ({ ...current, fullName }));
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
                   placeholder="Jordan Ellis"
+                  disabled={readOnly}
                 />
               </label>
               <label className="flex flex-col gap-2">
@@ -427,6 +545,7 @@ export function RoleManagementPanel({
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
                   placeholder="admin2@intoprep.dev"
                   type="email"
+                  disabled={readOnly}
                 />
               </label>
               <label className="flex flex-col gap-2">
@@ -441,6 +560,7 @@ export function RoleManagementPanel({
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
                   placeholder="Operations Director"
+                  disabled={readOnly}
                 />
               </label>
               <label className="flex flex-col gap-2">
@@ -457,6 +577,7 @@ export function RoleManagementPanel({
                     }));
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
+                  disabled={readOnly}
                 >
                   {provisionableRoles.map((role) => (
                     <option key={role} value={role}>
@@ -479,20 +600,21 @@ export function RoleManagementPanel({
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
                 placeholder="IntoPrepTemp2026!"
                 type="text"
+                disabled={readOnly}
               />
             </label>
             <button
               type="button"
               onClick={handleCreate}
-              disabled={pendingKey === "create"}
+              disabled={pendingKey === "create" || readOnly}
               className={clsx(
                 "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
-                pendingKey === "create"
-                  ? "cursor-wait bg-[rgba(23,56,75,0.46)]"
+                pendingKey === "create" || readOnly
+                  ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
                   : "bg-[color:var(--navy-strong)] hover:opacity-90",
               )}
             >
-              {pendingKey === "create" ? "Creating..." : "Create account"}
+              {pendingKey === "create" ? "Creating..." : readOnly ? "Preview only" : "Create account"}
             </button>
           </div>
 
@@ -503,6 +625,8 @@ export function RoleManagementPanel({
             const canSendReset =
               user.id !== viewerId && canSendPasswordResetForRole(viewerRole, user.role);
             const canDelete = user.id !== viewerId && canDeleteRole(viewerRole, user.role);
+            const canRevoke =
+              user.id !== viewerId && canRevokeSessions(viewerRole) && user.role !== "engineer";
             const canEditAssignments =
               user.id !== viewerId && canManageCohortAssignments(viewerRole, user.role);
             const draftRole = draftRoles[user.id] ?? user.role;
@@ -515,7 +639,8 @@ export function RoleManagementPanel({
               pendingKey === `delete:${user.id}` ||
               pendingKey === `status:${user.id}` ||
               pendingKey === `reset:${user.id}` ||
-              pendingKey === `assignments:${user.id}`;
+              pendingKey === `assignments:${user.id}` ||
+              pendingKey === `revoke:${user.id}`;
 
             return (
               <div
@@ -596,7 +721,7 @@ export function RoleManagementPanel({
                             }));
                           }}
                           className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
-                          disabled={isPending}
+                          disabled={isPending || readOnly}
                         >
                           {editableRoles.map((role) => (
                             <option key={role} value={role}>
@@ -607,15 +732,15 @@ export function RoleManagementPanel({
                         <button
                           type="button"
                           onClick={() => handleSave(user)}
-                          disabled={isPending || draftRole === user.role}
+                          disabled={isPending || draftRole === user.role || readOnly}
                           className={clsx(
                             "rounded-full px-4 py-2 text-sm font-semibold text-white",
-                            isPending || draftRole === user.role
+                            isPending || draftRole === user.role || readOnly
                               ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
                               : "bg-[color:var(--navy-strong)] hover:opacity-90",
                           )}
                         >
-                          {isPending ? "Saving..." : "Save role"}
+                          {isPending ? "Saving..." : readOnly ? "Preview only" : "Save role"}
                         </button>
                       </>
                     ) : (
@@ -629,15 +754,30 @@ export function RoleManagementPanel({
                       <button
                         type="button"
                         onClick={() => handlePasswordReset(user)}
-                        disabled={isPending}
+                        disabled={isPending || readOnly}
                         className={clsx(
                           "rounded-full border px-4 py-2 text-sm font-semibold",
-                          isPending
-                            ? "cursor-wait border-[rgba(23,56,75,0.2)] bg-[rgba(23,56,75,0.08)] text-[color:var(--muted)]"
+                          isPending || readOnly
+                            ? "cursor-not-allowed border-[rgba(23,56,75,0.2)] bg-[rgba(23,56,75,0.08)] text-[color:var(--muted)]"
                             : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)] hover:bg-[rgba(23,56,75,0.12)]",
                         )}
                       >
-                        {pendingKey === `reset:${user.id}` ? "Sending..." : "Send reset email"}
+                        {pendingKey === `reset:${user.id}` ? "Sending..." : readOnly ? "Preview only" : "Send reset email"}
+                      </button>
+                    ) : null}
+                    {canRevoke ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSessionRevoke(user)}
+                        disabled={isPending || readOnly}
+                        className={clsx(
+                          "rounded-full border px-4 py-2 text-sm font-semibold",
+                          isPending || readOnly
+                            ? "cursor-not-allowed border-[rgba(23,56,75,0.2)] bg-[rgba(23,56,75,0.08)] text-[color:var(--muted)]"
+                            : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)] hover:bg-[rgba(23,56,75,0.12)]",
+                        )}
+                      >
+                        {pendingKey === `revoke:${user.id}` ? "Revoking..." : readOnly ? "Preview only" : "Revoke sessions"}
                       </button>
                     ) : null}
                     {canSuspend ? (
@@ -649,16 +789,18 @@ export function RoleManagementPanel({
                             user.accountStatus === "active" ? "suspended" : "active",
                           )
                         }
-                        disabled={isPending}
+                        disabled={isPending || readOnly}
                         className={clsx(
                           "rounded-full border px-4 py-2 text-sm font-semibold",
-                          isPending
-                            ? "cursor-wait border-amber-200 bg-amber-100 text-amber-700"
+                          isPending || readOnly
+                            ? "cursor-not-allowed border-amber-200 bg-amber-100 text-amber-700"
                             : "border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200",
                         )}
                       >
                         {pendingKey === `status:${user.id}`
                           ? "Saving..."
+                          : readOnly
+                            ? "Preview only"
                           : user.accountStatus === "active"
                             ? "Suspend account"
                             : "Re-enable account"}
@@ -678,15 +820,15 @@ export function RoleManagementPanel({
                       <button
                         type="button"
                         onClick={() => handleDelete(user)}
-                        disabled={isPending}
+                        disabled={isPending || readOnly}
                         className={clsx(
                           "rounded-full border px-4 py-2 text-sm font-semibold",
-                          isPending
-                            ? "cursor-wait border-rose-200 bg-rose-100 text-rose-700"
+                          isPending || readOnly
+                            ? "cursor-not-allowed border-rose-200 bg-rose-100 text-rose-700"
                             : "border-rose-200 bg-rose-100 text-rose-700 hover:bg-rose-200",
                         )}
                       >
-                        {pendingKey === `delete:${user.id}` ? "Removing..." : "Delete permanently"}
+                        {pendingKey === `delete:${user.id}` ? "Removing..." : readOnly ? "Preview only" : isEngineer && user.role === "admin" ? "Deactivate admin" : "Remove access"}
                       </button>
                     ) : (
                       <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
@@ -718,7 +860,7 @@ export function RoleManagementPanel({
                             <input
                               checked={checked}
                               className="h-4 w-4"
-                              disabled={isPending}
+                              disabled={isPending || readOnly}
                               onChange={(event) => {
                                 const nextChecked = event.currentTarget.checked;
                                 const nextAssignments = nextChecked
@@ -741,17 +883,19 @@ export function RoleManagementPanel({
                     <button
                       type="button"
                       onClick={() => handleAssignmentSave(user)}
-                      disabled={isPending || !assignmentsChanged}
+                      disabled={isPending || !assignmentsChanged || readOnly}
                       className={clsx(
                         "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
-                        isPending || !assignmentsChanged
+                        isPending || !assignmentsChanged || readOnly
                           ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
                           : "bg-[color:var(--navy-strong)] hover:opacity-90",
                       )}
                     >
                       {pendingKey === `assignments:${user.id}`
                         ? "Saving..."
-                        : "Save assignments"}
+                        : readOnly
+                          ? "Preview only"
+                          : "Save assignments"}
                     </button>
                   </div>
                 ) : null}

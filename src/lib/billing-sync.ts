@@ -5,6 +5,7 @@ import type { BillingSyncRun, BillingSyncSource, SyncStatus, User } from "@/lib/
 import { parseCsv } from "@/lib/intake-import";
 import { normalizeSourceUrl } from "@/lib/intake-sync-shared";
 import { canRunIntakeImports } from "@/lib/permissions";
+import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   finalizeSyncRun,
   maybeSendSyncAlertEmail,
@@ -213,6 +214,17 @@ function mapBillingSourceRow(row: BillingSyncSourceRow): BillingSyncSource {
         ? row.last_sync_status
         : null,
     lastSyncSummary: row.last_sync_summary,
+    controlState:
+      row.control_state === "active" ||
+      row.control_state === "paused" ||
+      row.control_state === "maintenance"
+        ? row.control_state
+        : "active",
+    ownerId: row.owner_id,
+    ownerName: null,
+    handoffNotes: row.handoff_notes,
+    changedAt: row.changed_at,
+    runbookUrl: row.runbook_url,
   };
 }
 
@@ -274,6 +286,8 @@ export async function saveQuickBooksSyncSource({
     throw new Error("You cannot configure QuickBooks sync.");
   }
 
+  await assertWritesAllowed("integration_writes");
+
   const normalizedUrl = normalizeSourceUrl(sourceUrl, "QuickBooks CSV sync");
   const serviceClient = createSupabaseServiceClient();
   const { data, error } = await serviceClient
@@ -286,8 +300,11 @@ export async function saveQuickBooksSyncSource({
         source_url: normalizedUrl,
         cadence: cadence.trim() || "Daily around 7:00 AM ET",
         is_active: isActive,
+        control_state: isActive ? "active" : "paused",
         created_by: viewer.id,
         updated_by: viewer.id,
+        changed_by: viewer.id,
+        changed_at: new Date().toISOString(),
       },
       { onConflict: "id" },
     )
@@ -336,6 +353,8 @@ export async function importQuickBooksCsv({
   if (!canRunIntakeImports(viewer.role)) {
     throw new Error("You cannot run QuickBooks sync.");
   }
+
+  await assertWritesAllowed("integration_writes");
 
   const run = await startSyncRun({
     jobId: "sync-quickbooks",
@@ -519,8 +538,12 @@ export async function runQuickBooksSync({
     throw new Error("Configure a QuickBooks sync source before running sync.");
   }
 
-  if (!source.isActive) {
+  if (!source.isActive || source.controlState === "paused") {
     throw new Error("The QuickBooks sync source is currently paused.");
+  }
+
+  if (source.controlState === "maintenance") {
+    throw new Error("The QuickBooks sync source is currently in maintenance mode.");
   }
 
   let response: Response;

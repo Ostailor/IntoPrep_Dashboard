@@ -2,6 +2,7 @@ import type { User } from "@/lib/domain";
 import { canViewFamilyAttendanceContext, viewerCanAccessCohort } from "@/lib/attendance";
 import { formatTimeRange, type SessionRosterRow } from "@/lib/portal";
 import { hasGlobalPortalScope } from "@/lib/permissions";
+import { assertWritesAllowed } from "@/lib/engineer-controls";
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -264,6 +265,8 @@ export async function persistAttendanceStatus({
   if (!hasSupabaseServiceRole()) {
     throw new Error("Supabase service role is not configured.");
   }
+
+  await assertWritesAllowed("operational_writes");
 
   const serviceClient = createSupabaseServiceClient();
   const { data: session } = await serviceClient

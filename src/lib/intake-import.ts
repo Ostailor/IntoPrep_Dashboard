@@ -6,6 +6,7 @@ import type {
   User,
 } from "@/lib/domain";
 import { canRunIntakeImports } from "@/lib/permissions";
+import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   finalizeSyncRun,
   maybeSendSyncAlertEmail,
@@ -482,6 +483,8 @@ export async function importIntakeCsv({
   if (!canRunIntakeImports(viewer.role)) {
     throw new Error("Only engineer, admin, and staff users can run intake imports.");
   }
+
+  await assertWritesAllowed("integration_writes");
 
   const serviceClient = createSupabaseServiceClient();
   const runId = `import-${randomUUID()}`;

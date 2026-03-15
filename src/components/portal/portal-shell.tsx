@@ -65,6 +65,8 @@ import { AttendanceBoard } from "@/components/portal/attendance-board";
 import { AcademicsActionPanel } from "@/components/portal/academics-action-panel";
 import { AccountAuditLogPanel } from "@/components/portal/account-audit-log-panel";
 import { BillingSyncPanel } from "@/components/portal/billing-sync-panel";
+import { EngineerBreakGlassButton } from "@/components/portal/engineer-break-glass-button";
+import { EngineerConsolePanels } from "@/components/portal/engineer-console-panels";
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
@@ -192,7 +194,7 @@ export async function PortalShell({
   const currentUser = viewer.user;
   const baseContext = getPortalContext(role);
   const livePortal =
-    viewer.mode === "live" ? await getLivePortalBundle(viewer.user, section) : null;
+    viewer.mode !== "preview" ? await getLivePortalBundle(viewer.user, section) : null;
   const context = livePortal
     ? {
         ...baseContext,
@@ -220,7 +222,7 @@ export async function PortalShell({
         user: currentUser,
       };
   const liveAttendance =
-    viewer.mode === "live" && section === "attendance"
+    viewer.mode !== "preview" && section === "attendance"
       ? await getLiveAttendanceBundle(viewer.user)
       : null;
   const metrics = livePortal
@@ -261,7 +263,7 @@ export async function PortalShell({
   const fallbackSection = getSectionFallback(role);
   const permissions = getPermissionProfile(role);
   const settingsReadinessRows =
-    viewer.mode === "live" && livePortal
+    viewer.mode !== "preview" && livePortal
       ? [
           {
             label: "User access",
@@ -336,18 +338,22 @@ export async function PortalShell({
     role === "engineer" || role === "admin" || role === "staff"
       ? context.visibleCohorts.length
       : currentUser.assignedCohortIds.length || context.visibleCohorts.length;
-  const isPreview = viewer.mode === "preview";
-  const roleHref = (path: string, candidateRole = role) =>
-    isPreview ? `${path}?role=${candidateRole}` : path;
-  const currentSectionHref = roleHref(`/${section}`);
+  const canUseRolePreview = permissions.canPreviewRoles || viewer.mode === "live-role-preview";
+  const previewChoices = (["admin", "staff", "ta", "instructor"] satisfies UserRole[]);
+  const withPreviewRole = (path: string, candidateRole: UserRole) => `${path}?role=${candidateRole}`;
+  const sectionHref = (path: string) =>
+    viewer.mode === "live-role-preview" || viewer.mode === "preview" ? withPreviewRole(path, role) : path;
+  const currentSectionHref = sectionHref(`/${section}`);
   const navHrefs = context.visibleSections
-    .map((item) => roleHref(`/${item}`))
+    .map((item) => sectionHref(`/${item}`))
     .filter((href) => href !== currentSectionHref);
   const snapshotDate = liveAttendance?.currentDate ?? context.currentDate;
+  const activeMaintenanceBanner = livePortal?.maintenanceBanner ?? null;
+  const engineerConsole = livePortal?.engineerConsole ?? null;
 
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
-      <PortalLiveSync enabled={viewer.mode === "live"} section={section} />
+      <PortalLiveSync enabled={viewer.mode !== "preview"} section={section} />
       <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[320px] xl:overflow-y-auto">
@@ -384,7 +390,7 @@ export async function PortalShell({
                 return (
                   <Link
                     key={item}
-                    href={roleHref(`/${item}`)}
+                    href={sectionHref(`/${item}`)}
                     prefetch
                     className={clsx(
                       "nav-pill flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-semibold",
@@ -406,7 +412,7 @@ export async function PortalShell({
             <div className="section-kicker">Current lane</div>
             <div className="mt-2 flex items-center gap-3">
               <div className={clsx("rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em]", roleAccent[role])}>
-                {roleLabels[role]}
+                {viewer.mode === "live-role-preview" ? `Preview ${roleLabels[role]}` : roleLabels[role]}
               </div>
               <div className="text-sm font-semibold text-[color:var(--navy-strong)]">{currentUser.name}</div>
             </div>
@@ -417,7 +423,36 @@ export async function PortalShell({
               </div>
             ) : null}
             <p className="mt-4 text-sm text-[color:var(--muted)]">{getRoleHeadline(role)}</p>
-            {viewer.mode === "live" ? (
+            {canUseRolePreview ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href={`/${section}`}
+                  className={clsx(
+                    "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
+                    viewer.mode === "live"
+                      ? roleAccent.engineer
+                      : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-stone-50",
+                  )}
+                >
+                  Engineer live
+                </Link>
+                {previewChoices.map((candidate) => (
+                  <Link
+                    key={candidate}
+                    href={withPreviewRole(`/${section}`, candidate)}
+                    className={clsx(
+                      "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
+                      candidate === role && viewer.mode === "live-role-preview"
+                        ? roleAccent[candidate]
+                        : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-stone-50",
+                    )}
+                  >
+                    {roleLabels[candidate]}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+            {viewer.mode !== "preview" ? (
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <DesktopUpdateButton />
                 <InstallAppButton />
@@ -453,6 +488,51 @@ export async function PortalShell({
         </aside>
 
         <main className="flex-1">
+          {viewer.mode === "live-role-preview" ? (
+            <div className="mb-5 rounded-[1.75rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
+              Previewing the {roleLabels[role]} experience
+              {viewer.previewSourceName ? ` using ${viewer.previewSourceName}` : ""}. Writes are blocked until you exit preview.
+              <Link
+                href={`/${section}`}
+                className="ml-2 font-semibold text-[color:var(--copper)]"
+              >
+                Exit preview
+              </Link>
+            </div>
+          ) : null}
+
+          {activeMaintenanceBanner ? (
+            <div
+              className={clsx(
+                "mb-5 rounded-[1.75rem] border px-5 py-4 text-sm shadow-[var(--shadow)]",
+                activeMaintenanceBanner.tone === "error"
+                  ? "border-rose-200 bg-rose-100 text-rose-800"
+                  : activeMaintenanceBanner.tone === "warning"
+                    ? "border-amber-200 bg-amber-100 text-amber-800"
+                    : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)]",
+              )}
+            >
+              <div className="font-semibold">{activeMaintenanceBanner.message}</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.14em]">
+                {activeMaintenanceBanner.ownerName ?? "Unassigned"} ·{" "}
+                {activeMaintenanceBanner.issueReference ?? "No issue reference"}
+              </div>
+            </div>
+          ) : null}
+
+          {role === "engineer" &&
+          viewer.mode === "live" &&
+          engineerConsole &&
+          engineerConsole.activeSensitiveAccessGrants.length > 0 ? (
+            <div className="mb-5 rounded-[1.75rem] border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
+              <div className="font-semibold">Break-glass access is active.</div>
+              <div className="mt-1">
+                {engineerConsole.activeSensitiveAccessGrants.length} scoped support grant
+                {engineerConsole.activeSensitiveAccessGrants.length === 1 ? "" : "s"} are open right now. Review or revoke them in Settings.
+              </div>
+            </div>
+          ) : null}
+
           <header className="glass-panel rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] lg:p-6">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
@@ -472,7 +552,7 @@ export async function PortalShell({
                     {(Object.keys(roleLabels) as UserRole[]).map((candidate) => (
                       <Link
                         key={candidate}
-                        href={roleHref(`/${section}`, candidate)}
+                        href={withPreviewRole(`/${section}`, candidate)}
                         className={clsx(
                           "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
                           candidate === role
@@ -486,7 +566,9 @@ export async function PortalShell({
                   </div>
                 ) : (
                   <div className="mt-3 rounded-[1.25rem] border border-[rgba(45,125,99,0.18)] bg-[rgba(45,125,99,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
-                    Signed in as {currentUser.name}.
+                    {viewer.mode === "live-role-preview"
+                      ? `Signed in as ${currentUser.name}. Preview writes are blocked.`
+                      : `Signed in as ${currentUser.name}.`}
                   </div>
                 )}
                 <div className="mt-4 flex items-center gap-3 text-sm text-[color:var(--muted)]">
@@ -512,7 +594,7 @@ export async function PortalShell({
                   </p>
                 </div>
                 <Link
-                  href={roleHref(`/${fallbackSection}`)}
+                  href={sectionHref(`/${fallbackSection}`)}
                   className="inline-flex items-center gap-2 rounded-full border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
                 >
                   Go to {sectionMeta[fallbackSection].title}
@@ -639,8 +721,9 @@ export async function PortalShell({
                 billingRows,
                 programRows,
                 settingsRoleRows,
-                settingsUsers: viewer.mode === "live" ? livePortal?.settingsUsers ?? null : null,
-                settingsAuditLogs: viewer.mode === "live" ? livePortal?.settingsAuditLogs ?? null : null,
+                settingsUsers: viewer.mode !== "preview" ? livePortal?.settingsUsers ?? null : null,
+                settingsAuditLogs: viewer.mode !== "preview" ? livePortal?.settingsAuditLogs ?? null : null,
+                engineerConsole,
                 settingsReadinessRows,
                 attendanceSessions,
                 rosterMaps,
@@ -676,6 +759,7 @@ function renderSectionContent({
   settingsRoleRows,
   settingsUsers,
   settingsAuditLogs,
+  engineerConsole,
   settingsReadinessRows,
   attendanceSessions,
   rosterMaps,
@@ -702,6 +786,7 @@ function renderSectionContent({
   settingsRoleRows: ReturnType<typeof getSettingsRoleRows>;
   settingsUsers: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsUsers"];
   settingsAuditLogs: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsAuditLogs"];
+  engineerConsole: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["engineerConsole"];
   settingsReadinessRows: {
     label: string;
     detail: string;
@@ -721,139 +806,151 @@ function renderSectionContent({
   switch (section) {
     case "dashboard":
       return (
-        <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-          <SectionPanel>
-            <SectionHeading
-              eyebrow="Today’s flow"
-              title="Live session stack"
-              description="Visible sessions ordered by time with location, modality, and roster coverage."
+        <div className="space-y-5">
+          {role === "engineer" && engineerConsole ? (
+            <EngineerConsolePanels
+              section="dashboard"
+              engineerConsole={engineerConsole}
+              syncJobs={visibleSyncJobs}
+              intakeSyncSource={intakeSyncSource}
+              billingSyncSource={billingSyncSource}
+              users={settingsUsers}
             />
-            <div className="mt-5 space-y-3">
-              {todaySessions.map((session) => {
-                const cohort = context.visibleCohorts.find((item) => item.id === session.cohortId);
-                return (
-                  <div
-                    key={session.id}
-                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-lg font-semibold text-[color:var(--navy-strong)]">
-                          {session.title}
+          ) : null}
+          <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
+            <SectionPanel>
+              <SectionHeading
+                eyebrow="Today’s flow"
+                title="Live session stack"
+                description="Visible sessions ordered by time with location, modality, and roster coverage."
+              />
+              <div className="mt-5 space-y-3">
+                {todaySessions.map((session) => {
+                  const cohort = context.visibleCohorts.find((item) => item.id === session.cohortId);
+                  return (
+                    <div
+                      key={session.id}
+                      className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <div className="text-lg font-semibold text-[color:var(--navy-strong)]">
+                            {session.title}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[color:var(--muted)]">
+                            <Clock3 className="h-4 w-4" />
+                            {formatTimeRange(session.startAt, session.endAt)}
+                            <span>·</span>
+                            <MapPin className="h-4 w-4" />
+                            {session.roomLabel}
+                          </div>
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[color:var(--muted)]">
-                          <Clock3 className="h-4 w-4" />
-                          {formatTimeRange(session.startAt, session.endAt)}
-                          <span>·</span>
-                          <MapPin className="h-4 w-4" />
-                          {session.roomLabel}
+                        <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                          {cohort?.name}
                         </div>
-                      </div>
-                      <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                        {cohort?.name}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </SectionPanel>
+                  );
+                })}
+              </div>
+            </SectionPanel>
 
-          <SectionPanel>
-            {role === "instructor" ? (
-              <>
-                <SectionHeading
-                  eyebrow="Read-only insight"
-                  title="Today’s score picture"
-                  description="Instructors can see same-day assessment totals, section breakdowns, and trend direction for assigned students."
-                />
-                <div className="mt-5 space-y-4">
-                  {trendRows.map((student) => (
-                    <div
-                      key={student.studentId}
-                      className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
+            <SectionPanel>
+              {role === "instructor" ? (
+                <>
+                  <SectionHeading
+                    eyebrow="Read-only insight"
+                    title="Today’s score picture"
+                    description="Instructors can see same-day assessment totals, section breakdowns, and trend direction for assigned students."
+                  />
+                  <div className="mt-5 space-y-4">
+                    {trendRows.map((student) => (
+                      <div
+                        key={student.studentId}
+                        className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-base font-semibold text-[color:var(--navy-strong)]">
+                              {student.studentName}
+                            </div>
+                            <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
+                              {student.latestScore ?? "—"}
+                            </div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                              {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
+                              {student.deltaFromPrevious ?? 0} vs prior
+                            </div>
+                          </div>
+                        </div>
+                        <TrendSparkline className="mt-3" points={student.trend} tone="navy" />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : role === "ta" ? (
+                <>
+                  <SectionHeading
+                    eyebrow="Support lane"
+                    title="Family threads"
+                    description="TA messaging remains scoped to assigned cohorts and their families."
+                  />
+                  <div className="mt-5 space-y-3">
+                    {context.visibleThreads.map((thread) => (
+                      <div
+                        key={thread.id}
+                        className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
                           <div className="text-base font-semibold text-[color:var(--navy-strong)]">
-                            {student.studentName}
+                            {thread.subject}
                           </div>
-                          <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
+                          <div className="rounded-full border border-[rgba(187,110,69,0.22)] bg-[rgba(187,110,69,0.12)] px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
+                            {thread.unreadCount} unread
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
-                            {student.latestScore ?? "—"}
+                        <div className="mt-2 text-sm text-[color:var(--muted)]">{thread.lastMessagePreview}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <SectionHeading
+                    eyebrow="Pipeline"
+                    title="Enrollment and finance snapshot"
+                    description="Staff and admin see intake motion, sync readiness, and read-only billing risk."
+                  />
+                  <div className="mt-5 space-y-3">
+                    {visibleLeads.map((lead) => (
+                      <div
+                        key={lead.id}
+                        className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-base font-semibold text-[color:var(--navy-strong)]">
+                              {lead.studentName}
+                            </div>
+                            <div className="mt-1 text-sm text-[color:var(--muted)]">
+                              {lead.guardianName} · {lead.targetProgram}
+                            </div>
                           </div>
-                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                            {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
-                            {student.deltaFromPrevious ?? 0} vs prior
+                          <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                            {lead.stage}
                           </div>
                         </div>
                       </div>
-                      <TrendSparkline className="mt-3" points={student.trend} tone="navy" />
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : role === "ta" ? (
-              <>
-                <SectionHeading
-                  eyebrow="Support lane"
-                  title="Family threads"
-                  description="TA messaging remains scoped to assigned cohorts and their families."
-                />
-                <div className="mt-5 space-y-3">
-                  {context.visibleThreads.map((thread) => (
-                    <div
-                      key={thread.id}
-                      className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-base font-semibold text-[color:var(--navy-strong)]">
-                          {thread.subject}
-                        </div>
-                        <div className="rounded-full border border-[rgba(187,110,69,0.22)] bg-[rgba(187,110,69,0.12)] px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
-                          {thread.unreadCount} unread
-                        </div>
-                      </div>
-                      <div className="mt-2 text-sm text-[color:var(--muted)]">{thread.lastMessagePreview}</div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <SectionHeading
-                  eyebrow="Pipeline"
-                  title="Enrollment and finance snapshot"
-                  description="Staff and admin see intake motion, sync readiness, and read-only billing risk."
-                />
-                <div className="mt-5 space-y-3">
-                  {visibleLeads.map((lead) => (
-                    <div
-                      key={lead.id}
-                      className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-base font-semibold text-[color:var(--navy-strong)]">
-                            {lead.studentName}
-                          </div>
-                          <div className="mt-1 text-sm text-[color:var(--muted)]">
-                            {lead.guardianName} · {lead.targetProgram}
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                          {lead.stage}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </SectionPanel>
-        </section>
+                    ))}
+                  </div>
+                </>
+              )}
+            </SectionPanel>
+          </section>
+        </div>
       );
 
     case "calendar":
@@ -1023,6 +1120,14 @@ function renderSectionContent({
                       {student.firstName} {student.lastName}
                     </div>
                     <div className="mt-1 text-[color:var(--muted)]">Grade {student.gradeLevel}</div>
+                    {role === "engineer" && !student.sensitiveAccessGranted ? (
+                      <EngineerBreakGlassButton
+                        scopeType="student"
+                        scopeId={student.id}
+                        label={`${student.firstName} ${student.lastName}`}
+                        className="mt-3"
+                      />
+                    ) : null}
                   </div>
                   <div className="text-[color:var(--muted)]">{student.school}</div>
                   <div>
@@ -1030,7 +1135,11 @@ function renderSectionContent({
                     <div className="mt-1 text-[color:var(--muted)]">{student.focus}</div>
                   </div>
                   <div className="text-[color:var(--muted)]">
-                    {permissions.canViewFamilyProfiles && family ? family.email : "Restricted"}
+                    {family
+                      ? permissions.canViewFamilyProfiles || family.sensitiveAccessGranted
+                        ? family.email
+                        : "Protected"
+                      : "Restricted"}
                   </div>
                 </div>
               );
@@ -1060,10 +1169,17 @@ function renderSectionContent({
                   <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                     Campus preference noted
                   </span>
-                  {permissions.canViewBilling && invoice ? (
+                  {(permissions.canViewBilling || role === "engineer") && invoice ? (
                     <span className="rounded-full border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
-                      {formatMoney(invoice.amountDue)} due
+                      {typeof invoice.amountDue === "number" ? formatMoney(invoice.amountDue) : "Protected"} due
                     </span>
+                  ) : null}
+                  {role === "engineer" && !family.sensitiveAccessGranted ? (
+                    <EngineerBreakGlassButton
+                      scopeType="family"
+                      scopeId={family.id}
+                      label={`${family.familyName} family`}
+                    />
                   ) : null}
                 </div>
               </SectionPanel>
@@ -1172,19 +1288,25 @@ function renderSectionContent({
           <div className="space-y-5">
             {role !== "instructor" ? (
               <SectionPanel>
-                <AcademicsActionPanel
-                  viewerRole={role}
-                  currentDate={context.currentDate}
-                  cohorts={context.visibleCohorts.map((cohort) => ({
-                    id: cohort.id,
-                    name: cohort.name,
-                  }))}
-                  students={context.visibleStudents}
-                  enrollments={context.visibleEnrollments}
-                  assessments={context.visibleAssessments}
-                  results={context.visibleResults}
-                  notes={visibleNotes}
-                />
+                {viewerMode === "live-role-preview" ? (
+                  <div className="rounded-[1.5rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+                    Role preview is read-only. Exit preview to edit notes, resources, or scores.
+                  </div>
+                ) : (
+                  <AcademicsActionPanel
+                    viewerRole={role}
+                    currentDate={context.currentDate}
+                    cohorts={context.visibleCohorts.map((cohort) => ({
+                      id: cohort.id,
+                      name: cohort.name,
+                    }))}
+                    students={context.visibleStudents}
+                    enrollments={context.visibleEnrollments}
+                    assessments={context.visibleAssessments}
+                    results={context.visibleResults}
+                    notes={visibleNotes}
+                  />
+                )}
               </SectionPanel>
             ) : null}
             <SectionPanel>
@@ -1245,6 +1367,7 @@ function renderSectionContent({
           viewerRole={role}
           threads={context.visibleThreads}
           threadPosts={visibleThreadPosts}
+          readOnly={viewerMode === "live-role-preview"}
         />
       );
 
@@ -1268,8 +1391,20 @@ function renderSectionContent({
                 key={row.invoiceId}
                 className="grid grid-cols-[minmax(0,1.2fr)_auto_auto_auto] gap-4 border-t border-[color:var(--line)] bg-white/75 px-5 py-4 text-sm"
               >
-                <span className="font-semibold text-[color:var(--navy-strong)]">{row.familyName}</span>
-                <span className="text-[color:var(--muted)]">{formatMoney(row.amountDue)}</span>
+                <div>
+                  <div className="font-semibold text-[color:var(--navy-strong)]">{row.familyName}</div>
+                  {role === "engineer" && !row.sensitiveAccessGranted ? (
+                    <EngineerBreakGlassButton
+                      scopeType="billing"
+                      scopeId={context.visibleFamilies.find((family) => family.familyName === row.familyName)?.id ?? row.invoiceId}
+                      label={`${row.familyName} billing`}
+                      className="mt-2"
+                    />
+                  ) : null}
+                </div>
+                <span className="text-[color:var(--muted)]">
+                  {typeof row.amountDue === "number" ? formatMoney(row.amountDue) : "Protected"}
+                </span>
                 <span className="text-[color:var(--muted)]">{row.source}</span>
                 <InvoiceStatusPill status={row.status} />
               </div>
@@ -1281,8 +1416,25 @@ function renderSectionContent({
     case "integrations":
       return (
         <div className="space-y-5">
-          <IntakeImportPanel recentRuns={visibleImportRuns} syncSource={intakeSyncSource} />
-          <BillingSyncPanel syncSource={billingSyncSource} />
+          <IntakeImportPanel
+            recentRuns={visibleImportRuns}
+            syncSource={intakeSyncSource}
+            readOnly={viewerMode === "live-role-preview"}
+          />
+          <BillingSyncPanel
+            syncSource={billingSyncSource}
+            readOnly={viewerMode === "live-role-preview"}
+          />
+          {role === "engineer" && engineerConsole ? (
+            <EngineerConsolePanels
+              section="integrations"
+              engineerConsole={engineerConsole}
+              syncJobs={visibleSyncJobs}
+              intakeSyncSource={intakeSyncSource}
+              billingSyncSource={billingSyncSource}
+              users={settingsUsers}
+            />
+          ) : null}
           <section className="grid gap-4 md:grid-cols-2">
             {visibleSyncJobs.map((job) => (
               <SectionPanel key={job.id}>
@@ -1296,6 +1448,16 @@ function renderSectionContent({
                   <SyncStatusPill status={job.status} />
                 </div>
                 <p className="mt-4 text-sm text-[color:var(--muted)]">{job.summary}</p>
+                {job.runbookUrl ? (
+                  <a
+                    href={job.runbookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex text-sm font-semibold text-[color:var(--copper)]"
+                  >
+                    Open runbook
+                  </a>
+                ) : null}
               </SectionPanel>
             ))}
           </section>
@@ -1309,12 +1471,23 @@ function renderSectionContent({
             <RoleManagementPanel
               viewerId={viewerId}
               viewerRole={role}
-              users={viewerMode === "live" ? settingsUsers : null}
+              viewerMode={viewerMode}
+              users={viewerMode !== "preview" ? settingsUsers : null}
               cohorts={context.visibleCohorts.map((cohort) => ({
                 id: cohort.id,
                 name: cohort.name,
               }))}
             />
+            {role === "engineer" && engineerConsole ? (
+              <EngineerConsolePanels
+                section="settings"
+                engineerConsole={engineerConsole}
+                syncJobs={visibleSyncJobs}
+                intakeSyncSource={intakeSyncSource}
+                billingSyncSource={billingSyncSource}
+                users={settingsUsers}
+              />
+            ) : null}
 
             <SectionPanel>
               <SectionHeading

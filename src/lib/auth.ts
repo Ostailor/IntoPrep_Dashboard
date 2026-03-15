@@ -9,11 +9,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 export interface PortalViewer {
-  mode: "preview" | "live";
+  mode: "preview" | "live" | "live-role-preview";
   user: User;
   email?: string;
   accountStatus?: AccountStatus;
   mustChangePassword?: boolean;
+  previewRole?: UserRole;
+  previewSourceUserId?: string | null;
+  previewSourceName?: string | null;
 }
 
 const previewUsersByRole = new Map(users.map((user) => [user.role, user]));
@@ -136,6 +139,76 @@ async function ensureLiveProfile(
   };
 }
 
+async function resolveLiveRolePreview(
+  previewRole: string | string[] | undefined,
+  viewer: PortalViewer,
+): Promise<PortalViewer> {
+  if (!previewRole) {
+    return viewer;
+  }
+
+  const normalizedPreviewRole = normalizeRole(previewRole);
+
+  if (
+    viewer.user.role !== "engineer" ||
+    normalizedPreviewRole === "engineer" ||
+    !hasSupabaseServiceRole()
+  ) {
+    return viewer;
+  }
+
+  const serviceClient = createSupabaseServiceClient();
+  const { data: previewProfileData, error: previewProfileError } = await serviceClient
+    .from("profiles")
+    .select("*")
+    .eq("role", normalizedPreviewRole)
+    .eq("account_status", "active")
+    .is("deleted_at", null)
+    .order("full_name", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (previewProfileError) {
+    return viewer;
+  }
+
+  const previewProfile = (previewProfileData ?? null) as ProfileRow | null;
+  const previewAssignments =
+    previewProfile && (normalizedPreviewRole === "ta" || normalizedPreviewRole === "instructor")
+      ? await serviceClient
+          .from("cohort_assignments")
+          .select("cohort_id")
+          .eq("user_id", previewProfile.id)
+      : { data: [] };
+  const assignedCohortIds =
+    normalizedPreviewRole === "admin" || normalizedPreviewRole === "staff"
+      ? []
+      : ((previewAssignments.data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[]).map(
+          (assignment) => assignment.cohort_id,
+        );
+  const fallbackPreview = previewUsersByRole.get(normalizedPreviewRole);
+
+  return {
+    ...viewer,
+    mode: "live-role-preview",
+    previewRole: normalizedPreviewRole,
+    previewSourceUserId: previewProfile?.id ?? fallbackPreview?.id ?? null,
+    previewSourceName: previewProfile?.full_name ?? fallbackPreview?.name ?? null,
+    user: {
+      id: viewer.user.id,
+      name: viewer.user.name,
+      role: normalizedPreviewRole,
+      title: fallbackPreview?.title ?? `${normalizedPreviewRole[0]?.toUpperCase()}${normalizedPreviewRole.slice(1)} preview`,
+      assignedCohortIds:
+        previewProfile || fallbackPreview
+          ? assignedCohortIds.length > 0
+            ? assignedCohortIds
+            : fallbackPreview?.assignedCohortIds ?? []
+          : [],
+    },
+  };
+}
+
 export async function resolvePortalViewer({
   previewRole,
   path,
@@ -166,17 +239,19 @@ export async function resolvePortalViewer({
     "IntoPrep User";
 
   return {
-    mode: "live",
-    email: authUser.email,
-    accountStatus: liveProfile?.profile?.account_status ?? "active",
-    mustChangePassword: liveProfile?.profile?.must_change_password ?? false,
-    user: {
-      id: authUser.id,
-      name: fullName,
-      role,
-      title,
-      assignedCohortIds: liveProfile?.assignedCohortIds ?? [],
-    },
+    ...(await resolveLiveRolePreview(previewRole, {
+      mode: "live",
+      email: authUser.email,
+      accountStatus: liveProfile?.profile?.account_status ?? "active",
+      mustChangePassword: liveProfile?.profile?.must_change_password ?? false,
+      user: {
+        id: authUser.id,
+        name: fullName,
+        role,
+        title,
+        assignedCohortIds: liveProfile?.assignedCohortIds ?? [],
+      },
+    })),
   };
 }
 

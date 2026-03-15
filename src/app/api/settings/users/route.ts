@@ -16,6 +16,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { countActiveAdmins } from "@/lib/engineer-controls";
 
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -179,6 +180,10 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "That user profile could not be found." }, { status: 404 });
   }
 
+  if (targetProfile.deleted_at) {
+    return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
+  }
+
   if (targetProfile.id === viewer.user.id) {
     return NextResponse.json({ error: "You cannot change your own role." }, { status: 403 });
   }
@@ -186,6 +191,18 @@ export async function PATCH(request: NextRequest) {
   if (!canManageRoleTransition(viewer.user.role, targetProfile.role, role as UserRole)) {
     return NextResponse.json(
       { error: "Your role cannot apply that change." },
+      { status: 403 },
+    );
+  }
+
+  if (
+    targetProfile.role === "admin" &&
+    role !== "admin" &&
+    targetProfile.account_status === "active" &&
+    (await countActiveAdmins()) <= 1
+  ) {
+    return NextResponse.json(
+      { error: "At least one active admin must remain in the portal." },
       { status: 403 },
     );
   }
@@ -218,6 +235,7 @@ export async function PATCH(request: NextRequest) {
     actorId: viewer.user.id,
     targetUserId: targetProfile.id,
     targetEmail: targetProfile.email,
+    targetType: "account",
     action: "role_updated",
     summary: `${viewer.user.name} changed ${targetProfile.email ?? targetProfile.id} from ${targetProfile.role} to ${role}.`,
     details: {
@@ -274,6 +292,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "That user profile could not be found." }, { status: 404 });
   }
 
+  if (targetProfile.deleted_at) {
+    return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
+  }
+
   if (!canSuspendRole(viewer.user.role, targetProfile.role)) {
     return NextResponse.json(
       { error: "Your role cannot change that account status." },
@@ -281,10 +303,25 @@ export async function PUT(request: NextRequest) {
     );
   }
 
+  if (
+    targetProfile.role === "admin" &&
+    status === "suspended" &&
+    targetProfile.account_status === "active" &&
+    (await countActiveAdmins()) <= 1
+  ) {
+    return NextResponse.json(
+      { error: "At least one active admin must remain in the portal." },
+      { status: 403 },
+    );
+  }
+
   const [profileUpdate, templateUpdate] = await Promise.all([
     serviceClient
       .from("profiles")
-      .update({ account_status: status as AccountStatus })
+      .update({
+        account_status: status as AccountStatus,
+        session_revoked_at: status === "suspended" ? new Date().toISOString() : undefined,
+      })
       .eq("id", targetProfile.id),
     targetProfile.email
       ? serviceClient
@@ -306,6 +343,7 @@ export async function PUT(request: NextRequest) {
     actorId: viewer.user.id,
     targetUserId: targetProfile.id,
     targetEmail: targetProfile.email,
+    targetType: "account",
     action: status === "suspended" ? "account_suspended" : "account_reactivated",
     summary:
       status === "suspended"
@@ -363,34 +401,71 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "That user profile could not be found." }, { status: 404 });
   }
 
+  if (targetProfile.deleted_at) {
+    return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
+  }
+
   if (!canDeleteRole(viewer.user.role, targetProfile.role)) {
     return NextResponse.json({ error: "Your role cannot delete that account." }, { status: 403 });
   }
 
-  const deleteResult = await serviceClient.auth.admin.deleteUser(targetProfile.id);
-
-  if (deleteResult.error) {
-    return NextResponse.json({ error: deleteResult.error.message }, { status: 400 });
+  if (
+    targetProfile.role === "admin" &&
+    targetProfile.account_status === "active" &&
+    (await countActiveAdmins()) <= 1
+  ) {
+    return NextResponse.json(
+      { error: "At least one active admin must remain in the portal." },
+      { status: 403 },
+    );
   }
 
-  if (targetProfile.email) {
-    const templateDelete = await serviceClient
-      .from("user_templates")
-      .delete()
-      .eq("email", targetProfile.email.toLowerCase());
+  const deletedAt = new Date().toISOString();
+  const [profileUpdate, templateUpdate, assignmentDelete] = await Promise.all([
+    serviceClient
+      .from("profiles")
+      .update({
+        account_status: "suspended",
+        deleted_at: deletedAt,
+        deleted_by: viewer.user.id,
+        session_revoked_at: deletedAt,
+      })
+      .eq("id", targetProfile.id),
+    targetProfile.email
+      ? serviceClient
+          .from("user_templates")
+          .update({
+            account_status: "suspended",
+            deleted_at: deletedAt,
+            deleted_by: viewer.user.id,
+          })
+          .eq("email", targetProfile.email.toLowerCase())
+      : Promise.resolve({ error: null }),
+    serviceClient.from("cohort_assignments").delete().eq("user_id", targetProfile.id),
+  ]);
 
-    if (templateDelete.error) {
-      return NextResponse.json({ error: templateDelete.error.message }, { status: 400 });
-    }
+  if (profileUpdate.error) {
+    return NextResponse.json({ error: profileUpdate.error.message }, { status: 400 });
+  }
+
+  if (templateUpdate.error) {
+    return NextResponse.json({ error: templateUpdate.error.message }, { status: 400 });
+  }
+
+  if (assignmentDelete.error) {
+    return NextResponse.json({ error: assignmentDelete.error.message }, { status: 400 });
   }
 
   await recordAccountAuditLog(serviceClient, {
     actorId: viewer.user.id,
+    targetUserId: targetProfile.id,
     targetEmail: targetProfile.email,
+    targetType: "account",
     action: "account_deleted",
-    summary: `${viewer.user.name} permanently deleted ${targetProfile.email ?? targetProfile.id}.`,
+    summary: `${viewer.user.name} deactivated ${targetProfile.email ?? targetProfile.id} and removed portal access.`,
     details: {
       deletedRole: targetProfile.role,
+      deletedAt,
     },
   });
 

@@ -9,6 +9,7 @@ import type { ImportRun, IntakeSyncSource } from "@/lib/domain";
 interface IntakeImportPanelProps {
   recentRuns: ImportRun[];
   syncSource: IntakeSyncSource | null;
+  readOnly?: boolean;
 }
 
 const statusTone = {
@@ -33,7 +34,11 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelProps) {
+export function IntakeImportPanel({
+  recentRuns,
+  syncSource,
+  readOnly = false,
+}: IntakeImportPanelProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFileName, setSelectedFileName] = useState("");
@@ -59,6 +64,11 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
   }, [syncSource]);
 
   const handleSubmit = () => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      return;
+    }
+
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
       setError("Choose a CSV export before starting the intake import.");
@@ -100,6 +110,11 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
   };
 
   const handleSourceSave = () => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      return;
+    }
+
     setSourcePending(true);
     setError(null);
 
@@ -132,6 +147,11 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
   };
 
   const handleRunLinkedSync = () => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      return;
+    }
+
     setSyncPending(true);
     setError(null);
 
@@ -178,6 +198,11 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
             Linked source
           </div>
+          {readOnly ? (
+            <div className="mt-3 rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+              Role preview is read-only. Exit preview to save sources or run intake actions.
+            </div>
+          ) : null}
           <p className="mt-2 text-sm text-[color:var(--muted)]">
             Use the linked responses-sheet CSV export URL. The morning cron checks active linked
             sources around 7:00 AM Eastern, and the importer still expects the same Google Forms
@@ -192,6 +217,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="Google Forms linked responses sheet"
+              disabled={readOnly}
             />
             <input
               value={sourceDraft.sourceUrl}
@@ -202,6 +228,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
               type="url"
+              disabled={readOnly}
             />
             <input
               value={sourceDraft.cadence}
@@ -211,6 +238,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="Daily around 7:00 AM ET"
+              disabled={readOnly}
             />
             <label className="flex items-center gap-3 rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]">
               <input
@@ -220,6 +248,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
                   setSourceDraft((current) => ({ ...current, isActive }));
                 }}
                 type="checkbox"
+                disabled={readOnly}
               />
               <span>Source active</span>
             </label>
@@ -228,7 +257,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
             <button
               type="button"
               onClick={handleSourceSave}
-              disabled={sourcePending}
+              disabled={sourcePending || readOnly}
               className={clsx(
                 "rounded-full px-4 py-2 text-sm font-semibold text-white",
                 sourcePending
@@ -236,7 +265,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
                   : "bg-[color:var(--navy-strong)] hover:opacity-90",
               )}
             >
-              {sourcePending ? "Saving..." : "Save source"}
+              {sourcePending ? "Saving..." : readOnly ? "Preview only" : "Save source"}
             </button>
             <button
               type="button"
@@ -244,18 +273,20 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
               disabled={
                 syncPending ||
                 sourceDraft.sourceUrl.trim().length === 0 ||
-                !sourceDraft.isActive
+                !sourceDraft.isActive ||
+                readOnly
               }
               className={clsx(
                 "rounded-full border px-4 py-2 text-sm font-semibold",
                 syncPending ||
                   sourceDraft.sourceUrl.trim().length === 0 ||
-                  !sourceDraft.isActive
+                  !sourceDraft.isActive ||
+                  readOnly
                   ? "cursor-not-allowed border-[rgba(23,56,75,0.2)] bg-[rgba(23,56,75,0.08)] text-[color:var(--muted)]"
                   : "border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] text-[color:var(--copper)] hover:opacity-90",
               )}
             >
-              {syncPending ? "Syncing..." : "Run linked sync"}
+              {syncPending ? "Syncing..." : readOnly ? "Preview only" : "Run linked sync"}
             </button>
           </div>
           {syncSource ? (
@@ -311,6 +342,7 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
             accept=".csv,text/csv"
             className="mt-3 block w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             onChange={(event) => setSelectedFileName(event.currentTarget.files?.[0]?.name ?? "")}
+            disabled={readOnly}
           />
           <div className="mt-2 text-sm text-[color:var(--muted)]">
             {selectedFileName || "No file selected yet."}
@@ -318,15 +350,15 @@ export function IntakeImportPanel({ recentRuns, syncSource }: IntakeImportPanelP
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={pending}
+            disabled={pending || readOnly}
             className={clsx(
               "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
-              pending
-                ? "cursor-wait bg-[rgba(23,56,75,0.56)]"
+              pending || readOnly
+                ? "cursor-not-allowed bg-[rgba(23,56,75,0.56)]"
                 : "bg-[color:var(--navy-strong)] hover:opacity-90",
             )}
           >
-            {pending ? "Importing..." : "Run manual intake import"}
+            {pending ? "Importing..." : readOnly ? "Preview only" : "Run manual intake import"}
           </button>
         </div>
 

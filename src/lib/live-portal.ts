@@ -6,10 +6,16 @@ import {
   type AssessmentResult,
   type BillingSyncSource,
   type Campus,
+  type ChangeFreezeState,
   type Cohort,
   type Enrollment,
+  type EngineerChangeLogEntry,
+  type EngineerSupportNote,
+  type EngineerSystemStatus,
+  type FeatureFlag,
   type Family,
   type ImportRun,
+  type MaintenanceBanner,
   type IntakeSyncSource,
   type Invoice,
   type Lead,
@@ -19,8 +25,10 @@ import {
   type ProgramTrack,
   type Resource,
   type Session,
+  type SensitiveAccessGrant,
   type SyncStatus,
   type SyncJob,
+  type SchemaInspectorRow,
   type Student,
   type Term,
   type User,
@@ -32,6 +40,20 @@ import {
   getPermissionProfile,
   hasGlobalPortalScope,
 } from "@/lib/permissions";
+import {
+  canEngineerViewBillingSensitiveData,
+  canEngineerViewFamilySensitiveData,
+  canEngineerViewStudentSensitiveData,
+  CURRENT_SCHEMA_VERSION,
+  getActiveSensitiveAccessMap,
+  getBuildMetadata,
+  getChangeFreeze,
+  getEngineerSupportNotes,
+  getFeatureFlags,
+  getMaintenanceBanner,
+  getReleaseMetadata,
+  getSchemaInspectorRows,
+} from "@/lib/engineer-controls";
 import { RESOURCE_BUCKET_NAME } from "@/lib/live-writes";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
@@ -88,6 +110,19 @@ export interface LiveSettingsAuditRow {
   action: string;
   summary: string;
   createdAt: string;
+  targetType: string | null;
+  issueReference: string | null;
+}
+
+export interface LiveEngineerConsoleBundle {
+  activeSensitiveAccessGrants: SensitiveAccessGrant[];
+  supportNotes: EngineerSupportNote[];
+  featureFlags: FeatureFlag[];
+  maintenanceBanner: MaintenanceBanner | null;
+  changeFreeze: ChangeFreezeState | null;
+  systemStatus: EngineerSystemStatus | null;
+  schemaInspectorRows: SchemaInspectorRow[];
+  changeLogEntries: EngineerChangeLogEntry[];
 }
 
 export interface LivePortalBundle {
@@ -113,9 +148,11 @@ export interface LivePortalBundle {
   visibleImportRuns: ImportRun[];
   intakeSyncSource: IntakeSyncSource | null;
   billingSyncSource: BillingSyncSource | null;
+  maintenanceBanner: MaintenanceBanner | null;
   settingsRoleStats: LiveSettingsRoleStats | null;
   settingsUsers: LiveSettingsUserRow[] | null;
   settingsAuditLogs: LiveSettingsAuditRow[] | null;
+  engineerConsole: LiveEngineerConsoleBundle | null;
 }
 
 function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
@@ -142,9 +179,11 @@ function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
     visibleImportRuns: [],
     intakeSyncSource: null,
     billingSyncSource: null,
+    maintenanceBanner: null,
     settingsRoleStats: null,
     settingsUsers: null,
     settingsAuditLogs: null,
+    engineerConsole: null,
   };
 }
 
@@ -220,7 +259,10 @@ function normalizeSyncStatus(value: string): SyncStatus | null {
   }
 }
 
-function mapIntakeSyncSource(row: IntakeSyncSourceRow): IntakeSyncSource {
+function mapIntakeSyncSource(
+  row: IntakeSyncSourceRow,
+  profileById?: Map<string, ProfileRow>,
+): IntakeSyncSource {
   return {
     id: row.id,
     label: row.label,
@@ -230,10 +272,22 @@ function mapIntakeSyncSource(row: IntakeSyncSourceRow): IntakeSyncSource {
     lastSyncedAt: row.last_synced_at,
     lastSyncStatus: row.last_sync_status ? normalizeSyncStatus(row.last_sync_status) : null,
     lastSyncSummary: row.last_sync_summary,
+    controlState:
+      row.control_state === "active" || row.control_state === "paused" || row.control_state === "maintenance"
+        ? row.control_state
+        : "active",
+    ownerId: row.owner_id,
+    ownerName: row.owner_id ? (profileById?.get(row.owner_id)?.full_name ?? null) : null,
+    handoffNotes: row.handoff_notes,
+    changedAt: row.changed_at,
+    runbookUrl: row.runbook_url,
   };
 }
 
-function mapBillingSyncSource(row: BillingSyncSourceRow): BillingSyncSource {
+function mapBillingSyncSource(
+  row: BillingSyncSourceRow,
+  profileById?: Map<string, ProfileRow>,
+): BillingSyncSource {
   return {
     id: row.id,
     label: row.label,
@@ -243,6 +297,15 @@ function mapBillingSyncSource(row: BillingSyncSourceRow): BillingSyncSource {
     lastSyncedAt: row.last_synced_at,
     lastSyncStatus: row.last_sync_status ? normalizeSyncStatus(row.last_sync_status) : null,
     lastSyncSummary: row.last_sync_summary,
+    controlState:
+      row.control_state === "active" || row.control_state === "paused" || row.control_state === "maintenance"
+        ? row.control_state
+        : "active",
+    ownerId: row.owner_id,
+    ownerName: row.owner_id ? (profileById?.get(row.owner_id)?.full_name ?? null) : null,
+    handoffNotes: row.handoff_notes,
+    changedAt: row.changed_at,
+    runbookUrl: row.runbook_url,
   };
 }
 
@@ -254,6 +317,126 @@ function createEmptyRoleCounts(): Record<UserRole, number> {
     }),
     {} as Record<UserRole, number>,
   );
+}
+
+function getSystemHealthStatus(syncJobs: SyncJob[]): SyncStatus {
+  if (syncJobs.some((job) => job.status === "error")) {
+    return "error";
+  }
+
+  if (syncJobs.some((job) => job.status === "warning")) {
+    return "warning";
+  }
+
+  return "healthy";
+}
+
+async function buildEngineerSystemStatus({
+  syncJobs,
+  intakeSource,
+  billingSource,
+}: {
+  syncJobs: SyncJob[];
+  intakeSource: IntakeSyncSource | null;
+  billingSource: BillingSyncSource | null;
+}): Promise<EngineerSystemStatus> {
+  const buildMetadata = await getBuildMetadata();
+  const releaseMetadata = await getReleaseMetadata();
+  const currentHealth = getSystemHealthStatus(syncJobs);
+  const configDrift = [
+    {
+      id: "app-version",
+      label: "App version",
+      tone:
+        releaseMetadata?.app_version && releaseMetadata.app_version === buildMetadata.appVersion
+          ? ("healthy" as const)
+          : ("warning" as const),
+      detail:
+        releaseMetadata?.app_version && releaseMetadata.app_version === buildMetadata.appVersion
+          ? `App release metadata matches version ${buildMetadata.appVersion}.`
+          : `Build version ${buildMetadata.appVersion} differs from recorded release metadata ${releaseMetadata?.app_version ?? "missing"}.`,
+    },
+    {
+      id: "schema-version",
+      label: "Schema version",
+      tone:
+        releaseMetadata?.schema_version === CURRENT_SCHEMA_VERSION ? ("healthy" as const) : ("warning" as const),
+      detail:
+        releaseMetadata?.schema_version === CURRENT_SCHEMA_VERSION
+          ? `Database metadata matches schema ${CURRENT_SCHEMA_VERSION}.`
+          : `Expected schema ${CURRENT_SCHEMA_VERSION}, but metadata reports ${releaseMetadata?.schema_version ?? "missing"}.`,
+    },
+    {
+      id: "cron-state",
+      label: "Cron scheduler",
+      tone: syncJobs.find((job) => job.id === "sync-morning-ops")?.status ?? "warning",
+      detail:
+        syncJobs.find((job) => job.id === "sync-morning-ops")?.summary ??
+        "Morning automation status is not available.",
+    },
+    {
+      id: "integration-setup",
+      label: "Integration setup",
+      tone:
+        intakeSource?.sourceUrl && billingSource?.sourceUrl
+          ? ("healthy" as const)
+          : ("warning" as const),
+      detail:
+        intakeSource?.sourceUrl && billingSource?.sourceUrl
+          ? "Linked Google Forms and QuickBooks sources are configured."
+          : "One or more linked sources are missing or incomplete.",
+    },
+  ];
+
+  const credentialHealth = [
+    {
+      id: "google-forms",
+      label: "Google Forms source",
+      tone: intakeSource?.lastSyncStatus ?? (intakeSource?.sourceUrl ? "warning" : "error"),
+      detail:
+        intakeSource?.sourceUrl
+          ? intakeSource.lastSyncSummary ?? `${intakeSource.label} is configured.`
+          : "No linked Google Forms source is configured.",
+    },
+    {
+      id: "quickbooks",
+      label: "QuickBooks source",
+      tone: billingSource?.lastSyncStatus ?? (billingSource?.sourceUrl ? "warning" : "error"),
+      detail:
+        billingSource?.sourceUrl
+          ? billingSource.lastSyncSummary ?? `${billingSource.label} is configured.`
+          : "No linked QuickBooks source is configured.",
+    },
+    {
+      id: "email",
+      label: "Email delivery",
+      tone:
+        process.env.RESEND_API_KEY?.trim() && process.env.SYNC_ALERT_EMAIL_FROM?.trim()
+          ? ("healthy" as const)
+          : ("warning" as const),
+      detail:
+        process.env.RESEND_API_KEY?.trim() && process.env.SYNC_ALERT_EMAIL_FROM?.trim()
+          ? "Alert email delivery is configured."
+          : "Alert email delivery is incomplete or disabled.",
+    },
+    {
+      id: "cron-secret",
+      label: "Cron authorization",
+      tone: process.env.CRON_SECRET?.trim() ? ("healthy" as const) : ("warning" as const),
+      detail: process.env.CRON_SECRET?.trim()
+        ? "Cron authorization secret is configured."
+        : "Cron authorization secret is missing.",
+    },
+  ];
+
+  return {
+    appVersion: buildMetadata.appVersion,
+    buildCommit: buildMetadata.buildCommit,
+    schemaVersion: releaseMetadata?.schema_version ?? null,
+    currentHealth,
+    configDrift,
+    credentialHealth,
+  };
 }
 
 async function getAccessibleCohortIds(viewer: User) {
@@ -288,7 +471,7 @@ export async function getLivePortalBundle(
   const currentDate = getNewYorkDate();
   const accessibleCohortIds = await getAccessibleCohortIds(viewer);
 
-  if (section === "dashboard") {
+  if (section === "dashboard" && viewer.role !== "engineer") {
     const baseBundle = createEmptyLivePortalBundle(currentDate);
     const cohortQuery = serviceClient.from("cohorts").select("*").order("name", { ascending: true });
     const scopedCohortQuery =
@@ -316,17 +499,17 @@ export async function getLivePortalBundle(
               .in("cohort_id", cohortIds)
           : Promise.resolve({ data: [] }),
         serviceClient.from("sync_jobs").select("*").order("label", { ascending: true }),
-        viewer.role === "engineer"
+        viewer.role === "admin"
           ? serviceClient.from("profiles").select("*")
           : Promise.resolve({ data: [] }),
-        viewer.role === "engineer"
+        canRunIntakeImports(viewer.role)
           ? serviceClient
               .from("intake_import_runs")
               .select("*")
               .order("started_at", { ascending: false })
               .limit(6)
           : Promise.resolve({ data: [] }),
-        viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
+        viewer.role === "admin" || viewer.role === "staff"
           ? serviceClient.from("leads").select("*").order("submitted_at", { ascending: false })
           : Promise.resolve({ data: [] }),
       ]);
@@ -361,7 +544,7 @@ export async function getLivePortalBundle(
             .in("cohort_id", cohortIds)
             .order("last_message_at", { ascending: false })
         : Promise.resolve({ data: [] }),
-      viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
+      viewer.role === "admin" || viewer.role === "staff"
         ? serviceClient.from("invoices").select("*").order("due_date", { ascending: true })
         : Promise.resolve({ data: [] }),
     ]);
@@ -651,7 +834,7 @@ export async function getLivePortalBundle(
       : { data: [] };
   const studentRows = (studentsResult.data ?? []) as StudentRow[];
   const familyIds =
-    getPermissionProfile(viewer.role).canViewFamilyProfiles
+    viewer.role === "engineer" || getPermissionProfile(viewer.role).canViewFamilyProfiles
       ? unique(studentRows.map((student) => student.family_id))
       : [];
 
@@ -739,7 +922,7 @@ export async function getLivePortalBundle(
           .from("account_audit_logs")
           .select("*")
           .order("created_at", { ascending: false })
-          .limit(12)
+          .limit(100)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -801,6 +984,7 @@ export async function getLivePortalBundle(
       : { data: [] };
   const messageAuthorProfiles = (messageAuthorProfilesResult.data ?? []) as ProfileRow[];
   const allProfileRows = [...profileRows, ...messageAuthorProfiles];
+  const activeProfileRows = allProfileRows.filter((profile) => !profile.deleted_at);
 
   const assignmentsByCohort = new Map<string, CohortAssignmentRow[]>();
   assignmentRows.forEach((assignment) => {
@@ -816,22 +1000,55 @@ export async function getLivePortalBundle(
     assignmentIdsByUser.set(assignment.user_id, existing);
   });
 
+  const profilesById = new Map(allProfileRows.map((profile) => [profile.id, profile]));
+  const sensitiveAccessMap =
+    viewer.role === "engineer" ? await getActiveSensitiveAccessMap(viewer.id) : null;
+  const mappedSyncJobs = syncJobRows.flatMap((job) => {
+    const status = normalizeSyncStatus(job.status);
+
+    return status
+      ? [
+          {
+            id: job.id,
+            label: job.label,
+            cadence: job.cadence,
+            status,
+            lastRunAt: job.last_run_at,
+            summary: job.summary,
+            ownerId: job.owner_id,
+            ownerName: job.owner_id ? (profilesById.get(job.owner_id)?.full_name ?? null) : null,
+            acknowledgedAt: job.acknowledged_at,
+            mutedUntil: job.muted_until,
+            handoffNotes: job.handoff_notes,
+            runbookUrl: job.runbook_url,
+          },
+        ]
+      : [];
+  });
+  const mappedIntakeSyncSource = syncSourceRow ? mapIntakeSyncSource(syncSourceRow, profilesById) : null;
+  const mappedBillingSyncSource = billingSyncSourceRow
+    ? mapBillingSyncSource(billingSyncSourceRow, profilesById)
+    : null;
+
   const settingsRoleStats =
     viewer.role === "engineer" || viewer.role === "admin"
       ? {
-          activeUsers: allProfileRows.reduce((counts, profile) => {
+          activeUsers: activeProfileRows.reduce((counts, profile) => {
             if (profile.account_status === "active") {
               counts[profile.role] += 1;
             }
             return counts;
           }, createEmptyRoleCounts()),
-          suspendedUsers: allProfileRows.reduce((counts, profile) => {
+          suspendedUsers: activeProfileRows.reduce((counts, profile) => {
             if (profile.account_status === "suspended") {
               counts[profile.role] += 1;
             }
             return counts;
           }, createEmptyRoleCounts()),
           templateUsers: templateRows.reduce((counts, template) => {
+            if (template.deleted_at) {
+              return counts;
+            }
             counts[template.role] += 1;
             return counts;
           }, createEmptyRoleCounts()),
@@ -846,7 +1063,7 @@ export async function getLivePortalBundle(
   );
   const settingsUsers =
     viewer.role === "engineer" || viewer.role === "admin"
-      ? allProfileRows.map((profile) => ({
+      ? activeProfileRows.map((profile) => ({
           id: profile.id,
           name: profile.full_name ?? "IntoPrep User",
           email: profile.email,
@@ -858,7 +1075,6 @@ export async function getLivePortalBundle(
           mustChangePassword: profile.must_change_password,
         }))
       : null;
-  const profilesById = new Map(allProfileRows.map((profile) => [profile.id, profile]));
   const threadPostsById = threadPostRows.reduce<Record<string, MessagePost[]>>((accumulator, post) => {
     const existing = accumulator[post.thread_id] ?? [];
     existing.push({
@@ -882,12 +1098,58 @@ export async function getLivePortalBundle(
             log.actor_id && profilesById.get(log.actor_id)?.full_name
               ? profilesById.get(log.actor_id)?.full_name ?? "IntoPrep User"
               : "System",
-          targetLabel: log.target_email ?? "Removed account",
+          targetLabel:
+            log.target_email ??
+            (typeof log.details === "object" &&
+            log.details !== null &&
+            "scopeId" in log.details &&
+            typeof log.details.scopeId === "string"
+              ? log.details.scopeId
+              : log.target_type
+                ? `${log.target_type.replaceAll("_", " ")} target`
+                : "System target"),
           action: log.action,
           summary: log.summary,
           createdAt: log.created_at,
+          targetType: log.target_type,
+          issueReference: log.issue_reference,
         }))
       : null;
+  const engineerSupportNotes =
+    viewer.role === "engineer" ? await getEngineerSupportNotes() : [];
+  const engineerFeatureFlags = viewer.role === "engineer" ? await getFeatureFlags() : [];
+  const engineerChangeFreeze = viewer.role === "engineer" ? await getChangeFreeze() : null;
+  const activeMaintenanceBanner = await getMaintenanceBanner();
+  const engineerSchemaInspectorRows = viewer.role === "engineer" ? await getSchemaInspectorRows() : [];
+  const engineerSystemStatus =
+    viewer.role === "engineer"
+      ? await buildEngineerSystemStatus({
+          syncJobs: mappedSyncJobs,
+          intakeSource: mappedIntakeSyncSource,
+          billingSource: mappedBillingSyncSource,
+        })
+      : null;
+  const engineerChangeLogEntries =
+    viewer.role === "engineer" && settingsAuditLogs
+      ? settingsAuditLogs
+          .filter((entry) =>
+            [
+              "feature_flag_updated",
+              "maintenance_banner_updated",
+              "integration_control_updated",
+              "change_freeze_updated",
+            ].includes(entry.action),
+          )
+          .slice(0, 12)
+          .map((entry) => ({
+            id: entry.id,
+            action: entry.action,
+            summary: entry.summary,
+            actorName: entry.actorName,
+            createdAt: entry.createdAt,
+            issueReference: entry.issueReference,
+          }))
+      : [];
 
   return {
     currentDate,
@@ -910,7 +1172,7 @@ export async function getLivePortalBundle(
       startDate: term.start_date,
       endDate: term.end_date,
     })),
-    visibleUsers: profileRows.map((profile) => ({
+    visibleUsers: activeProfileRows.map((profile) => ({
       id: profile.id,
       name: profile.full_name ?? "IntoPrep User",
       role: profile.role,
@@ -961,19 +1223,50 @@ export async function getLivePortalBundle(
       familyId: student.family_id,
       firstName: student.first_name,
       lastName: student.last_name,
-      gradeLevel: student.grade_level,
-      school: student.school,
+      gradeLevel: canEngineerViewStudentSensitiveData(
+        viewer.role,
+        student.id,
+        student.family_id,
+        sensitiveAccessMap,
+      )
+        ? student.grade_level
+        : "Protected",
+      school: canEngineerViewStudentSensitiveData(
+        viewer.role,
+        student.id,
+        student.family_id,
+        sensitiveAccessMap,
+      )
+        ? student.school
+        : "Protected",
       targetTest: normalizeTrack(student.target_test),
       focus: student.focus,
+      sensitiveAccessGranted: canEngineerViewStudentSensitiveData(
+        viewer.role,
+        student.id,
+        student.family_id,
+        sensitiveAccessMap,
+      ),
     })),
     visibleFamilies: familyRows.map((family) => ({
       id: family.id,
       familyName: family.family_name,
       guardianNames: family.guardian_names,
-      email: family.email,
-      phone: family.phone,
+      email: canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap)
+        ? family.email
+        : "Protected",
+      phone: canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap)
+        ? family.phone
+        : "Protected",
       preferredCampusId: family.preferred_campus_id,
-      notes: family.notes,
+      notes: canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap)
+        ? family.notes
+        : "Protected",
+      sensitiveAccessGranted: canEngineerViewFamilySensitiveData(
+        viewer.role,
+        family.id,
+        sensitiveAccessMap,
+      ),
     })),
     visibleAssessments: assessmentRows.map((assessment) => ({
       id: assessment.id,
@@ -1021,10 +1314,21 @@ export async function getLivePortalBundle(
             {
               id: invoice.id,
               familyId: invoice.family_id,
-              amountDue: invoice.amount_due,
+              amountDue: canEngineerViewBillingSensitiveData(
+                viewer.role,
+                invoice.family_id,
+                sensitiveAccessMap,
+              )
+                ? invoice.amount_due
+                : null,
               dueDate: invoice.due_date,
               status,
               source,
+              sensitiveAccessGranted: canEngineerViewBillingSensitiveData(
+                viewer.role,
+                invoice.family_id,
+                sensitiveAccessMap,
+              ),
             },
           ]
         : [];
@@ -1061,22 +1365,7 @@ export async function getLivePortalBundle(
           ]
         : [];
     }),
-    visibleSyncJobs: syncJobRows.flatMap((job) => {
-      const status = normalizeSyncStatus(job.status);
-
-      return status
-        ? [
-            {
-              id: job.id,
-              label: job.label,
-              cadence: job.cadence,
-              status,
-              lastRunAt: job.last_run_at,
-              summary: job.summary,
-            },
-          ]
-        : [];
-    }),
+    visibleSyncJobs: mappedSyncJobs,
     visibleImportRuns: importRunRows.flatMap((run) => {
       const status =
         run.status === "completed" || run.status === "partial" || run.status === "failed"
@@ -1111,10 +1400,24 @@ export async function getLivePortalBundle(
           ]
         : [];
     }),
-    intakeSyncSource: syncSourceRow ? mapIntakeSyncSource(syncSourceRow) : null,
-    billingSyncSource: billingSyncSourceRow ? mapBillingSyncSource(billingSyncSourceRow) : null,
+    intakeSyncSource: mappedIntakeSyncSource,
+    billingSyncSource: mappedBillingSyncSource,
+    maintenanceBanner: activeMaintenanceBanner,
     settingsRoleStats,
     settingsUsers,
     settingsAuditLogs,
+    engineerConsole:
+      viewer.role === "engineer"
+        ? {
+            activeSensitiveAccessGrants: sensitiveAccessMap?.grants ?? [],
+            supportNotes: engineerSupportNotes,
+            featureFlags: engineerFeatureFlags,
+            maintenanceBanner: activeMaintenanceBanner,
+            changeFreeze: engineerChangeFreeze,
+            systemStatus: engineerSystemStatus,
+            schemaInspectorRows: engineerSchemaInspectorRows,
+            changeLogEntries: engineerChangeLogEntries,
+          }
+        : null,
   };
 }

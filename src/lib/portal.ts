@@ -231,7 +231,7 @@ const createEmptyRoleCounts = (): Record<UserRole, number> => ({
 const settingsRoleCopy: Record<UserRole, { label: string; summary: string }> = {
   engineer: {
     label: "Engineer",
-    summary: "Full platform access, infrastructure oversight, and authority to manage admin roles.",
+    summary: "System oversight, admin governance, incident controls, and break-glass support access.",
   },
   admin: {
     label: "Admin",
@@ -335,7 +335,7 @@ export const getVisibleImportRuns = (role: UserRole) =>
 export const getRoleHeadline = (role: UserRole) => {
   switch (role) {
     case "engineer":
-      return "Full-system control over operations, integrations, governance, and role administration.";
+      return "System oversight, incident controls, admin governance, and audited support access when production issues need attention.";
     case "admin":
       return "System-wide view over instruction, revenue, and sync stability.";
     case "staff":
@@ -690,8 +690,8 @@ export const getSessionRosterView = (role: UserRole, sessionId: string): Session
       return {
         studentId,
         studentName: `${student.firstName} ${student.lastName}`,
-        gradeLevel: role === "instructor" ? undefined : student.gradeLevel,
-        school: role === "instructor" ? undefined : student.school,
+        gradeLevel: getPermissionProfile(role).canViewStudentProfileData ? student.gradeLevel : undefined,
+        school: getPermissionProfile(role).canViewStudentProfileData ? student.school : undefined,
         familyEmail: getPermissionProfile(role).canViewFamilyProfiles ? family.email : undefined,
         familyPhone: getPermissionProfile(role).canViewFamilyProfiles ? family.phone : undefined,
         attendance,
@@ -714,7 +714,7 @@ export const getStudentTrendView = (role: UserRole) =>
   getStudentTrendViewFromContext(role, getPortalContext(role));
 
 export const getBillingRowsFromContext = (context: PortalContext, role: UserRole) => {
-  if (!getPermissionProfile(role).canViewBilling) {
+  if (!canAccessSection(role, "billing")) {
     return [];
   }
 
@@ -734,6 +734,7 @@ export const getBillingRowsFromContext = (context: PortalContext, role: UserRole
       dueDate: invoice.dueDate,
       status: invoice.status,
       source: invoice.source,
+      sensitiveAccessGranted: invoice.sensitiveAccessGranted ?? getPermissionProfile(role).canViewBilling,
     };
   }).filter((row) => row !== null);
 };

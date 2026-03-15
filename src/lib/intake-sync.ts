@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { IntakeSyncSource, SyncStatus, User } from "@/lib/domain";
+import { assertWritesAllowed } from "@/lib/engineer-controls";
 import { normalizeSourceUrl } from "@/lib/intake-sync-shared";
 import { canRunIntakeImports } from "@/lib/permissions";
 import {
@@ -39,6 +40,14 @@ function mapSourceRow(row: IntakeSyncSourceRow): IntakeSyncSource {
     lastSyncedAt: row.last_synced_at,
     lastSyncStatus: normalizeSyncStatus(row.last_sync_status),
     lastSyncSummary: row.last_sync_summary,
+    controlState:
+      row.control_state === "active" || row.control_state === "paused" || row.control_state === "maintenance"
+        ? row.control_state
+        : "active",
+    ownerId: row.owner_id,
+    handoffNotes: row.handoff_notes,
+    changedAt: row.changed_at,
+    runbookUrl: row.runbook_url,
   };
 }
 
@@ -105,6 +114,8 @@ export async function saveGoogleFormsSyncSource({
     throw new Error("You cannot configure Google Forms sync.");
   }
 
+  await assertWritesAllowed("integration_writes");
+
   const normalizedLabel = label.trim() || "Google Forms linked responses sheet";
   const normalizedCadence = cadence.trim() || "Daily around 7:00 AM ET";
   const normalizedUrl = normalizeSourceUrl(sourceUrl, "Google Forms CSV sync");
@@ -120,8 +131,11 @@ export async function saveGoogleFormsSyncSource({
         source_url: normalizedUrl,
         cadence: normalizedCadence,
         is_active: isActive,
+        control_state: isActive ? "active" : "paused",
         created_by: viewer.id,
         updated_by: viewer.id,
+        changed_by: viewer.id,
+        changed_at: new Date().toISOString(),
       },
       { onConflict: "id" },
     )
@@ -163,6 +177,8 @@ export async function runGoogleFormsSync({
     throw new Error("You cannot run Google Forms sync.");
   }
 
+  await assertWritesAllowed("integration_writes");
+
   const serviceClient = createSupabaseServiceClient();
   const { data, error } = await serviceClient
     .from("intake_sync_sources")
@@ -179,7 +195,7 @@ export async function runGoogleFormsSync({
     throw new Error("Configure a Google Forms sync source before running sync.");
   }
 
-  if (!source.isActive) {
+  if (!source.isActive || source.controlState === "paused" || source.controlState === "maintenance") {
     throw new Error("The Google Forms sync source is currently paused.");
   }
 

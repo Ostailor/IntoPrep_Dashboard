@@ -9,36 +9,54 @@ export interface PermissionProfile {
   accessibleSections: PortalSection[];
   canViewBilling: boolean;
   canViewFamilyProfiles: boolean;
+  canViewStudentProfileData: boolean;
   canManageScores: boolean;
   canMessageFamilies: boolean;
   canConfigureSystem: boolean;
   canManageRoles: boolean;
   canWriteAcademicNotes: boolean;
   canPublishResources: boolean;
+  canGrantSensitiveAccess: boolean;
+  canManageIncidents: boolean;
+  canPreviewRoles: boolean;
+  canRevokeSessions: boolean;
+  canManageFeatureFlags: boolean;
 }
 
 const permissionProfiles: Record<UserRole, PermissionProfile> = {
   engineer: {
     accessibleSections: [...PORTAL_SECTIONS],
-    canViewBilling: true,
-    canViewFamilyProfiles: true,
+    canViewBilling: false,
+    canViewFamilyProfiles: false,
+    canViewStudentProfileData: false,
     canManageScores: true,
     canMessageFamilies: true,
     canConfigureSystem: true,
     canManageRoles: true,
     canWriteAcademicNotes: true,
     canPublishResources: true,
+    canGrantSensitiveAccess: true,
+    canManageIncidents: true,
+    canPreviewRoles: true,
+    canRevokeSessions: true,
+    canManageFeatureFlags: true,
   },
   admin: {
     accessibleSections: [...PORTAL_SECTIONS],
     canViewBilling: true,
     canViewFamilyProfiles: true,
+    canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
     canConfigureSystem: true,
     canManageRoles: true,
     canWriteAcademicNotes: true,
     canPublishResources: true,
+    canGrantSensitiveAccess: false,
+    canManageIncidents: false,
+    canPreviewRoles: false,
+    canRevokeSessions: false,
+    canManageFeatureFlags: false,
   },
   staff: {
     accessibleSections: [
@@ -56,12 +74,18 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     ],
     canViewBilling: true,
     canViewFamilyProfiles: true,
+    canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
     canConfigureSystem: false,
     canManageRoles: false,
     canWriteAcademicNotes: true,
     canPublishResources: true,
+    canGrantSensitiveAccess: false,
+    canManageIncidents: false,
+    canPreviewRoles: false,
+    canRevokeSessions: false,
+    canManageFeatureFlags: false,
   },
   ta: {
     accessibleSections: [
@@ -76,23 +100,35 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     ],
     canViewBilling: false,
     canViewFamilyProfiles: true,
+    canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
     canConfigureSystem: false,
     canManageRoles: false,
     canWriteAcademicNotes: true,
     canPublishResources: true,
+    canGrantSensitiveAccess: false,
+    canManageIncidents: false,
+    canPreviewRoles: false,
+    canRevokeSessions: false,
+    canManageFeatureFlags: false,
   },
   instructor: {
     accessibleSections: ["dashboard", "calendar", "cohorts", "attendance"],
     canViewBilling: false,
     canViewFamilyProfiles: false,
+    canViewStudentProfileData: false,
     canManageScores: false,
     canMessageFamilies: false,
     canConfigureSystem: false,
     canManageRoles: false,
     canWriteAcademicNotes: false,
     canPublishResources: false,
+    canGrantSensitiveAccess: false,
+    canManageIncidents: false,
+    canPreviewRoles: false,
+    canRevokeSessions: false,
+    canManageFeatureFlags: false,
   },
 };
 
@@ -127,7 +163,7 @@ export const canManageRoleTransition = (
   nextRole: UserRole,
 ) => {
   if (managerRole === "engineer") {
-    return true;
+    return currentRole !== "engineer" && nextRole !== "engineer";
   }
 
   if (managerRole === "admin") {
@@ -147,7 +183,7 @@ export const canProvisionRole = (
   targetRole: UserRole,
 ) => {
   if (managerRole === "engineer") {
-    return true;
+    return targetRole !== "engineer";
   }
 
   if (managerRole === "admin") {
@@ -162,7 +198,7 @@ export const canSuspendRole = (
   targetRole: UserRole,
 ) => {
   if (managerRole === "engineer") {
-    return true;
+    return targetRole !== "engineer";
   }
 
   if (managerRole === "admin") {
@@ -177,7 +213,7 @@ export const canDeleteRole = (
   targetRole: UserRole,
 ) => {
   if (managerRole === "engineer") {
-    return true;
+    return targetRole !== "engineer";
   }
 
   if (managerRole === "admin") {
@@ -191,6 +227,21 @@ export const canSendPasswordResetForRole = (
   managerRole: UserRole,
   targetRole: UserRole,
 ) => canSuspendRole(managerRole, targetRole);
+
+export const canGrantSensitiveAccess = (role: UserRole) =>
+  permissionProfiles[role].canGrantSensitiveAccess;
+
+export const canManageIncidents = (role: UserRole) =>
+  permissionProfiles[role].canManageIncidents;
+
+export const canPreviewRoles = (role: UserRole) =>
+  permissionProfiles[role].canPreviewRoles;
+
+export const canRevokeSessions = (role: UserRole) =>
+  permissionProfiles[role].canRevokeSessions;
+
+export const canManageFeatureFlags = (role: UserRole) =>
+  permissionProfiles[role].canManageFeatureFlags;
 
 export const canManageCohortAssignments = (
   managerRole: UserRole,

@@ -25,6 +25,8 @@ export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
 export type SyncStatus = "healthy" | "warning" | "error";
 export type ProgramTrack = "SAT" | "ACT" | "Admissions" | "Support";
+export type SensitiveScopeType = "student" | "family" | "billing" | "support_case";
+export type IntegrationControlState = "active" | "paused" | "maintenance";
 
 export interface User {
   id: string;
@@ -51,6 +53,7 @@ export interface Family {
   phone: string;
   preferredCampusId: string;
   notes: string;
+  sensitiveAccessGranted?: boolean;
 }
 
 export interface Student {
@@ -62,6 +65,7 @@ export interface Student {
   school: string;
   targetTest: ProgramTrack;
   focus: string;
+  sensitiveAccessGranted?: boolean;
 }
 
 export interface Program {
@@ -176,10 +180,11 @@ export interface Resource {
 export interface Invoice {
   id: string;
   familyId: string;
-  amountDue: number;
+  amountDue: number | null;
   dueDate: string;
   status: "paid" | "pending" | "overdue";
   source: "QuickBooks" | "Manual";
+  sensitiveAccessGranted?: boolean;
 }
 
 export interface Payment {
@@ -216,6 +221,12 @@ export interface SyncJob {
   status: SyncStatus;
   lastRunAt: string;
   summary: string;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  acknowledgedAt?: string | null;
+  mutedUntil?: string | null;
+  handoffNotes?: string | null;
+  runbookUrl?: string | null;
 }
 
 export interface ImportRun {
@@ -244,6 +255,12 @@ export interface IntakeSyncSource {
   lastSyncedAt: string | null;
   lastSyncStatus: SyncStatus | null;
   lastSyncSummary: string | null;
+  controlState?: IntegrationControlState;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  handoffNotes?: string | null;
+  changedAt?: string | null;
+  runbookUrl?: string | null;
 }
 
 export interface BillingSyncSource {
@@ -255,6 +272,12 @@ export interface BillingSyncSource {
   lastSyncedAt: string | null;
   lastSyncStatus: SyncStatus | null;
   lastSyncSummary: string | null;
+  controlState?: IntegrationControlState;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  handoffNotes?: string | null;
+  changedAt?: string | null;
+  runbookUrl?: string | null;
 }
 
 export interface BillingSyncRun {
@@ -272,4 +295,99 @@ export interface Task {
   title: string;
   dueLabel: string;
   status: "active" | "watch";
+}
+
+export interface SensitiveAccessGrant {
+  id: string;
+  scopeType: SensitiveScopeType;
+  scopeId: string;
+  reason: string;
+  issueReference: string;
+  grantedBy: string;
+  grantedByName: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+}
+
+export interface EngineerSupportNote {
+  id: string;
+  targetType: "sync_job" | "integration_source" | "account" | "cohort" | "family" | "support_case";
+  targetId: string;
+  issueReference: string;
+  body: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+}
+
+export interface FeatureFlag {
+  key: string;
+  description: string;
+  enabledRoles: UserRole[];
+  updatedBy?: string | null;
+  updatedByName?: string | null;
+  updatedAt: string;
+}
+
+export interface ChangeFreezeState {
+  id: string;
+  enabled: boolean;
+  scope: string;
+  reason?: string | null;
+  issueReference?: string | null;
+  setBy?: string | null;
+  setByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string | null;
+}
+
+export interface MaintenanceBanner {
+  id: string;
+  message: string;
+  tone: "info" | "warning" | "error";
+  issueReference?: string | null;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  createdBy: string;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startsAt: string;
+  expiresAt?: string | null;
+}
+
+export interface EngineerChangeLogEntry {
+  id: string;
+  action: string;
+  summary: string;
+  actorName: string;
+  createdAt: string;
+  issueReference?: string | null;
+}
+
+export interface EngineerSystemStatus {
+  appVersion: string;
+  buildCommit: string | null;
+  schemaVersion: string | null;
+  currentHealth: SyncStatus;
+  configDrift: {
+    id: string;
+    label: string;
+    tone: SyncStatus;
+    detail: string;
+  }[];
+  credentialHealth: {
+    id: string;
+    label: string;
+    tone: SyncStatus;
+    detail: string;
+  }[];
+}
+
+export interface SchemaInspectorRow {
+  tableName: string;
+  rowCount: number;
+  detail: string;
 }

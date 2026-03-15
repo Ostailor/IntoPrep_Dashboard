@@ -3,8 +3,12 @@ import {
   canAccessSection,
   canManageCohortAssignments,
   canDeleteRole,
+  canGrantSensitiveAccess,
+  canManageFeatureFlags,
   canManageRoleTransition,
+  canPreviewRoles,
   canProvisionRole,
+  canRevokeSessions,
   canSendPasswordResetForRole,
   canSuspendRole,
   canViewAllSyncJobs,
@@ -52,6 +56,10 @@ describe("permission matrix", () => {
       "settings",
     ]);
     expect(canAccessSection("engineer", "settings")).toBe(true);
+    expect(canGrantSensitiveAccess("engineer")).toBe(true);
+    expect(canPreviewRoles("engineer")).toBe(true);
+    expect(canRevokeSessions("engineer")).toBe(true);
+    expect(canManageFeatureFlags("engineer")).toBe(true);
   });
 
   it("keeps admin role changes reserved for engineer", () => {
@@ -59,16 +67,20 @@ describe("permission matrix", () => {
     expect(canManageRoleTransition("admin", "staff", "admin")).toBe(false);
     expect(canManageRoleTransition("admin", "admin", "staff")).toBe(false);
     expect(canManageRoleTransition("engineer", "admin", "staff")).toBe(true);
+    expect(canManageRoleTransition("engineer", "admin", "engineer")).toBe(false);
   });
 
   it("limits account provisioning and deletion by manager role", () => {
     expect(canProvisionRole("engineer", "admin")).toBe(true);
+    expect(canProvisionRole("engineer", "engineer")).toBe(false);
     expect(canProvisionRole("admin", "admin")).toBe(false);
     expect(canProvisionRole("admin", "staff")).toBe(true);
     expect(canSuspendRole("engineer", "admin")).toBe(true);
+    expect(canSuspendRole("engineer", "engineer")).toBe(false);
     expect(canSuspendRole("admin", "admin")).toBe(false);
     expect(canSuspendRole("admin", "ta")).toBe(true);
     expect(canDeleteRole("engineer", "admin")).toBe(true);
+    expect(canDeleteRole("engineer", "engineer")).toBe(false);
     expect(canDeleteRole("admin", "admin")).toBe(false);
     expect(canDeleteRole("admin", "instructor")).toBe(true);
     expect(canSendPasswordResetForRole("engineer", "admin")).toBe(true);

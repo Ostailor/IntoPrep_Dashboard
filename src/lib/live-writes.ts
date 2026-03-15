@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { User } from "@/lib/domain";
 import { viewerCanAccessCohort } from "@/lib/attendance";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   canManageCohortAssignments,
   getPermissionProfile,
@@ -127,6 +128,8 @@ export async function persistAcademicNote({
     throw new Error("You cannot write academic notes.");
   }
 
+  await assertWritesAllowed("operational_writes");
+
   const normalizedSummary = summary.trim();
 
   if (normalizedSummary.length < 8) {
@@ -209,6 +212,8 @@ export async function persistResource({
   if (!getPermissionProfile(viewer.role).canPublishResources) {
     throw new Error("You cannot publish cohort resources.");
   }
+
+  await assertWritesAllowed("operational_writes");
 
   if (!viewerCanAccessCohort(viewer, cohortId)) {
     throw new Error("You do not have access to that cohort.");
@@ -295,6 +300,8 @@ export async function persistAssessmentResult({
   if (!getPermissionProfile(viewer.role).canManageScores) {
     throw new Error("You cannot manage scores.");
   }
+
+  await assertWritesAllowed("operational_writes");
 
   if (!Number.isFinite(totalScore)) {
     throw new Error("Total score must be numeric.");
@@ -432,6 +439,8 @@ export async function persistMessageReply({
     throw new Error("You cannot reply to family threads.");
   }
 
+  await assertWritesAllowed("operational_writes");
+
   const normalizedBody = body.trim();
 
   if (normalizedBody.length < 3) {
@@ -511,6 +520,8 @@ export async function persistCohortAssignments({
     throw new Error("You cannot manage cohort assignments.");
   }
 
+  await assertWritesAllowed("operational_writes");
+
   if (targetUserId === viewer.id) {
     throw new Error("You cannot edit your own cohort assignments.");
   }
@@ -588,6 +599,7 @@ export async function persistCohortAssignments({
     actorId: viewer.id,
     targetUserId,
     targetEmail: targetProfile.email,
+    targetType: "account",
     action: "role_updated",
     summary: `${viewer.name} updated cohort assignments for ${targetProfile.email ?? targetUserId}.`,
     details: {

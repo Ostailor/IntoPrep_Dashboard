@@ -22,6 +22,7 @@ const protectedPrefixes = [
   "/billing",
   "/integrations",
   "/settings",
+  "/api/engineer",
   "/api/attendance",
   "/api/settings/users",
 ];
@@ -44,6 +45,30 @@ function clearSupabaseCookies(request: NextRequest, response: NextResponse) {
     });
 
   return response;
+}
+
+function getAccessTokenIssuedAt(accessToken?: string | null) {
+  if (!accessToken) {
+    return null;
+  }
+
+  const [, payload] = accessToken.split(".");
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const parsed = JSON.parse(atob(padded)) as {
+      iat?: number;
+    };
+
+    return typeof parsed.iat === "number" ? parsed.iat * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function proxy(request: NextRequest) {
@@ -76,6 +101,9 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
   const pathname = request.nextUrl.pathname;
   const isApiPath = pathname.startsWith("/api/");
@@ -91,22 +119,45 @@ export async function proxy(request: NextRequest) {
     const profileQuery = hasSupabaseServiceRole()
       ? createSupabaseServiceClient()
           .from("profiles")
-          .select("account_status,must_change_password")
+          .select("account_status,must_change_password,session_revoked_at,deleted_at")
           .eq("id", user.id)
           .maybeSingle()
       : supabase
           .from("profiles")
-          .select("account_status,must_change_password")
+          .select("account_status,must_change_password,session_revoked_at,deleted_at")
           .eq("id", user.id)
           .maybeSingle();
     const { data: profile } = await profileQuery;
     const accountStatus = profile?.account_status ?? "active";
     const mustChangePassword = profile?.must_change_password ?? false;
+    const deletedAt = profile?.deleted_at ?? null;
+    const sessionRevokedAt = profile?.session_revoked_at ?? null;
+    const tokenIssuedAt = getAccessTokenIssuedAt(session?.access_token);
 
-    if (accountStatus === "suspended") {
+    if (
+      sessionRevokedAt &&
+      tokenIssuedAt !== null &&
+      tokenIssuedAt <= new Date(sessionRevokedAt).getTime()
+    ) {
       if (isApiPath) {
         return NextResponse.json(
-          { error: "Your IntoPrep portal account is suspended." },
+          { error: "Your portal session was revoked. Sign in again." },
+          { status: 401 },
+        );
+      }
+
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.searchParams.set("error", "Your session was revoked. Sign in again.");
+      loginUrl.searchParams.delete("next");
+
+      return clearSupabaseCookies(request, NextResponse.redirect(loginUrl));
+    }
+
+    if (accountStatus === "suspended" || deletedAt) {
+      if (isApiPath) {
+        return NextResponse.json(
+          { error: deletedAt ? "This IntoPrep portal account is no longer active." : "Your IntoPrep portal account is suspended." },
           { status: 403 },
         );
       }
@@ -115,7 +166,9 @@ export async function proxy(request: NextRequest) {
       loginUrl.pathname = "/login";
       loginUrl.searchParams.set(
         "error",
-        "Your IntoPrep portal account is suspended. Contact an engineer or admin.",
+        deletedAt
+          ? "This IntoPrep portal account is no longer active. Contact an engineer."
+          : "Your IntoPrep portal account is suspended. Contact an engineer or admin.",
       );
       loginUrl.searchParams.delete("next");
 

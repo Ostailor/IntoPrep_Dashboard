@@ -25,6 +25,9 @@ export interface Database {
           title: string | null;
           account_status: "active" | "suspended";
           must_change_password: boolean;
+          session_revoked_at: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
           created_at: string;
           updated_at: string;
         },
@@ -36,25 +39,45 @@ export interface Database {
           title?: string | null;
           account_status?: "active" | "suspended";
           must_change_password?: boolean;
+          session_revoked_at?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
           created_at?: string;
           updated_at?: string;
         }
       >;
-      user_templates: Table<{
-        email: string;
-        full_name: string;
-        role: "engineer" | "admin" | "staff" | "ta" | "instructor";
-        title: string;
-        assigned_cohort_ids: string[];
-        account_status: "active" | "suspended";
-        must_change_password: boolean;
-      }>;
+      user_templates: Table<
+        {
+          email: string;
+          full_name: string;
+          role: "engineer" | "admin" | "staff" | "ta" | "instructor";
+          title: string;
+          assigned_cohort_ids: string[];
+          account_status: "active" | "suspended";
+          must_change_password: boolean;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        },
+        {
+          email: string;
+          full_name: string;
+          role: "engineer" | "admin" | "staff" | "ta" | "instructor";
+          title: string;
+          assigned_cohort_ids: string[];
+          account_status: "active" | "suspended";
+          must_change_password: boolean;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        }
+      >;
       account_audit_logs: Table<
         {
           id: string;
           actor_id: string | null;
           target_user_id: string | null;
           target_email: string | null;
+          target_type: string | null;
+          issue_reference: string | null;
           action: string;
           summary: string;
           details: Json;
@@ -65,6 +88,8 @@ export interface Database {
           actor_id?: string | null;
           target_user_id?: string | null;
           target_email?: string | null;
+          target_type?: string | null;
+          issue_reference?: string | null;
           action: string;
           summary: string;
           details?: Json;
@@ -369,6 +394,12 @@ export interface Database {
           status: string;
           last_run_at: string;
           summary: string;
+          owner_id: string | null;
+          acknowledged_by: string | null;
+          acknowledged_at: string | null;
+          muted_until: string | null;
+          handoff_notes: string | null;
+          runbook_url: string | null;
         },
         {
           id: string;
@@ -377,6 +408,12 @@ export interface Database {
           status: string;
           last_run_at?: string;
           summary: string;
+          owner_id?: string | null;
+          acknowledged_by?: string | null;
+          acknowledged_at?: string | null;
+          muted_until?: string | null;
+          handoff_notes?: string | null;
+          runbook_url?: string | null;
         }
       >;
       billing_sync_sources: Table<
@@ -392,6 +429,12 @@ export interface Database {
           last_sync_summary: string | null;
           created_by: string | null;
           updated_by: string | null;
+          control_state: string;
+          owner_id: string | null;
+          handoff_notes: string | null;
+          changed_by: string | null;
+          changed_at: string;
+          runbook_url: string | null;
           created_at: string;
           updated_at: string;
         },
@@ -407,6 +450,12 @@ export interface Database {
           last_sync_summary?: string | null;
           created_by?: string | null;
           updated_by?: string | null;
+          control_state?: string;
+          owner_id?: string | null;
+          handoff_notes?: string | null;
+          changed_by?: string | null;
+          changed_at?: string;
+          runbook_url?: string | null;
           created_at?: string;
           updated_at?: string;
         }
@@ -424,6 +473,12 @@ export interface Database {
           last_sync_summary: string | null;
           created_by: string | null;
           updated_by: string | null;
+          control_state: string;
+          owner_id: string | null;
+          handoff_notes: string | null;
+          changed_by: string | null;
+          changed_at: string;
+          runbook_url: string | null;
           created_at: string;
           updated_at: string;
         },
@@ -439,6 +494,12 @@ export interface Database {
           last_sync_summary?: string | null;
           created_by?: string | null;
           updated_by?: string | null;
+          control_state?: string;
+          owner_id?: string | null;
+          handoff_notes?: string | null;
+          changed_by?: string | null;
+          changed_at?: string;
+          runbook_url?: string | null;
           created_at?: string;
           updated_at?: string;
         }
@@ -503,6 +564,132 @@ export interface Database {
           summary: string;
           error_samples?: Json;
           created_by?: string | null;
+        }
+      >;
+      sensitive_access_grants: Table<
+        {
+          id: string;
+          scope_type: string;
+          scope_id: string;
+          reason: string;
+          issue_reference: string;
+          granted_by: string;
+          revoked_by: string | null;
+          created_at: string;
+          expires_at: string;
+          revoked_at: string | null;
+        },
+        {
+          id: string;
+          scope_type: string;
+          scope_id: string;
+          reason: string;
+          issue_reference: string;
+          granted_by: string;
+          revoked_by?: string | null;
+          created_at?: string;
+          expires_at: string;
+          revoked_at?: string | null;
+        }
+      >;
+      engineer_support_notes: Table<
+        {
+          id: string;
+          target_type: string;
+          target_id: string;
+          issue_reference: string;
+          body: string;
+          author_id: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          target_type: string;
+          target_id: string;
+          issue_reference: string;
+          body: string;
+          author_id: string;
+          created_at?: string;
+        }
+      >;
+      feature_flags: Table<
+        {
+          key: string;
+          description: string;
+          enabled_roles: ("engineer" | "admin" | "staff" | "ta" | "instructor")[];
+          updated_by: string | null;
+          updated_at: string;
+        },
+        {
+          key: string;
+          description: string;
+          enabled_roles?: ("engineer" | "admin" | "staff" | "ta" | "instructor")[];
+          updated_by?: string | null;
+          updated_at?: string;
+        }
+      >;
+      portal_change_freezes: Table<
+        {
+          id: string;
+          enabled: boolean;
+          scope: string;
+          reason: string | null;
+          issue_reference: string | null;
+          set_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string | null;
+        },
+        {
+          id: string;
+          enabled?: boolean;
+          scope?: string;
+          reason?: string | null;
+          issue_reference?: string | null;
+          set_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          expires_at?: string | null;
+        }
+      >;
+      portal_maintenance_banners: Table<
+        {
+          id: string;
+          message: string;
+          tone: string;
+          issue_reference: string | null;
+          owner_id: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+          starts_at: string;
+          expires_at: string | null;
+        },
+        {
+          id: string;
+          message: string;
+          tone?: string;
+          issue_reference?: string | null;
+          owner_id?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+          starts_at?: string;
+          expires_at?: string | null;
+        }
+      >;
+      portal_release_metadata: Table<
+        {
+          id: string;
+          app_version: string;
+          schema_version: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          app_version: string;
+          schema_version: string;
+          updated_at?: string;
         }
       >;
     };

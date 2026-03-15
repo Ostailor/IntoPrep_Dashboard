@@ -10,6 +10,7 @@ interface MessagingReplyPanelProps {
   viewerRole: UserRole;
   threads: MessageThread[];
   threadPosts: Record<string, MessagePost[]>;
+  readOnly?: boolean;
 }
 
 type FeedbackState = {
@@ -30,6 +31,7 @@ export function MessagingReplyPanel({
   viewerRole,
   threads,
   threadPosts,
+  readOnly = false,
 }: MessagingReplyPanelProps) {
   const router = useRouter();
   const permissions = getPermissionProfile(viewerRole);
@@ -42,6 +44,11 @@ export function MessagingReplyPanel({
   );
 
   const handleReply = (threadId: string) => {
+    if (readOnly) {
+      setFeedback({ tone: "error", message: "Role preview is read-only." });
+      return;
+    }
+
     const draft = drafts[threadId]?.trim() ?? "";
 
     if (draft.length === 0) {
@@ -159,6 +166,11 @@ export function MessagingReplyPanel({
 
             {permissions.canMessageFamilies ? (
               <div className="mt-5 space-y-3">
+                {readOnly ? (
+                  <div className="rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+                    Role preview is read-only. Exit preview to reply in this thread.
+                  </div>
+                ) : null}
                 <textarea
                   value={drafts[thread.id] ?? ""}
                   onChange={(event) => {
@@ -170,19 +182,20 @@ export function MessagingReplyPanel({
                   }}
                   className="min-h-[96px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
                   placeholder="Send a cohort-scoped follow-up to this family thread."
+                  disabled={readOnly}
                 />
                 <button
                   type="button"
                   onClick={() => handleReply(thread.id)}
-                  disabled={pending}
+                  disabled={pending || readOnly}
                   className={clsx(
                     "rounded-full px-4 py-2 text-sm font-semibold text-white",
-                    pending
-                      ? "cursor-wait bg-[rgba(23,56,75,0.46)]"
+                    pending || readOnly
+                      ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
                       : "bg-[color:var(--navy-strong)] hover:opacity-90",
                   )}
                 >
-                  {pending ? "Sending..." : "Send reply"}
+                  {pending ? "Sending..." : readOnly ? "Preview only" : "Send reply"}
                 </button>
               </div>
             ) : null}
