@@ -2,6 +2,7 @@
 
 import { Download } from "lucide-react";
 import { useEffect, useState } from "react";
+import { isDesktopShell } from "@/lib/desktop-shell";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -16,6 +17,10 @@ export function InstallAppButton() {
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
+    if (isDesktopShell()) {
+      return;
+    }
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallEvent(event as BeforeInstallPromptEvent);
@@ -34,6 +39,10 @@ export function InstallAppButton() {
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);
+
+  if (isDesktopShell()) {
+    return null;
+  }
 
   if (installed) {
     return (

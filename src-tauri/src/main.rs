@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  intoprep_desktop_lib::run();
+    intoprep_desktop_lib::run();
 }

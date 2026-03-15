@@ -13,7 +13,7 @@
       {
         "label": "main",
         "title": "IntoPrep Admin Portal",
-        "url": "/login",
+        "url": "/dashboard",
         "width": 1480,
         "height": 960,
         "minWidth": 1120,

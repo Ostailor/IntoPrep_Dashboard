@@ -37,6 +37,7 @@ yarn-error.log*
 .vercel
 src-tauri/tauri.desktop.conf.json
 src-tauri/gen
+src-tauri/target
 
 # typescript
 *.tsbuildinfo

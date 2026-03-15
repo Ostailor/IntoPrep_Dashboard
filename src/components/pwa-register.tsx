@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { isDesktopShell } from "@/lib/desktop-shell";
 
 export function PwaRegister() {
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) {
+    if (isDesktopShell() || !("serviceWorker" in navigator)) {
       return;
     }
 

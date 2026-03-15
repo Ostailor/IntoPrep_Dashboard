@@ -69,6 +69,7 @@ import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
+import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { InstallAppButton } from "@/components/install-app-button";
 
 const sectionIcons: Record<PortalSection, LucideIcon> = {
@@ -426,6 +427,7 @@ export async function PortalShell({
             <p className="mt-4 text-sm text-[color:var(--muted)]">{getRoleHeadline(role)}</p>
             {viewer.mode === "live" ? (
               <div className="mt-4 flex flex-wrap items-center gap-2">
+                <DesktopUpdateButton />
                 <InstallAppButton />
                 <form action={signOutAction}>
                   <button

@@ -29,6 +29,8 @@ Open [http://localhost:3000](http://localhost:3000). The root route redirects to
 
 - A Tauri-based desktop shell now lives in [src-tauri](/Users/omtailor/IntoPrep_Dashboard/src-tauri).
 - The shell loads the live production portal instead of bundling a separate copy of the app, so normal GitHub and Vercel releases update the in-app experience automatically.
+- Browser-only PWA behavior is disabled inside the desktop shell, and the shell now opens directly at `/dashboard` so logged-in users avoid an extra startup redirect.
+- The desktop shell now supports in-app native updates when updater secrets are configured and a newer tagged desktop release is published.
 - Build locally with:
 
 ```bash
@@ -43,6 +45,8 @@ npm run desktop:dev
 
 - Override the production portal URL for desktop builds with `DESKTOP_APP_URL` if you move from the current Vercel hostname to a custom domain.
 - Desktop release automation is defined in [desktop-release.yml](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml).
+- macOS internet downloads must be signed and notarized. Configure the Apple GitHub secrets listed in [release-and-migrations.md](/Users/omtailor/IntoPrep_Dashboard/docs/release-and-migrations.md) or Gatekeeper will show the “Apple could not verify” warning.
+- The desktop updater also requires GitHub secrets for `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and `TAURI_UPDATER_PUBLIC_KEY`.
 
 ## Enable Supabase auth and live operations
 
@@ -155,7 +159,7 @@ npm run ci
 
 - [CI workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/ci.yml) runs on pull requests and pushes to `main`.
 - [Deploy workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/deploy.yml) reruns checks, applies Supabase migrations, deploys to Vercel, and optionally hits `/api/health`.
-- [Desktop release workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml) builds draft macOS and Windows installers from GitHub when you tag `desktop-v*` or run it manually.
+- [Desktop release workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml) publishes macOS and Windows installers from GitHub when you tag `desktop-v*` or run it manually.
 - The release and migration rules are documented in [release-and-migrations.md](/Users/omtailor/IntoPrep_Dashboard/docs/release-and-migrations.md).
 
 ## Notes

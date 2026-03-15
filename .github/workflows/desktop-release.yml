@@ -55,12 +55,91 @@ jobs:
       - name: Prepare desktop runtime config
         env:
           DESKTOP_APP_URL: ${{ secrets.PRODUCTION_URL }}
+          DESKTOP_UPDATER_ENDPOINT: ${{ secrets.DESKTOP_UPDATER_ENDPOINT }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: npm run desktop:prepare
+
+      - name: Validate updater signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          for variable in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBLIC_KEY; do
+            if [ -z "${!variable}" ]; then
+              echo "$variable is required for signed desktop updater artifacts."
+              exit 1
+            fi
+          done
+
+      - name: Validate Apple signing secrets
+        if: ${{ matrix.platform == 'macos-latest' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT; do
+            if [ -z "${!variable}" ]; then
+              echo "$variable is required for a signed and notarized macOS release."
+              exit 1
+            fi
+          done
+
+      - name: Import Apple Developer ID certificate
+        if: ${{ matrix.platform == 'macos-latest' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          export CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          export KEYCHAIN_PATH="$RUNNER_TEMP/intoprep-signing.keychain-db"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          cert_path = Path(os.environ["CERT_PATH"])
+          cert_path.write_bytes(base64.b64decode(os.environ["APPLE_CERTIFICATE"]))
+          PY
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/\"//g')
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -n 1 | sed -E 's/.*\"([^\"]+)\".*/\1/')
+          if [ -z "$SIGNING_IDENTITY" ]; then
+            echo "Developer ID Application signing identity not found in imported certificate."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Write App Store Connect API key
+        if: ${{ matrix.platform == 'macos-latest' }}
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$APPLE_API_KEY_PATH"
+          chmod 600 "$APPLE_API_KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build desktop installers
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         with:
           args: ${{ matrix.args }} --config src-tauri/tauri.desktop.conf.json
           releaseName: IntoPrep Desktop v__VERSION__
@@ -68,6 +147,9 @@ jobs:
             Desktop wrapper for the live IntoPrep Admin Portal.
 
             This shell points at the production portal, so normal web releases update the in-app experience without a new installer unless the native shell changes.
-          releaseDraft: true
+
+            Tagged desktop releases are published so the in-app updater can see them.
+          releaseDraft: false
           prerelease: false
           tagName: desktop-v__VERSION__
+          includeUpdaterJson: true
