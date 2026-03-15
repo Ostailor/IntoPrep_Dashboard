@@ -30,87 +30,85 @@ export default async function LoginPage({
 
   return (
     <main className="min-h-screen px-4 py-6 lg:px-6 lg:py-8">
-      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="glass-panel rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
-          <div className="section-kicker">IntoPrep internal</div>
-          <h1 className="display-font mt-3 text-5xl leading-tight text-[color:var(--navy-strong)] lg:text-6xl">
-            Real auth and live operations start here.
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="glass-panel overflow-hidden rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
+          <div className="section-kicker">IntoPrep operations</div>
+          <h1 className="display-font mt-3 max-w-3xl text-5xl leading-tight text-[color:var(--navy-strong)] lg:text-6xl">
+            The internal dashboard for running cohorts, classrooms, and families.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
-            This build now supports Supabase-backed sign in plus live cohorts, schedules,
-            students, families, attendance, same-day scores, read-only trend views, academic
-            notes, support resources, billing snapshots, cohort messaging, lead intake, sync
-            monitoring, linked Google Forms sync, linked QuickBooks billing sync, manual CSV
-            fallback imports, program catalog visibility, and governance summaries.
+            Use the portal to coordinate daily class operations, attendance, academic follow-up,
+            cohort visibility, billing status, and internal staff workflows across IntoPrep.
           </p>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
             {[
               {
-                title: "Seeded role templates",
-                body: "Provisioning starts in Settings. Engineer can create admin accounts, and admin can create staff, TA, and instructor accounts.",
+                label: "Classroom flow",
+                value: "Attendance, scores, and same-day follow-up",
               },
               {
-                title: "Instructor scope",
-                body: "Instructor accounts only get assigned classes, attendance, same-day scores, and read-only trends.",
+                label: "Family ops",
+                value: "Student, family, and cohort context in one place",
               },
               {
-                title: "TA scope",
-                body: "TA accounts retain family communication and academic support access for assigned cohorts.",
-              },
-              {
-                title: "Live portal ops",
-                body: "All current portal sections, including programs and settings, now read from Supabase-backed operational data or live governance summaries.",
-              },
-              {
-                title: "Engineer control",
-                body: "Engineer accounts have full portal access and can create or delete admin accounts, plus manage every other role from Settings.",
-              },
-              {
-                title: "Google Forms sync",
-                body: "Engineer, admin, and staff users can save a linked Google Forms responses-sheet CSV URL or upload a manual CSV from Integrations to create leads, families, students, and enrollments.",
-              },
-              {
-                title: "Billing sync",
-                body: "Engineer, admin, and staff users can save a linked QuickBooks invoice CSV source, upload manual snapshots, and let the morning automation refresh finance visibility.",
+                label: "Internal control",
+                value: "Role-based access for staff, TA, instructors, admin, and engineer",
               },
             ].map((item) => (
               <div
-                key={item.title}
-                className="rounded-[1.75rem] border border-[color:var(--line)] bg-white/70 p-5"
+                key={item.label}
+                className="rounded-[1.75rem] border border-[color:var(--line)] bg-white/72 p-5"
               >
-                <div className="text-lg font-semibold text-[color:var(--navy-strong)]">
-                  {item.title}
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
+                  {item.label}
                 </div>
-                <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">{item.body}</p>
+                <div className="mt-3 text-lg font-semibold leading-7 text-[color:var(--navy-strong)]">
+                  {item.value}
+                </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-8 rounded-[1.75rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] p-5 text-sm text-[color:var(--navy-strong)]">
-            <div className="font-semibold">Need preview mode instead?</div>
-            <div className="mt-2">
-              Remove the Supabase environment variables and the portal will fall back to the
-              original query-param role preview.
+          <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[1.9rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] p-6">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
+                Daily usage
+              </div>
+              <div className="mt-4 space-y-4 text-sm leading-7 text-[color:var(--navy-strong)]">
+                <div>Staff oversee enrollment, scheduling, finance visibility, and campus operations.</div>
+                <div>TA users support assigned cohorts with attendance, academic notes, resources, and family communication.</div>
+                <div>Instructors stay focused on assigned classes, roster attendance, same-day score context, and student trends.</div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.9rem] border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] p-6">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
+                Access model
+              </div>
+              <div className="mt-4 space-y-3 text-sm leading-7 text-[color:var(--navy-strong)]">
+                <div>Accounts are provisioned internally by an engineer or admin.</div>
+                <div>Each user sees only the sections and cohort data allowed for their role.</div>
+                <div>Use the desktop app or browser interchangeably with the same account.</div>
+              </div>
             </div>
           </div>
         </section>
 
         <section className="glass-panel rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
-          <div className="section-kicker">Access</div>
+          <div className="section-kicker">Staff access</div>
           <h2 className="display-font mt-3 text-3xl text-[color:var(--navy-strong)]">
-            Sign in to the portal
+            Sign in to IntoPrep
           </h2>
           <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">
-            Use your IntoPrep internal account. New accounts must be provisioned by an engineer or
-            admin inside Settings.
+            Use your internal IntoPrep email and password to enter the operations dashboard.
           </p>
           <p className="mt-2 text-sm leading-7 text-[color:var(--muted)]">
-            Need a packaged desktop install instead of the browser app? Visit{" "}
+            Need the desktop install? Visit{" "}
             <Link className="font-semibold text-[color:var(--navy-strong)]" href="/download">
               downloads
             </Link>
-            .
+            . Need access? Ask an engineer or admin to provision your account.
           </p>
 
           {error ? (
@@ -137,7 +135,7 @@ export default async function LoginPage({
                   name="email"
                   type="email"
                   className="w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm outline-none ring-0 focus:border-[rgba(187,110,69,0.34)]"
-                  placeholder="admin@intoprep.dev"
+                  placeholder="name@intoprep.com"
                 />
               </div>
               <div>
@@ -169,17 +167,12 @@ export default async function LoginPage({
             </form>
 
             <div className="rounded-[1.75rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] p-5 text-sm text-[color:var(--navy-strong)]">
-              <div className="font-semibold">Account provisioning</div>
+              <div className="font-semibold">Internal access only</div>
               <div className="mt-2">
-                Engineer can create admin accounts with a default password. Admin can create and
-                manage staff, TA, and instructor accounts. First-login password change is enforced,
-                self-signup is disabled, and reset links are available here.
+                This dashboard is for internal IntoPrep use. If your account is new, you may be
+                asked to change your password on first sign-in.
               </div>
             </div>
-          </div>
-
-          <div className="mt-8 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-            Back to <Link className="font-semibold text-[color:var(--navy-strong)]" href="/dashboard?role=admin">preview mode</Link>
           </div>
         </section>
       </div>

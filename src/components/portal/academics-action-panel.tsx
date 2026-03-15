@@ -1,6 +1,13 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type {
@@ -30,8 +37,32 @@ type FeedbackState = {
   message: string;
 } | null;
 
+type AutosaveState = {
+  tone: "idle" | "saving" | "saved" | "error";
+  message: string;
+};
+
 function formatStudentLabel(student: Student) {
   return `${student.firstName} ${student.lastName}`;
+}
+
+function formatSavedTimestamp() {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
+}
+
+function autosaveToneClass(state: AutosaveState["tone"]) {
+  if (state === "error") {
+    return "text-rose-700";
+  }
+
+  if (state === "saved") {
+    return "text-emerald-700";
+  }
+
+  return "text-[color:var(--muted)]";
 }
 
 export function AcademicsActionPanel({
@@ -64,6 +95,18 @@ export function AcademicsActionPanel({
   const [sectionDraft, setSectionDraft] = useState<Record<string, string>>({});
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [noteDirty, setNoteDirty] = useState(false);
+  const [scoreDirty, setScoreDirty] = useState(false);
+  const [noteAutosave, setNoteAutosave] = useState<AutosaveState>({
+    tone: "idle",
+    message: "Notes save automatically after you pause typing.",
+  });
+  const [scoreAutosave, setScoreAutosave] = useState<AutosaveState>({
+    tone: "idle",
+    message: "Score changes autosave after a short pause.",
+  });
+  const noteTimeoutRef = useRef<number | null>(null);
+  const scoreTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!noteStudentId && students[0]?.id) {
@@ -83,14 +126,34 @@ export function AcademicsActionPanel({
   }, [selectedNoteId, visibleNotes]);
 
   useEffect(() => {
-    if (selectedNoteId === "new") {
-      setNoteSummary("");
+    if (selectedNoteId !== "new") {
+      return;
+    }
+
+    setNoteSummary("");
+    setNoteDirty(false);
+    setNoteAutosave({
+      tone: "idle",
+      message: "Notes save automatically after you pause typing.",
+    });
+  }, [selectedNoteId]);
+
+  useEffect(() => {
+    if (selectedNoteId === "new" || noteDirty) {
       return;
     }
 
     const selectedNote = visibleNotes.find((note) => note.id === selectedNoteId);
-    setNoteSummary(selectedNote?.summary ?? "");
-  }, [selectedNoteId, visibleNotes]);
+    if (!selectedNote) {
+      return;
+    }
+
+    setNoteSummary(selectedNote.summary);
+    setNoteAutosave({
+      tone: "idle",
+      message: "Notes save automatically after you pause typing.",
+    });
+  }, [noteDirty, selectedNoteId, visibleNotes]);
 
   useEffect(() => {
     if (!resourceCohortId && cohorts[0]?.id) {
@@ -123,7 +186,10 @@ export function AcademicsActionPanel({
   }, [enrollments, selectedAssessment, students]);
 
   useEffect(() => {
-    if (!selectedStudentId || !eligibleStudents.some((student) => student.id === selectedStudentId)) {
+    if (
+      !selectedStudentId ||
+      !eligibleStudents.some((student) => student.id === selectedStudentId)
+    ) {
       setSelectedStudentId(eligibleStudents[0]?.id ?? "");
     }
   }, [eligibleStudents, selectedStudentId]);
@@ -132,6 +198,15 @@ export function AcademicsActionPanel({
     if (!selectedAssessment || !selectedStudentId) {
       setTotalScore("");
       setSectionDraft({});
+      setScoreDirty(false);
+      setScoreAutosave({
+        tone: "idle",
+        message: "Score changes autosave after a short pause.",
+      });
+      return;
+    }
+
+    if (scoreDirty) {
       return;
     }
 
@@ -146,57 +221,102 @@ export function AcademicsActionPanel({
         selectedAssessment.sections.map((section) => [
           section.label,
           String(
-            existingResult?.sectionScores.find(
-              (entry) => entry.label === section.label,
-            )?.score ?? "",
+            existingResult?.sectionScores.find((entry) => entry.label === section.label)?.score ??
+              "",
           ),
         ]),
       ),
     );
-  }, [results, selectedAssessment, selectedStudentId]);
+    setScoreDirty(false);
+    setScoreAutosave({
+      tone: "idle",
+      message: "Score changes autosave after a short pause.",
+    });
+  }, [results, scoreDirty, selectedAssessment, selectedStudentId]);
 
-  const handleNoteSubmit = () => {
+  const saveNote = async (mode: "autosave" | "manual") => {
     if (noteStudentId.length === 0 || noteSummary.trim().length === 0) {
-      setFeedback({ tone: "error", message: "Pick a student and add a note summary." });
+      if (mode === "manual") {
+        setFeedback({ tone: "error", message: "Pick a student and add a note summary." });
+      } else {
+        setNoteAutosave({
+          tone: "idle",
+          message: "Autosave waits until the note has text.",
+        });
+      }
       return;
     }
 
     setPendingKey("note");
-    setFeedback(null);
+    if (mode === "manual") {
+      setFeedback(null);
+    }
+    setNoteAutosave({
+      tone: "saving",
+      message: "Saving note...",
+    });
 
-    startTransition(async () => {
-      try {
-        const response = await fetch("/api/academics/notes", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            noteId: selectedNoteId === "new" ? undefined : selectedNoteId,
-            studentId: noteStudentId,
-            summary: noteSummary.trim(),
-          }),
-        });
-        const payload = (await response.json()) as { error?: string };
+    try {
+      const response = await fetch("/api/academics/notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          noteId: selectedNoteId === "new" ? undefined : selectedNoteId,
+          studentId: noteStudentId,
+          summary: noteSummary.trim(),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string; noteId?: string };
 
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Academic note save failed.");
-        }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Academic note save failed.");
+      }
 
+      if (payload.noteId) {
+        setSelectedNoteId(payload.noteId);
+      }
+
+      setNoteDirty(false);
+      setNoteAutosave({
+        tone: "saved",
+        message: `Saved ${formatSavedTimestamp()}`,
+      });
+
+      if (mode === "manual") {
         setFeedback({ tone: "success", message: "Coaching note saved." });
-        setSelectedNoteId("new");
-        setNoteSummary("");
         router.refresh();
-      } catch (error) {
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Academic note save failed.";
+      setNoteAutosave({
+        tone: "error",
+        message,
+      });
+
+      if (mode === "manual") {
         setFeedback({
           tone: "error",
-          message: error instanceof Error ? error.message : "Academic note save failed.",
+          message,
         });
-      } finally {
-        setPendingKey(null);
       }
+    } finally {
+      setPendingKey(null);
+    }
+  };
+
+  const handleNoteSubmit = () => {
+    startTransition(() => {
+      void saveNote("manual");
     });
   };
+
+  const triggerNoteAutosave = useEffectEvent(() => {
+    startTransition(() => {
+      void saveNote("autosave");
+    });
+  });
 
   const handleResourceSubmit = () => {
     if (resourceCohortId.length === 0 || resourceTitle.trim().length === 0) {
@@ -247,12 +367,19 @@ export function AcademicsActionPanel({
     });
   };
 
-  const handleScoreSubmit = () => {
+  const saveScore = async (mode: "autosave" | "manual") => {
     if (!selectedAssessment || selectedStudentId.length === 0 || totalScore.trim().length === 0) {
-      setFeedback({
-        tone: "error",
-        message: "Pick today’s assessment, a student, and a total score.",
-      });
+      if (mode === "manual") {
+        setFeedback({
+          tone: "error",
+          message: "Pick today’s assessment, a student, and a total score.",
+        });
+      } else {
+        setScoreAutosave({
+          tone: "idle",
+          message: "Autosave waits until the score fields are complete.",
+        });
+      }
       return;
     }
 
@@ -266,48 +393,156 @@ export function AcademicsActionPanel({
       Number.isNaN(parsedTotalScore) ||
       sectionScores.some((entry) => Number.isNaN(entry.score))
     ) {
-      setFeedback({
-        tone: "error",
-        message: "All score inputs must be numeric.",
-      });
+      const message = "All score inputs must be numeric.";
+
+      if (mode === "manual") {
+        setFeedback({
+          tone: "error",
+          message,
+        });
+      } else {
+        setScoreAutosave({
+          tone: "error",
+          message,
+        });
+      }
       return;
     }
 
     setPendingKey("score");
-    setFeedback(null);
+    if (mode === "manual") {
+      setFeedback(null);
+    }
+    setScoreAutosave({
+      tone: "saving",
+      message: "Saving score...",
+    });
 
-    startTransition(async () => {
-      try {
-        const response = await fetch("/api/academics/scores", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            assessmentId: selectedAssessment.id,
-            studentId: selectedStudentId,
-            totalScore: parsedTotalScore,
-            sectionScores,
-          }),
-        });
-        const payload = (await response.json()) as { error?: string };
+    try {
+      const response = await fetch("/api/academics/scores", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          assessmentId: selectedAssessment.id,
+          studentId: selectedStudentId,
+          totalScore: parsedTotalScore,
+          sectionScores,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
 
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Score update failed.");
-        }
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Score update failed.");
+      }
 
+      setScoreDirty(false);
+      setScoreAutosave({
+        tone: "saved",
+        message: `Saved ${formatSavedTimestamp()}`,
+      });
+
+      if (mode === "manual") {
         setFeedback({ tone: "success", message: "Score saved." });
         router.refresh();
-      } catch (error) {
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Score update failed.";
+      setScoreAutosave({
+        tone: "error",
+        message,
+      });
+
+      if (mode === "manual") {
         setFeedback({
           tone: "error",
-          message: error instanceof Error ? error.message : "Score update failed.",
+          message,
         });
-      } finally {
-        setPendingKey(null);
       }
+    } finally {
+      setPendingKey(null);
+    }
+  };
+
+  const handleScoreSubmit = () => {
+    startTransition(() => {
+      void saveScore("manual");
     });
   };
+
+  const triggerScoreAutosave = useEffectEvent(() => {
+    startTransition(() => {
+      void saveScore("autosave");
+    });
+  });
+
+  useEffect(() => {
+    if (!permissions.canWriteAcademicNotes || !noteDirty || pendingKey === "note") {
+      return;
+    }
+
+    if (noteTimeoutRef.current !== null) {
+      window.clearTimeout(noteTimeoutRef.current);
+    }
+
+    noteTimeoutRef.current = window.setTimeout(() => {
+      triggerNoteAutosave();
+    }, 900);
+
+    return () => {
+      if (noteTimeoutRef.current !== null) {
+        window.clearTimeout(noteTimeoutRef.current);
+      }
+    };
+  }, [
+    noteDirty,
+    noteStudentId,
+    noteSummary,
+    pendingKey,
+    permissions.canWriteAcademicNotes,
+    selectedNoteId,
+  ]);
+
+  useEffect(() => {
+    if (!permissions.canManageScores || !scoreDirty || pendingKey === "score") {
+      return;
+    }
+
+    if (scoreTimeoutRef.current !== null) {
+      window.clearTimeout(scoreTimeoutRef.current);
+    }
+
+    scoreTimeoutRef.current = window.setTimeout(() => {
+      triggerScoreAutosave();
+    }, 1200);
+
+    return () => {
+      if (scoreTimeoutRef.current !== null) {
+        window.clearTimeout(scoreTimeoutRef.current);
+      }
+    };
+  }, [
+    pendingKey,
+    permissions.canManageScores,
+    scoreDirty,
+    sectionDraft,
+    selectedAssessmentId,
+    selectedStudentId,
+    totalScore,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (noteTimeoutRef.current !== null) {
+        window.clearTimeout(noteTimeoutRef.current);
+      }
+
+      if (scoreTimeoutRef.current !== null) {
+        window.clearTimeout(scoreTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div>
@@ -339,6 +574,9 @@ export function AcademicsActionPanel({
             <div className="text-base font-semibold text-[color:var(--navy-strong)]">
               Save coaching note
             </div>
+            <div className={clsx("mt-2 text-sm", autosaveToneClass(noteAutosave.tone))}>
+              {noteAutosave.message}
+            </div>
             <div className="mt-3 grid gap-3">
               <select
                 value={noteStudentId}
@@ -356,7 +594,10 @@ export function AcademicsActionPanel({
               </select>
               <select
                 value={selectedNoteId}
-                onChange={(event) => setSelectedNoteId(event.currentTarget.value)}
+                onChange={(event) => {
+                  setNoteDirty(false);
+                  setSelectedNoteId(event.currentTarget.value);
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
               >
                 <option value="new">Create new note</option>
@@ -368,7 +609,14 @@ export function AcademicsActionPanel({
               </select>
               <textarea
                 value={noteSummary}
-                onChange={(event) => setNoteSummary(event.currentTarget.value)}
+                onChange={(event) => {
+                  setNoteSummary(event.currentTarget.value);
+                  setNoteDirty(true);
+                  setNoteAutosave({
+                    tone: "idle",
+                    message: "Changes queued. Saving automatically...",
+                  });
+                }}
                 className="min-h-[100px] rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
                 placeholder="Capture the coaching context, intervention, or next support move."
               />
@@ -383,11 +631,7 @@ export function AcademicsActionPanel({
                     : "bg-[color:var(--navy-strong)] hover:opacity-90",
                 )}
               >
-                {pendingKey === "note"
-                  ? "Saving..."
-                  : selectedNoteId === "new"
-                    ? "Save note"
-                    : "Update note"}
+                {pendingKey === "note" ? "Saving..." : "Save now"}
               </button>
             </div>
           </div>
@@ -464,10 +708,16 @@ export function AcademicsActionPanel({
             <div className="mt-2 text-sm text-[color:var(--muted)]">
               Score editing is limited to same-day assessments inside the cohorts you can support.
             </div>
+            <div className={clsx("mt-2 text-sm", autosaveToneClass(scoreAutosave.tone))}>
+              {scoreAutosave.message}
+            </div>
             <div className="mt-3 grid gap-3">
               <select
                 value={selectedAssessmentId}
-                onChange={(event) => setSelectedAssessmentId(event.currentTarget.value)}
+                onChange={(event) => {
+                  setScoreDirty(false);
+                  setSelectedAssessmentId(event.currentTarget.value);
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
               >
                 {todayAssessments.map((assessment) => (
@@ -478,7 +728,10 @@ export function AcademicsActionPanel({
               </select>
               <select
                 value={selectedStudentId}
-                onChange={(event) => setSelectedStudentId(event.currentTarget.value)}
+                onChange={(event) => {
+                  setScoreDirty(false);
+                  setSelectedStudentId(event.currentTarget.value);
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
               >
                 {eligibleStudents.map((student) => (
@@ -489,7 +742,14 @@ export function AcademicsActionPanel({
               </select>
               <input
                 value={totalScore}
-                onChange={(event) => setTotalScore(event.currentTarget.value)}
+                onChange={(event) => {
+                  setTotalScore(event.currentTarget.value);
+                  setScoreDirty(true);
+                  setScoreAutosave({
+                    tone: "idle",
+                    message: "Changes queued. Saving automatically...",
+                  });
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
                 inputMode="numeric"
                 placeholder="Total score"
@@ -504,6 +764,11 @@ export function AcademicsActionPanel({
                       ...current,
                       [section.label]: value,
                     }));
+                    setScoreDirty(true);
+                    setScoreAutosave({
+                      tone: "idle",
+                      message: "Changes queued. Saving automatically...",
+                    });
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none"
                   inputMode="numeric"
@@ -521,7 +786,7 @@ export function AcademicsActionPanel({
                     : "bg-[color:var(--navy-strong)] hover:opacity-90",
                 )}
               >
-                {pendingKey === "score" ? "Saving..." : "Save score"}
+                {pendingKey === "score" ? "Saving..." : "Save now"}
               </button>
             </div>
           </div>

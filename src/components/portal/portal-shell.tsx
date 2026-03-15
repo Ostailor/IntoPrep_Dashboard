@@ -67,6 +67,7 @@ import { AccountAuditLogPanel } from "@/components/portal/account-audit-log-pane
 import { BillingSyncPanel } from "@/components/portal/billing-sync-panel";
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
+import { PortalLiveSync } from "@/components/portal/portal-live-sync";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
@@ -358,6 +359,7 @@ export async function PortalShell({
 
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
+      <PortalLiveSync enabled={viewer.mode === "live"} section={section} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[320px] xl:overflow-y-auto">
           <div className="rounded-[1.75rem] bg-[linear-gradient(145deg,rgba(14,34,49,0.96),rgba(23,56,75,0.92))] p-5 text-white">

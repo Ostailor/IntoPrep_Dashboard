@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import clsx from "clsx";
 import { ATTENDANCE_STATUSES, type AttendanceStatus, type UserRole } from "@/lib/domain";
 import type { SessionRosterRow } from "@/lib/portal";
@@ -51,6 +51,25 @@ export function AttendanceBoard({
     key: null,
     error: null,
   });
+
+  useEffect(() => {
+    if (!selectedSessionId || !sessions.some((session) => session.id === selectedSessionId)) {
+      setSelectedSessionId(sessions[0]?.id ?? "");
+    }
+  }, [selectedSessionId, sessions]);
+
+  useEffect(() => {
+    setAttendanceMap(
+      Object.fromEntries(
+        sessions.map((session) => [
+          session.id,
+          Object.fromEntries(
+            (rosters[session.id] ?? []).map((row) => [row.studentId, row.attendance]),
+          ),
+        ]),
+      ),
+    );
+  }, [rosters, sessions]);
 
   const selectedRows = rosters[selectedSessionId] ?? [];
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
