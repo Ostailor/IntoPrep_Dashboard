@@ -34,7 +34,7 @@ export default async function LoginPage({
         <section className="glass-panel overflow-hidden rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
           <div className="section-kicker">IntoPrep operations</div>
           <h1 className="display-font mt-3 max-w-3xl text-5xl leading-tight text-[color:var(--navy-strong)] lg:text-6xl">
-            The internal dashboard for running cohorts, classrooms, and families.
+            The internal dashboard for running cohorts and classrooms.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
             Use the portal to coordinate daily class operations, attendance, academic follow-up,
@@ -48,8 +48,8 @@ export default async function LoginPage({
                 value: "Attendance, scores, and same-day follow-up",
               },
               {
-                label: "Family ops",
-                value: "Student, family, and cohort context in one place",
+                label: "Student view",
+                value: "Class rosters, trends, and academic follow-up in one place",
               },
               {
                 label: "Internal control",
