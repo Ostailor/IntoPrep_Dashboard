@@ -14,6 +14,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
 
     steps:
       - name: Checkout
@@ -67,7 +69,5 @@ jobs:
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
       - name: Health check
-        if: ${{ secrets.PRODUCTION_URL != '' }}
-        env:
-          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        if: ${{ env.PRODUCTION_URL != '' }}
         run: curl --fail --show-error --silent "$PRODUCTION_URL/api/health"
