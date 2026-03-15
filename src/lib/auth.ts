@@ -39,18 +39,21 @@ async function ensureLiveProfile(
 
   const serviceClient = createSupabaseServiceClient();
   const normalizedEmail = authUser.email?.toLowerCase();
-
-  const [templateResult, existingProfileResult] = await Promise.all([
-    normalizedEmail
-      ? serviceClient.from("user_templates").select("*").eq("email", normalizedEmail).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-    serviceClient.from("profiles").select("*").eq("id", authUser.id).maybeSingle(),
-  ]);
-  const template = (templateResult.data ?? null) as UserTemplateRow | null;
+  const existingProfileResult = await serviceClient
+    .from("profiles")
+    .select("*")
+    .eq("id", authUser.id)
+    .maybeSingle();
   const existingProfile = (existingProfileResult.data ?? null) as ProfileRow | null;
-  const shouldHydrateFromTemplate =
-    Boolean(template) &&
-    (!existingProfile || existingProfile.created_at === existingProfile.updated_at);
+  const templateResult =
+    !existingProfile && normalizedEmail
+      ? await serviceClient
+          .from("user_templates")
+          .select("*")
+          .eq("email", normalizedEmail)
+          .maybeSingle()
+      : { data: null };
+  const template = (templateResult.data ?? null) as UserTemplateRow | null;
   const email = normalizedEmail ?? null;
 
   const fullName =
@@ -74,18 +77,28 @@ async function ensureLiveProfile(
   const accountStatus = template?.account_status ?? existingProfile?.account_status ?? "active";
   const mustChangePassword =
     template?.must_change_password ?? existingProfile?.must_change_password ?? false;
+  const needsProfileUpsert =
+    !existingProfile ||
+    existingProfile.email !== email ||
+    existingProfile.full_name !== fullName ||
+    existingProfile.role !== role ||
+    existingProfile.title !== title ||
+    existingProfile.account_status !== accountStatus ||
+    existingProfile.must_change_password !== mustChangePassword;
 
-  await serviceClient.from("profiles").upsert({
-    id: authUser.id,
-    email,
-    full_name: fullName,
-    role,
-    title,
-    account_status: accountStatus,
-    must_change_password: mustChangePassword,
-  });
+  if (needsProfileUpsert) {
+    await serviceClient.from("profiles").upsert({
+      id: authUser.id,
+      email,
+      full_name: fullName,
+      role,
+      title,
+      account_status: accountStatus,
+      must_change_password: mustChangePassword,
+    });
+  }
 
-  if (template && shouldHydrateFromTemplate) {
+  if (template && !existingProfile) {
     const desiredAssignments = template.assigned_cohort_ids.map((cohortId) => ({
       cohort_id: cohortId,
       user_id: authUser.id,
@@ -98,16 +111,24 @@ async function ensureLiveProfile(
         .upsert(desiredAssignments, { onConflict: "user_id,cohort_id" });
     }
   }
-
-  const [hydratedProfileResult, assignmentsResult] = await Promise.all([
-    serviceClient.from("profiles").select("*").eq("id", authUser.id).single(),
-    serviceClient
-      .from("cohort_assignments")
-      .select("cohort_id")
-      .eq("user_id", authUser.id),
-  ]);
-  const hydratedProfile = (hydratedProfileResult.data ?? null) as ProfileRow | null;
+  const assignmentsResult = await serviceClient
+    .from("cohort_assignments")
+    .select("cohort_id")
+    .eq("user_id", authUser.id);
   const assignments = (assignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[];
+  const hydratedProfile =
+    needsProfileUpsert
+      ? ({
+          ...(existingProfile ?? {}),
+          id: authUser.id,
+          email,
+          full_name: fullName,
+          role,
+          title,
+          account_status: accountStatus,
+          must_change_password: mustChangePassword,
+        } as ProfileRow)
+      : existingProfile;
 
   return {
     profile: hydratedProfile,

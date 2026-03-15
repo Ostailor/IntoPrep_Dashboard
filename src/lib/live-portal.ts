@@ -25,6 +25,7 @@ import {
   type Term,
   type User,
   type UserRole,
+  type PortalSection,
 } from "@/lib/domain";
 import {
   canRunIntakeImports,
@@ -115,6 +116,36 @@ export interface LivePortalBundle {
   settingsRoleStats: LiveSettingsRoleStats | null;
   settingsUsers: LiveSettingsUserRow[] | null;
   settingsAuditLogs: LiveSettingsAuditRow[] | null;
+}
+
+function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
+  return {
+    currentDate,
+    visiblePrograms: [],
+    visibleCampuses: [],
+    visibleTerms: [],
+    visibleUsers: [],
+    visibleCohorts: [],
+    visibleSessions: [],
+    visibleEnrollments: [],
+    visibleStudents: [],
+    visibleFamilies: [],
+    visibleAssessments: [],
+    visibleResults: [],
+    visibleNotes: [],
+    visibleResources: [],
+    visibleInvoices: [],
+    visibleThreads: [],
+    visibleThreadPosts: {},
+    visibleLeads: [],
+    visibleSyncJobs: [],
+    visibleImportRuns: [],
+    intakeSyncSource: null,
+    billingSyncSource: null,
+    settingsRoleStats: null,
+    settingsUsers: null,
+    settingsAuditLogs: null,
+  };
 }
 
 function getNewYorkDate() {
@@ -247,6 +278,7 @@ async function getAccessibleCohortIds(viewer: User) {
 
 export async function getLivePortalBundle(
   viewer: User,
+  section?: PortalSection,
 ): Promise<LivePortalBundle | null> {
   if (!hasSupabaseServiceRole()) {
     return null;
@@ -255,6 +287,295 @@ export async function getLivePortalBundle(
   const serviceClient = createSupabaseServiceClient();
   const currentDate = getNewYorkDate();
   const accessibleCohortIds = await getAccessibleCohortIds(viewer);
+
+  if (section === "dashboard") {
+    const baseBundle = createEmptyLivePortalBundle(currentDate);
+    const cohortQuery = serviceClient.from("cohorts").select("*").order("name", { ascending: true });
+    const scopedCohortQuery =
+      accessibleCohortIds && accessibleCohortIds.length > 0
+        ? cohortQuery.in("id", accessibleCohortIds)
+        : accessibleCohortIds?.length === 0
+          ? null
+          : cohortQuery;
+    const cohortsResult = scopedCohortQuery ? await scopedCohortQuery : { data: [] };
+    const cohortRows = (cohortsResult.data ?? []) as CohortRow[];
+    const cohortIds = cohortRows.map((cohort) => cohort.id);
+    const [sessionsResult, assignmentsResult, syncJobsResult, profilesResult, importRunsResult, leadsResult] =
+      await Promise.all([
+        cohortIds.length > 0
+          ? serviceClient
+              .from("sessions")
+              .select("*")
+              .in("cohort_id", cohortIds)
+              .order("start_at", { ascending: true })
+          : Promise.resolve({ data: [] }),
+        cohortIds.length > 0
+          ? serviceClient
+              .from("cohort_assignments")
+              .select("*")
+              .in("cohort_id", cohortIds)
+          : Promise.resolve({ data: [] }),
+        serviceClient.from("sync_jobs").select("*").order("label", { ascending: true }),
+        viewer.role === "engineer"
+          ? serviceClient.from("profiles").select("*")
+          : Promise.resolve({ data: [] }),
+        viewer.role === "engineer"
+          ? serviceClient
+              .from("intake_import_runs")
+              .select("*")
+              .order("started_at", { ascending: false })
+              .limit(6)
+          : Promise.resolve({ data: [] }),
+        viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
+          ? serviceClient.from("leads").select("*").order("submitted_at", { ascending: false })
+          : Promise.resolve({ data: [] }),
+      ]);
+
+    const sessionRows = (sessionsResult.data ?? []) as SessionRow[];
+    const assignmentRows = (assignmentsResult.data ?? []) as CohortAssignmentRow[];
+    const syncJobRows = (syncJobsResult.data ?? []) as SyncJobRow[];
+    const profileRows = (profilesResult.data ?? []) as ProfileRow[];
+    const importRunRows = (importRunsResult.data ?? []) as IntakeImportRunRow[];
+    const leadRows = (leadsResult.data ?? []) as LeadRow[];
+
+    const needsAcademicDashboardData = viewer.role === "ta" || viewer.role === "instructor";
+    const [enrollmentsResult, assessmentsResult, threadsResult, invoicesResult] = await Promise.all([
+      needsAcademicDashboardData && cohortIds.length > 0
+        ? serviceClient
+            .from("enrollments")
+            .select("*")
+            .in("cohort_id", cohortIds)
+            .eq("status", "active")
+        : Promise.resolve({ data: [] }),
+      needsAcademicDashboardData && cohortIds.length > 0
+        ? serviceClient
+            .from("assessments")
+            .select("*")
+            .in("cohort_id", cohortIds)
+            .order("date", { ascending: true })
+        : Promise.resolve({ data: [] }),
+      viewer.role === "ta" && cohortIds.length > 0
+        ? serviceClient
+            .from("message_threads")
+            .select("*")
+            .in("cohort_id", cohortIds)
+            .order("last_message_at", { ascending: false })
+        : Promise.resolve({ data: [] }),
+      viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
+        ? serviceClient.from("invoices").select("*").order("due_date", { ascending: true })
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const enrollmentRows = (enrollmentsResult.data ?? []) as EnrollmentRow[];
+    const assessmentRows = (assessmentsResult.data ?? []) as AssessmentRow[];
+    const threadRows = (threadsResult.data ?? []) as MessageThreadRow[];
+    const invoiceRows = (invoicesResult.data ?? []) as InvoiceRow[];
+    const studentIds = unique(enrollmentRows.map((enrollment) => enrollment.student_id));
+    const assessmentIds = assessmentRows.map((assessment) => assessment.id);
+    const [studentsResult, resultsResult] = await Promise.all([
+      studentIds.length > 0
+        ? serviceClient.from("students").select("*").in("id", studentIds)
+        : Promise.resolve({ data: [] }),
+      assessmentIds.length > 0
+        ? serviceClient
+            .from("assessment_results")
+            .select("*")
+            .in("assessment_id", assessmentIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const studentRows = (studentsResult.data ?? []) as StudentRow[];
+    const resultRows = (resultsResult.data ?? []) as AssessmentResultRow[];
+    const assignmentsByCohort = new Map<string, CohortAssignmentRow[]>();
+    assignmentRows.forEach((assignment) => {
+      const existing = assignmentsByCohort.get(assignment.cohort_id) ?? [];
+      existing.push(assignment);
+      assignmentsByCohort.set(assignment.cohort_id, existing);
+    });
+    const assignmentIdsByUser = new Map<string, string[]>();
+    assignmentRows.forEach((assignment) => {
+      const existing = assignmentIdsByUser.get(assignment.user_id) ?? [];
+      existing.push(assignment.cohort_id);
+      assignmentIdsByUser.set(assignment.user_id, existing);
+    });
+
+    return {
+      ...baseBundle,
+      visibleUsers: profileRows.map((profile) => ({
+        id: profile.id,
+        name: profile.full_name ?? "IntoPrep User",
+        role: profile.role,
+        title: profile.title ?? "Portal User",
+        assignedCohortIds: assignmentIdsByUser.get(profile.id) ?? [],
+      })),
+      visibleCohorts: cohortRows.map((cohort) => {
+        const scopedAssignments = assignmentsByCohort.get(cohort.id) ?? [];
+        const leadInstructorId =
+          cohort.lead_instructor_id ??
+          scopedAssignments.find((assignment) => assignment.role === "instructor")?.user_id ??
+          "";
+
+        return {
+          id: cohort.id,
+          name: cohort.name,
+          programId: cohort.program_id,
+          campusId: cohort.campus_id,
+          termId: cohort.term_id,
+          capacity: cohort.capacity,
+          enrolled: cohort.enrolled,
+          leadInstructorId,
+          taIds: scopedAssignments
+            .filter((assignment) => assignment.role === "ta")
+            .map((assignment) => assignment.user_id),
+          cadence: cohort.cadence,
+          roomLabel: cohort.room_label,
+        };
+      }),
+      visibleSessions: sessionRows.map((session) => ({
+        id: session.id,
+        cohortId: session.cohort_id,
+        title: session.title,
+        startAt: session.start_at,
+        endAt: session.end_at,
+        mode: normalizeMode(session.mode),
+        roomLabel: session.room_label,
+      })),
+      visibleEnrollments: enrollmentRows.map((enrollment) => ({
+        id: enrollment.id,
+        studentId: enrollment.student_id,
+        cohortId: enrollment.cohort_id,
+        status: enrollment.status === "waitlist" ? "waitlist" : "active",
+        registeredAt: enrollment.registered_at,
+      })),
+      visibleStudents: studentRows.map((student) => ({
+        id: student.id,
+        familyId: student.family_id,
+        firstName: student.first_name,
+        lastName: student.last_name,
+        gradeLevel: student.grade_level,
+        school: student.school,
+        targetTest: normalizeTrack(student.target_test),
+        focus: student.focus,
+      })),
+      visibleAssessments: assessmentRows.map((assessment) => ({
+        id: assessment.id,
+        cohortId: assessment.cohort_id,
+        title: assessment.title,
+        date: assessment.date,
+        sections: parseScoreArray(assessment.sections),
+      })),
+      visibleResults: resultRows.map((result) => ({
+        id: result.id,
+        assessmentId: result.assessment_id,
+        studentId: result.student_id,
+        totalScore: result.total_score,
+        sectionScores: parseScoreArray(result.section_scores),
+        deltaFromPrevious: result.delta_from_previous,
+      })),
+      visibleInvoices: invoiceRows.flatMap((invoice) => {
+        const status =
+          invoice.status === "paid" || invoice.status === "pending" || invoice.status === "overdue"
+            ? invoice.status
+            : null;
+        const source =
+          invoice.source === "QuickBooks" || invoice.source === "Manual" ? invoice.source : null;
+
+        return status && source
+          ? [
+              {
+                id: invoice.id,
+                familyId: invoice.family_id,
+                amountDue: invoice.amount_due,
+                dueDate: invoice.due_date,
+                status,
+                source,
+              },
+            ]
+          : [];
+      }),
+      visibleThreads: threadRows.map((thread) => ({
+        id: thread.id,
+        cohortId: thread.cohort_id,
+        subject: thread.subject,
+        participants: thread.participants,
+        lastMessagePreview: thread.last_message_preview,
+        lastMessageAt: thread.last_message_at,
+        unreadCount: thread.unread_count,
+      })),
+      visibleLeads: leadRows.flatMap((lead) => {
+        const stage =
+          lead.stage === "inquiry" ||
+          lead.stage === "assessment" ||
+          lead.stage === "registered" ||
+          lead.stage === "waitlist"
+            ? lead.stage
+            : null;
+
+        return stage
+          ? [
+              {
+                id: lead.id,
+                studentName: lead.student_name,
+                guardianName: lead.guardian_name,
+                targetProgram: lead.target_program,
+                stage,
+                submittedAt: lead.submitted_at,
+              },
+            ]
+          : [];
+      }),
+      visibleSyncJobs: syncJobRows.flatMap((job) => {
+        const status = normalizeSyncStatus(job.status);
+
+        return status
+          ? [
+              {
+                id: job.id,
+                label: job.label,
+                cadence: job.cadence,
+                status,
+                lastRunAt: job.last_run_at,
+                summary: job.summary,
+              },
+            ]
+          : [];
+      }),
+      visibleImportRuns: importRunRows.flatMap((run) => {
+        const status =
+          run.status === "completed" || run.status === "partial" || run.status === "failed"
+            ? run.status
+            : null;
+        const source =
+          run.source === "Google Forms CSV" || run.source === "Manual CSV"
+            ? run.source
+            : null;
+        const errorSamples = Array.isArray(run.error_samples)
+          ? run.error_samples.filter((entry): entry is string => typeof entry === "string")
+          : [];
+
+        return status && source
+          ? [
+              {
+                id: run.id,
+                source,
+                filename: run.filename,
+                status,
+                summary: run.summary,
+                startedAt: run.started_at,
+                finishedAt: run.finished_at,
+                importedCount: run.imported_count,
+                leadCount: run.lead_count,
+                familyCount: run.family_count,
+                studentCount: run.student_count,
+                enrollmentCount: run.enrollment_count,
+                errorCount: run.error_count,
+                errorSamples,
+              },
+            ]
+          : [];
+      }),
+    };
+  }
 
   const cohortQuery = serviceClient.from("cohorts").select("*").order("name", { ascending: true });
   const scopedCohortQuery =
