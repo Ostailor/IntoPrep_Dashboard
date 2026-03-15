@@ -1,14 +1,24 @@
 {
-  "name": "intoprep-dashboard-1773522629",
+  "name": "intoprep-dashboard",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "db:push": "npx supabase db push --include-all --yes",
+    "db:reset": "npx supabase db reset",
+    "db:new": "npx supabase migration new"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.57.4",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.518.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
@@ -21,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.7"
   }
 }
