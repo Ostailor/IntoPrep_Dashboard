@@ -55,27 +55,27 @@ export default async function ResetPasswordPage({
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
             {requiresPasswordChange
-              ? "This account was provisioned with a managed default password or flagged for a reset. Portal data stays locked until you replace it."
-              : "Use this recovery screen after opening a valid reset link or when changing your password from an authenticated session."}
+              ? "This account needs a new password before you can continue into the dashboard."
+              : "Use this page to choose a new password for your IntoPrep account."}
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
               {
-                title: "Access stays blocked first",
-                body: "Users marked for password change cannot open live portal data until this step is completed.",
+                title: "Quick setup",
+                body: "Choose a new password here, then continue into the dashboard.",
               },
               {
-                title: "Role stays unchanged",
-                body: "Resetting a password does not change role scope, cohort assignments, or governance permissions.",
+                title: "Your access stays the same",
+                body: "Changing your password does not affect the sections or cohorts assigned to your account.",
               },
               {
-                title: "Admin-managed lifecycle",
-                body: "Engineers and admins can still suspend accounts, issue reset emails, or delete accounts from Settings.",
+                title: "Internal account support",
+                body: "If you run into trouble, an engineer or admin can help reset your account.",
               },
               {
-                title: "Immediate recovery",
-                body: "After the password is updated, the must-change-password lock is cleared for the current account.",
+                title: "Continue right away",
+                body: "After you save the new password, you can go straight into IntoPrep.",
               },
             ].map((item) => (
               <div

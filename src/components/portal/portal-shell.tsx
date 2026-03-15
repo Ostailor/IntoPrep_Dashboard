@@ -68,6 +68,7 @@ import { BillingSyncPanel } from "@/components/portal/billing-sync-panel";
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
+import { PortalNavPrefetch } from "@/components/portal/portal-nav-prefetch";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
@@ -109,21 +110,6 @@ const tonePill: Record<"navy" | "copper" | "sage", string> = {
   copper: "from-[rgba(187,110,69,0.22)] to-[rgba(187,110,69,0.05)]",
   sage: "from-[rgba(115,138,123,0.22)] to-[rgba(115,138,123,0.05)]",
 };
-
-const liveCoreSections = new Set<PortalSection>([
-  "dashboard",
-  "calendar",
-  "cohorts",
-  "students",
-  "families",
-  "academics",
-  "messaging",
-  "billing",
-  "integrations",
-  "attendance",
-  "programs",
-  "settings",
-]);
 
 function SectionPanel({
   children,
@@ -206,7 +192,7 @@ export async function PortalShell({
   const currentUser = viewer.user;
   const baseContext = getPortalContext(role);
   const livePortal =
-    viewer.mode === "live" ? await getLivePortalBundle(viewer.user) : null;
+    viewer.mode === "live" ? await getLivePortalBundle(viewer.user, section) : null;
   const context = livePortal
     ? {
         ...baseContext,
@@ -274,14 +260,12 @@ export async function PortalShell({
   const accessible = isSectionVisibleToRole(role, section);
   const fallbackSection = getSectionFallback(role);
   const permissions = getPermissionProfile(role);
-  const sectionUsesLiveCoreData =
-    viewer.mode === "live" && liveCoreSections.has(section) && livePortal !== null;
   const settingsReadinessRows =
     viewer.mode === "live" && livePortal
       ? [
           {
-            label: "Auth and role hydration",
-            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.activeUsers, 0)} active profiles, ${settingsRoleRows.reduce((sum, row) => sum + row.suspendedUsers, 0)} suspended profiles, and ${settingsRoleRows.reduce((sum, row) => sum + row.templateUsers, 0)} provisioning templates are available in Supabase.`,
+            label: "User access",
+            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.activeUsers, 0)} active accounts, ${settingsRoleRows.reduce((sum, row) => sum + row.suspendedUsers, 0)} suspended accounts, and ${settingsRoleRows.reduce((sum, row) => sum + row.templateUsers, 0)} setup templates are available for staff management.`,
             tone: "healthy" as const,
           },
           {
@@ -290,20 +274,20 @@ export async function PortalShell({
             tone: context.visiblePrograms.length > 0 ? ("healthy" as const) : ("warning" as const),
           },
           {
-            label: "Operational data coverage",
-            detail: `${context.visibleCohorts.length} cohorts, ${context.visibleSessions.length} sessions, ${context.visibleStudents.length} students, and ${context.visibleFamilies.length} families are live-backed in this environment.`,
+            label: "Current records",
+            detail: `${context.visibleCohorts.length} cohorts, ${context.visibleSessions.length} sessions, ${context.visibleStudents.length} students, and ${context.visibleFamilies.length} families are available in the current dashboard view.`,
             tone: context.visibleCohorts.length > 0 ? ("healthy" as const) : ("warning" as const),
           },
           {
-            label: "Assignment enforcement",
-            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} cohort assignment links are enforcing role-scoped access across live sections.`,
+            label: "Assignment coverage",
+            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} cohort assignment links are controlling access across the dashboard.`,
             tone:
               settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0) > 0
                 ? ("healthy" as const)
                 : ("warning" as const),
           },
           {
-            label: "Integration watch",
+            label: "Systems status",
             detail: `${visibleSyncJobs.filter((job) => job.status === "healthy").length} healthy, ${visibleSyncJobs.filter((job) => job.status === "warning").length} warning, ${visibleSyncJobs.filter((job) => job.status === "error").length} error sync jobs are being monitored.`,
             tone:
               visibleSyncJobs.some((job) => job.status === "error")
@@ -315,23 +299,23 @@ export async function PortalShell({
         ]
       : [
           {
-            label: "Auth and role hydration",
-            detail: "Preview mode still uses the seeded role model, but the same role matrix is ready for live Supabase hydration.",
+            label: "Preview access",
+            detail: "Preview mode uses sample account roles so you can review the dashboard layout and permissions.",
             tone: "warning" as const,
           },
           {
             label: "Program catalog",
-            detail: `${countLabel(context.visiblePrograms.length, "seeded program")} with ${countLabel(context.visibleCampuses.length, "campus", "campuses")} and ${countLabel(context.visibleTerms.length, "term")} are shaping the prototype surface.`,
+            detail: `${countLabel(context.visiblePrograms.length, "sample program")} with ${countLabel(context.visibleCampuses.length, "campus", "campuses")} and ${countLabel(context.visibleTerms.length, "term")} are available in preview mode.`,
             tone: "healthy" as const,
           },
           {
-            label: "Operational data coverage",
-            detail: `${context.visibleCohorts.length} cohorts and ${context.visibleStudents.length} students are available in the preview dataset.`,
+            label: "Current records",
+            detail: `${context.visibleCohorts.length} cohorts and ${context.visibleStudents.length} students are available in preview mode.`,
             tone: "healthy" as const,
           },
           {
-            label: "Assignment enforcement",
-            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} seeded role-to-cohort links preview the production access boundaries.`,
+            label: "Assignment coverage",
+            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} sample role-to-cohort links show the intended access boundaries.`,
             tone: "healthy" as const,
           },
         ];
@@ -355,20 +339,25 @@ export async function PortalShell({
   const isPreview = viewer.mode === "preview";
   const roleHref = (path: string, candidateRole = role) =>
     isPreview ? `${path}?role=${candidateRole}` : path;
+  const currentSectionHref = roleHref(`/${section}`);
+  const navHrefs = context.visibleSections
+    .map((item) => roleHref(`/${item}`))
+    .filter((href) => href !== currentSectionHref);
   const snapshotDate = liveAttendance?.currentDate ?? context.currentDate;
 
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
       <PortalLiveSync enabled={viewer.mode === "live"} section={section} />
+      <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[320px] xl:overflow-y-auto">
           <div className="rounded-[1.75rem] bg-[linear-gradient(145deg,rgba(14,34,49,0.96),rgba(23,56,75,0.92))] p-5 text-white">
             <div className="section-kicker text-white/60">IntoPrep internal</div>
             <div className="mt-3 flex items-center justify-between gap-4">
               <div>
-                <h1 className="display-font text-3xl">Admin Portal</h1>
+                <h1 className="display-font text-3xl">IntoPrep Dashboard</h1>
                 <p className="mt-2 max-w-[16rem] text-sm text-white/72">
-                  A unified operating surface for enrollment, academics, attendance, and finance.
+                  One place to manage classes, cohorts, staff coordination, and daily operations.
                 </p>
               </div>
               <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-white/72">
@@ -380,8 +369,8 @@ export async function PortalShell({
               <div className="mt-2 text-lg font-semibold">{formatLongDate(snapshotDate)}</div>
               <div className="mt-2 text-sm text-white/60">
                 {viewer.mode === "live"
-                  ? "Supabase auth is active. Attendance reads and writes are live in this build."
-                  : "Based on current public INTO Prep operations mapped on March 14, 2026."}
+                  ? "Current dashboard view for today’s schedule, classroom activity, and team workflows."
+                  : "Reference view of the IntoPrep dashboard."}
               </div>
             </div>
           </div>
@@ -396,6 +385,7 @@ export async function PortalShell({
                   <Link
                     key={item}
                     href={roleHref(`/${item}`)}
+                    prefetch
                     className={clsx(
                       "nav-pill flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-semibold",
                       active ? "nav-pill-active" : "text-[color:var(--muted)] hover:bg-white/75",
@@ -444,7 +434,7 @@ export async function PortalShell({
           </div>
 
           <div className="mt-6 rounded-[1.75rem] border border-[color:var(--line)] bg-white/65 p-4">
-            <div className="section-kicker">Sync watch</div>
+            <div className="section-kicker">Systems status</div>
             <div className="mt-3 space-y-3">
               {visibleSyncJobs.slice(0, 3).map((job) => (
                 <div key={job.id} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
@@ -476,7 +466,7 @@ export async function PortalShell({
               </div>
 
               <div className="w-full max-w-xl rounded-[1.75rem] border border-[color:var(--line)] bg-[rgba(255,255,255,0.72)] p-4">
-                <div className="section-kicker">{viewer.mode === "live" ? "Session" : "Role preview"}</div>
+                <div className="section-kicker">{viewer.mode === "live" ? "Account" : "Preview role"}</div>
                 {viewer.mode === "preview" ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(Object.keys(roleLabels) as UserRole[]).map((candidate) => (
@@ -496,7 +486,7 @@ export async function PortalShell({
                   </div>
                 ) : (
                   <div className="mt-3 rounded-[1.25rem] border border-[rgba(45,125,99,0.18)] bg-[rgba(45,125,99,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
-                    Signed in as {currentUser.name}. Role preview switching is disabled while live auth is active.
+                    Signed in as {currentUser.name}.
                   </div>
                 )}
                 <div className="mt-4 flex items-center gap-3 text-sm text-[color:var(--muted)]">
@@ -506,35 +496,6 @@ export async function PortalShell({
               </div>
             </div>
           </header>
-
-          {viewer.mode === "live" ? (
-            <SectionPanel className="mt-5 border-[rgba(23,56,75,0.14)] bg-[rgba(255,255,255,0.72)]">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="section-kicker">Live auth status</div>
-                  <div className="mt-2 text-lg font-semibold text-[color:var(--navy-strong)]">
-                    {sectionUsesLiveCoreData
-                      ? "Supabase-backed portal data is active on this section."
-                      : "Supabase auth is live; this section still uses seeded portal data."}
-                  </div>
-                  <div className="mt-2 text-sm text-[color:var(--muted)]">
-                    {sectionUsesLiveCoreData
-                      ? "Programs, governance summaries, cohorts, schedules, students, families, attendance, assessments, notes, support resources, billing snapshots, cohort messaging, lead intake, and sync monitoring now load from Supabase here."
-                      : "The role model is live, but this section is still rendering seeded prototype data until its Supabase adapter is enabled."}
-                  </div>
-                </div>
-                {!sectionUsesLiveCoreData ? (
-                  <Link
-                    href="/attendance"
-                    className="inline-flex items-center gap-2 rounded-full border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
-                  >
-                    Open live attendance
-                    <ChevronRight className="h-4 w-4" />
-                  </Link>
-                ) : null}
-              </div>
-            </SectionPanel>
-          ) : null}
 
           {!accessible ? (
             <SectionPanel className="mt-5 p-8">
@@ -1359,7 +1320,7 @@ function renderSectionContent({
               <SectionHeading
                 eyebrow="Role matrix"
                 title="Access boundaries"
-                description="The live governance model shows how many users, templates, and assignment links currently exist for each role."
+                description="See how accounts, templates, and cohort assignments are distributed across each role."
               />
               <div className="mt-5 space-y-3">
                 {settingsRoleRows.map((item) => (
@@ -1395,9 +1356,9 @@ function renderSectionContent({
 
             <SectionPanel>
               <SectionHeading
-                eyebrow="Environment posture"
-                title="Platform readiness"
-                description="This panel now reflects real Supabase provisioning, data coverage, sync monitoring, and live role-editing readiness."
+                eyebrow="Operations view"
+                title="Current readiness"
+                description="Quick view of account setup, records coverage, and overall systems status."
               />
               <div className="mt-5 space-y-3">
                 {settingsReadinessRows.map((row) => (

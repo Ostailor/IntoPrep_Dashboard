@@ -43,30 +43,30 @@ export default async function ForgotPasswordPage({
         <section className="glass-panel rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
           <div className="section-kicker">Recovery</div>
           <h1 className="display-font mt-3 text-5xl leading-tight text-[color:var(--navy-strong)]">
-            Reset a portal password without reopening account setup.
+            Reset your IntoPrep password.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
-            Enter the email used for the IntoPrep portal. We will send a secure recovery link that
-            returns the user to a controlled password reset screen inside this app.
+            Enter the email used for your IntoPrep account. We will send a link so you can choose
+            a new password.
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {[
               {
-                title: "First-login accounts",
-                body: "Users created with a default password can also use this flow if they need a fresh reset link.",
+                title: "Use your account email",
+                body: "Enter the same email you use to sign in to the IntoPrep dashboard.",
               },
               {
-                title: "No self-provisioning",
-                body: "This flow only resets existing credentials. It does not create new accounts or elevate roles.",
+                title: "Existing accounts only",
+                body: "This page resets passwords for existing accounts. It does not create a new login.",
               },
               {
-                title: "Governed access",
-                body: "Engineers and admins still control account creation, role changes, suspensions, and deletions from Settings.",
+                title: "Need access?",
+                body: "If you do not have an account yet, ask an engineer or admin for access.",
               },
               {
-                title: "Protected handoff",
-                body: "The reset link lands in the portal’s own password screen before any live data can be accessed.",
+                title: "Simple recovery",
+                body: "Open the email link, choose a new password, and sign back in.",
               },
             ].map((item) => (
               <div
