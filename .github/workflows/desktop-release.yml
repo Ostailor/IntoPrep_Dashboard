@@ -72,7 +72,7 @@ jobs:
             fi
           done
 
-      - name: Validate Apple signing secrets
+      - name: Resolve Apple signing availability
         if: ${{ matrix.platform == 'macos-latest' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -81,15 +81,21 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
         run: |
+          missing=0
           for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT; do
             if [ -z "${!variable}" ]; then
-              echo "$variable is required for a signed and notarized macOS release."
-              exit 1
+              missing=1
             fi
           done
+          if [ "$missing" -eq 1 ]; then
+            echo "APPLE_READY=false" >> "$GITHUB_ENV"
+            echo "Skipping macOS desktop build because Apple signing/notarization secrets are not configured."
+          else
+            echo "APPLE_READY=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Import Apple Developer ID certificate
-        if: ${{ matrix.platform == 'macos-latest' }}
+        if: ${{ matrix.platform == 'macos-latest' && env.APPLE_READY == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -128,7 +134,8 @@ jobs:
           chmod 600 "$APPLE_API_KEY_PATH"
           echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Build desktop installers
+      - name: Build signed desktop installers
+        if: ${{ matrix.platform != 'macos-latest' || env.APPLE_READY == 'true' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -149,6 +156,29 @@ jobs:
             This shell points at the production portal, so normal web releases update the in-app experience without a new installer unless the native shell changes.
 
             Tagged desktop releases are published so the in-app updater can see them.
+          releaseDraft: false
+          prerelease: false
+          tagName: desktop-v__VERSION__
+          includeUpdaterJson: true
+
+      - name: Build unsigned macOS installers
+        if: ${{ matrix.platform == 'macos-latest' && env.APPLE_READY != 'true' }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: ${{ matrix.args }} --config src-tauri/tauri.desktop.conf.json --no-sign
+          releaseName: IntoPrep Desktop v__VERSION__
+          releaseBody: |
+            Desktop wrapper for the live IntoPrep Admin Portal.
+
+            This shell points at the production portal, so normal web releases update the in-app experience without a new installer unless the native shell changes.
+
+            Tagged desktop releases are published so the in-app updater can see them.
+
+            macOS artifacts in this release are unsigned because Apple signing credentials are not configured.
           releaseDraft: false
           prerelease: false
           tagName: desktop-v__VERSION__

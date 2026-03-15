@@ -47,6 +47,7 @@ npm run desktop:dev
 - Desktop release automation is defined in [desktop-release.yml](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml).
 - macOS internet downloads must be signed and notarized. Configure the Apple GitHub secrets listed in [release-and-migrations.md](/Users/omtailor/IntoPrep_Dashboard/docs/release-and-migrations.md) or Gatekeeper will show the “Apple could not verify” warning.
 - The desktop updater also requires GitHub secrets for `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and `TAURI_UPDATER_PUBLIC_KEY`.
+- If Apple signing secrets are not configured, the desktop release workflow still publishes the macOS build, but it will be unsigned and Gatekeeper will warn users when they open it.
 
 ## Enable Supabase auth and live operations
 

@@ -127,6 +127,7 @@ The desktop app uses [tauri.conf.json](/Users/omtailor/IntoPrep_Dashboard/src-ta
 - `npm run desktop:build` packages a native shell against `DESKTOP_APP_URL`, then `PRODUCTION_URL`, then the current Vercel production hostname
 - GitHub Actions `Desktop Release` publishes installers for macOS and Windows and emits updater metadata when the updater signing secrets are present
 - The macOS job now requires a `Developer ID Application` certificate plus notarization credentials. Without those secrets, GitHub Actions will stop with a clear error instead of publishing an untrusted macOS build.
+- If you choose not to configure Apple secrets, the workflow still publishes the macOS lane with `--no-sign`. That keeps Mac artifacts available, but Gatekeeper will warn users because the app is unsigned.
 - Desktop pushes to `main` do not create a native release by themselves. They update the hosted portal immediately, which the desktop shell will load the next time it opens or refreshes.
 - To ship a new native shell, either set `DESKTOP_APP_VERSION` for the build or push a tag like `desktop-v0.1.1`. The release script will derive the packaged app version from that tag automatically.
 
