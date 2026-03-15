@@ -25,6 +25,25 @@ Open [http://localhost:3000](http://localhost:3000). The root route redirects to
 - The installed app updates from normal deployments; users do not need to reinstall it for each release.
 - This is the recommended first delivery model because it behaves like an app while keeping release iteration fast.
 
+## Downloadable desktop app
+
+- A Tauri-based desktop shell now lives in [src-tauri](/Users/omtailor/IntoPrep_Dashboard/src-tauri).
+- The shell loads the live production portal instead of bundling a separate copy of the app, so normal GitHub and Vercel releases update the in-app experience automatically.
+- Build locally with:
+
+```bash
+npm run desktop:build
+```
+
+- Run locally against the Next.js dev server with:
+
+```bash
+npm run desktop:dev
+```
+
+- Override the production portal URL for desktop builds with `DESKTOP_APP_URL` if you move from the current Vercel hostname to a custom domain.
+- Desktop release automation is defined in [desktop-release.yml](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml).
+
 ## Enable Supabase auth and live operations
 
 1. Copy `.env.example` to `.env.local` and fill in:
@@ -136,6 +155,7 @@ npm run ci
 
 - [CI workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/ci.yml) runs on pull requests and pushes to `main`.
 - [Deploy workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/deploy.yml) reruns checks, applies Supabase migrations, deploys to Vercel, and optionally hits `/api/health`.
+- [Desktop release workflow](/Users/omtailor/IntoPrep_Dashboard/.github/workflows/desktop-release.yml) builds draft macOS and Windows installers from GitHub when you tag `desktop-v*` or run it manually.
 - The release and migration rules are documented in [release-and-migrations.md](/Users/omtailor/IntoPrep_Dashboard/docs/release-and-migrations.md).
 
 ## Notes

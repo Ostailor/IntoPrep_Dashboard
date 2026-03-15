@@ -1,0 +1,41 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "IntoPrep Desktop",
+  "version": "0.1.0",
+  "identifier": "com.intoprep.portal",
+  "build": {
+    "frontendDist": "https://dashboard-alpha-nine-82.vercel.app",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeDevCommand": "npm run dev -- --hostname 127.0.0.1 --port 3000"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "IntoPrep Admin Portal",
+        "url": "/login",
+        "width": 1480,
+        "height": 960,
+        "minWidth": 1120,
+        "minHeight": 760,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

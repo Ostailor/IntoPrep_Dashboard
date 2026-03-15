@@ -105,6 +105,13 @@ export default async function LoginPage({
             Use your IntoPrep internal account. New accounts must be provisioned by an engineer or
             admin inside Settings.
           </p>
+          <p className="mt-2 text-sm leading-7 text-[color:var(--muted)]">
+            Need a packaged desktop install instead of the browser app? Visit{" "}
+            <Link className="font-semibold text-[color:var(--navy-strong)]" href="/download">
+              downloads
+            </Link>
+            .
+          </p>
 
           {error ? (
             <div className="mt-6 rounded-[1.5rem] border border-rose-200 bg-rose-100/90 px-4 py-3 text-sm text-rose-800">

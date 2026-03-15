@@ -10,6 +10,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "ci": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "desktop:prepare": "node scripts/prepare-desktop-config.mjs",
+    "desktop:dev": "npm run desktop:prepare -- --mode=dev && tauri dev --config src-tauri/tauri.desktop.conf.json",
+    "desktop:build": "npm run desktop:prepare && tauri build --config src-tauri/tauri.desktop.conf.json",
+    "desktop:icon": "tauri icon public/pwa-icon.svg",
     "db:push": "npx supabase db push --include-all --yes",
     "db:reset": "npx supabase db reset",
     "db:new": "npx supabase migration new"
@@ -25,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

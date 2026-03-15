@@ -8,6 +8,12 @@ Use the portal as an installable web app first.
 - Updates are delivered by redeploying the web app. The service worker refreshes static assets without asking users to reinstall a native package.
 - This keeps release iteration fast while avoiding desktop packaging complexity.
 
+The repo now also includes a thin Tauri desktop shell for users who need a true downloadable app. That shell intentionally loads the hosted production portal instead of bundling a second copy of the app. This matters for updates:
+
+- merges to `main` still update the real product through Vercel
+- installed desktop shells pick up those web changes automatically
+- only native-shell changes require a fresh desktop installer release
+
 If you later need a true `.dmg`, `.pkg`, `.exe`, or App Store distribution, add a thin Tauri wrapper around the deployed portal. Do not start there unless offline/native OS APIs become a hard requirement.
 
 ## GitHub flow
@@ -21,6 +27,7 @@ If you later need a true `.dmg`, `.pkg`, `.exe`, or App Store distribution, add 
    - applies versioned Supabase migrations
    - deploys the app to Vercel
    - optionally checks `/api/health`
+6. When the native desktop shell changes, run `Desktop Release` or push a `desktop-v*` tag to create draft installers.
 
 ## Required GitHub secrets
 
@@ -31,6 +38,8 @@ Set these in the GitHub repository settings before enabling the deploy workflow:
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 - `PRODUCTION_URL`
+
+`PRODUCTION_URL` is also reused by the desktop release workflow so the packaged shell points at the correct hosted portal.
 
 ## Required Vercel environment variables
 
@@ -83,3 +92,13 @@ npm run db:push
 ```
 
 For hosted production, let GitHub Actions apply migrations from the current commit. That ensures the deployed app version and schema version move together.
+
+## Desktop release workflow
+
+The desktop app uses [tauri.conf.json](/Users/omtailor/IntoPrep_Dashboard/src-tauri/tauri.conf.json) plus a generated override file written by [prepare-desktop-config.mjs](/Users/omtailor/IntoPrep_Dashboard/scripts/prepare-desktop-config.mjs).
+
+- `npm run desktop:dev` opens a native shell against `http://127.0.0.1:3000`
+- `npm run desktop:build` packages a native shell against `DESKTOP_APP_URL`, then `PRODUCTION_URL`, then the current Vercel production hostname
+- GitHub Actions `Desktop Release` builds draft installers for macOS and Windows
+
+Because the shell loads the hosted portal, shipping a desktop installer does not change your migration strategy. Production data still lives in Supabase, and schema changes still ship as additive migrations.
