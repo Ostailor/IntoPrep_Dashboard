@@ -334,17 +334,25 @@ export function AdminCohortOperationsPanel({
         <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
           Rebalance before it becomes urgent
         </h3>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <select
-            value={forecastFilter}
-            onChange={(event) => updateFilters({ forecast: event.currentTarget.value })}
-            className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
-          >
-            <option value="all">All cohorts</option>
-            <option value="near_full">Near full</option>
-            <option value="underfilled">Underfilled</option>
-            <option value="balanced">Balanced</option>
-          </select>
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Forecast filter
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Switch between all cohorts, near-full groups, and underfilled groups.
+            </span>
+            <select
+              value={forecastFilter}
+              onChange={(event) => updateFilters({ forecast: event.currentTarget.value })}
+              className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
+            >
+              <option value="all">All cohorts</option>
+              <option value="near_full">Near full</option>
+              <option value="underfilled">Underfilled</option>
+              <option value="balanced">Balanced</option>
+            </select>
+          </label>
           <button
             type="button"
             onClick={saveView}
@@ -392,152 +400,247 @@ export function AdminCohortOperationsPanel({
         <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
           Schedule, rooming, and lead coverage
         </h3>
+        <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-stone-50/80 px-4 py-3 text-sm text-[color:var(--muted)]">
+          Cohort capacity is the max active roster size. Cadence is the meeting pattern. Room label
+          is the default location for the cohort, while session room label is the location override
+          for the selected session below.
+        </div>
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <select
-            value={selectedCohortId}
-            onChange={(event) => {
-              const nextId = event.currentTarget.value;
-              const nextCohort = sortedCohorts.find((item) => item.id === nextId);
-              const nextSession = sessions.find((session) => session.cohortId === nextId);
-              setSelectedCohortId(nextId);
-              setSelectedSessionId(nextSession?.id ?? "");
-              setFormState({
-                capacity: String(nextCohort?.capacity ?? 0),
-                cadence: nextCohort?.cadence ?? "",
-                roomLabel: nextCohort?.roomLabel ?? "",
-                leadInstructorId: nextCohort?.leadInstructorId ?? "",
-                sessionTitle: nextSession?.title ?? "",
-                sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
-                sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
-                sessionMode: nextSession?.mode ?? "Hybrid",
-                sessionRoomLabel: nextSession?.roomLabel ?? nextCohort?.roomLabel ?? "",
-              });
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          >
-            {sortedCohorts.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedSessionId}
-            onChange={(event) => {
-              const nextId = event.currentTarget.value;
-              const nextSession = scopedSessions.find((session) => session.id === nextId);
-              setSelectedSessionId(nextId);
-              setFormState((current) => ({
-                ...current,
-                sessionTitle: nextSession?.title ?? "",
-                sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
-                sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
-                sessionMode: nextSession?.mode ?? "Hybrid",
-                sessionRoomLabel: nextSession?.roomLabel ?? current.roomLabel,
-              }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          >
-            {scopedSessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.title}
-              </option>
-            ))}
-          </select>
-          <select
-            value={formState.leadInstructorId}
-            onChange={(event) => {
-              const leadInstructorId = event.currentTarget.value;
-              setFormState((current) => ({ ...current, leadInstructorId }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          >
-            <option value="">Lead instructor</option>
-            {instructorOptions.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-          <input
-            value={formState.capacity}
-            onChange={(event) => {
-              const capacity = event.currentTarget.value;
-              setFormState((current) => ({ ...current, capacity }));
-            }}
-            type="number"
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Capacity"
-          />
-          <input
-            value={formState.cadence}
-            onChange={(event) => {
-              const cadence = event.currentTarget.value;
-              setFormState((current) => ({ ...current, cadence }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Cadence"
-          />
-          <input
-            value={formState.roomLabel}
-            onChange={(event) => {
-              const roomLabel = event.currentTarget.value;
-              setFormState((current) => ({ ...current, roomLabel }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Room label"
-          />
-          <input
-            value={formState.sessionTitle}
-            onChange={(event) => {
-              const sessionTitle = event.currentTarget.value;
-              setFormState((current) => ({ ...current, sessionTitle }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Session title"
-          />
-          <input
-            value={formState.sessionStartAt}
-            onChange={(event) => {
-              const sessionStartAt = event.currentTarget.value;
-              setFormState((current) => ({ ...current, sessionStartAt }));
-            }}
-            type="datetime-local"
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          />
-          <input
-            value={formState.sessionEndAt}
-            onChange={(event) => {
-              const sessionEndAt = event.currentTarget.value;
-              setFormState((current) => ({ ...current, sessionEndAt }));
-            }}
-            type="datetime-local"
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          />
-          <select
-            value={formState.sessionMode}
-            onChange={(event) => {
-              const sessionMode = event.currentTarget.value as
-                | "In person"
-                | "Hybrid"
-                | "Zoom";
-              setFormState((current) => ({ ...current, sessionMode }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          >
-            <option value="In person">In person</option>
-            <option value="Hybrid">Hybrid</option>
-            <option value="Zoom">Zoom</option>
-          </select>
-          <input
-            value={formState.sessionRoomLabel}
-            onChange={(event) => {
-              const sessionRoomLabel = event.currentTarget.value;
-              setFormState((current) => ({ ...current, sessionRoomLabel }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Session room label"
-          />
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Cohort
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Pick the cohort you want to edit.
+            </span>
+            <select
+              value={selectedCohortId}
+              onChange={(event) => {
+                const nextId = event.currentTarget.value;
+                const nextCohort = sortedCohorts.find((item) => item.id === nextId);
+                const nextSession = sessions.find((session) => session.cohortId === nextId);
+                setSelectedCohortId(nextId);
+                setSelectedSessionId(nextSession?.id ?? "");
+                setFormState({
+                  capacity: String(nextCohort?.capacity ?? 0),
+                  cadence: nextCohort?.cadence ?? "",
+                  roomLabel: nextCohort?.roomLabel ?? "",
+                  leadInstructorId: nextCohort?.leadInstructorId ?? "",
+                  sessionTitle: nextSession?.title ?? "",
+                  sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
+                  sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
+                  sessionMode: nextSession?.mode ?? "Hybrid",
+                  sessionRoomLabel: nextSession?.roomLabel ?? nextCohort?.roomLabel ?? "",
+                });
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            >
+              <option value="">Choose a cohort</option>
+              {sortedCohorts.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Choose the specific session to adjust under the selected cohort.
+            </span>
+            <select
+              value={selectedSessionId}
+              onChange={(event) => {
+                const nextId = event.currentTarget.value;
+                const nextSession = scopedSessions.find((session) => session.id === nextId);
+                setSelectedSessionId(nextId);
+                setFormState((current) => ({
+                  ...current,
+                  sessionTitle: nextSession?.title ?? "",
+                  sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
+                  sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
+                  sessionMode: nextSession?.mode ?? "Hybrid",
+                  sessionRoomLabel: nextSession?.roomLabel ?? current.roomLabel,
+                }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            >
+              <option value="">Choose a session</option>
+              {scopedSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Lead instructor
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Set the instructor primarily responsible for this cohort.
+            </span>
+            <select
+              value={formState.leadInstructorId}
+              onChange={(event) => {
+                const leadInstructorId = event.currentTarget.value;
+                setFormState((current) => ({ ...current, leadInstructorId }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            >
+              <option value="">Lead instructor</option>
+              {instructorOptions.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Capacity
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Max number of active students allowed in this cohort.
+            </span>
+            <input
+              value={formState.capacity}
+              onChange={(event) => {
+                const capacity = event.currentTarget.value;
+                setFormState((current) => ({ ...current, capacity }));
+              }}
+              type="number"
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: 12 students"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Cadence
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Describe the regular meeting pattern for this cohort.
+            </span>
+            <input
+              value={formState.cadence}
+              onChange={(event) => {
+                const cadence = event.currentTarget.value;
+                setFormState((current) => ({ ...current, cadence }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: Mondays and Wednesdays"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Cohort room label
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Default room or campus label used for the cohort.
+            </span>
+            <input
+              value={formState.roomLabel}
+              onChange={(event) => {
+                const roomLabel = event.currentTarget.value;
+                setFormState((current) => ({ ...current, roomLabel }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: Malvern Room B"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session title
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Name the selected session the way staff and families should recognize it.
+            </span>
+            <input
+              value={formState.sessionTitle}
+              onChange={(event) => {
+                const sessionTitle = event.currentTarget.value;
+                setFormState((current) => ({ ...current, sessionTitle }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: Digital SAT Tuesday session"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session start
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Start time for the selected session.
+            </span>
+            <input
+              value={formState.sessionStartAt}
+              onChange={(event) => {
+                const sessionStartAt = event.currentTarget.value;
+                setFormState((current) => ({ ...current, sessionStartAt }));
+              }}
+              type="datetime-local"
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session end
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              End time for the selected session.
+            </span>
+            <input
+              value={formState.sessionEndAt}
+              onChange={(event) => {
+                const sessionEndAt = event.currentTarget.value;
+                setFormState((current) => ({ ...current, sessionEndAt }));
+              }}
+              type="datetime-local"
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session mode
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Choose whether the session is in person, hybrid, or Zoom.
+            </span>
+            <select
+              value={formState.sessionMode}
+              onChange={(event) => {
+                const sessionMode = event.currentTarget.value as
+                  | "In person"
+                  | "Hybrid"
+                  | "Zoom";
+                setFormState((current) => ({ ...current, sessionMode }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            >
+              <option value="In person">In person</option>
+              <option value="Hybrid">Hybrid</option>
+              <option value="Zoom">Zoom</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Session room label
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Override the default cohort room for this specific session if needed.
+            </span>
+            <input
+              value={formState.sessionRoomLabel}
+              onChange={(event) => {
+                const sessionRoomLabel = event.currentTarget.value;
+                setFormState((current) => ({ ...current, sessionRoomLabel }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: Zoom Room 2 or UPenn Lab 1"
+            />
+          </label>
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <button
@@ -578,7 +681,14 @@ export function AdminCohortOperationsPanel({
             Move active students from one cohort to another.
           </div>
           <div className="mt-4 space-y-3">
-            <select
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Source cohort
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Move students out of this cohort.
+              </span>
+              <select
               value={bulkMoveState.sourceCohortId}
               onChange={(event) => {
                 const sourceCohortId = event.currentTarget.value;
@@ -595,8 +705,16 @@ export function AdminCohortOperationsPanel({
                   {item.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Target cohort
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Move the selected students into this cohort.
+              </span>
+              <select
               value={bulkMoveState.targetCohortId}
               onChange={(event) => {
                 const targetCohortId = event.currentTarget.value;
@@ -609,8 +727,16 @@ export function AdminCohortOperationsPanel({
                   {item.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Students to move
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Select one or more active students from the source cohort.
+              </span>
+              <select
               multiple
               value={bulkMoveState.studentIds}
               onChange={(event) => {
@@ -626,7 +752,8 @@ export function AdminCohortOperationsPanel({
                   {student.firstName} {student.lastName}
                 </option>
               ))}
-            </select>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => {
@@ -668,7 +795,14 @@ export function AdminCohortOperationsPanel({
             Add staff, TA, or instructor coverage to a cohort.
           </div>
           <div className="mt-4 space-y-3">
-            <select
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Cohort
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Choose the cohort that needs extra staff or TA coverage.
+              </span>
+              <select
               value={bulkCoverageState.cohortId}
               onChange={(event) => {
                 const cohortId = event.currentTarget.value;
@@ -681,8 +815,16 @@ export function AdminCohortOperationsPanel({
                   {item.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Coverage users
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Pick the staff, TA, or instructor accounts to add to this cohort.
+              </span>
+              <select
               multiple
               value={bulkCoverageState.userIds}
               onChange={(event) => {
@@ -698,7 +840,8 @@ export function AdminCohortOperationsPanel({
                   {user.name} · {user.role}
                 </option>
               ))}
-            </select>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => {
@@ -739,7 +882,14 @@ export function AdminCohortOperationsPanel({
             Open follow-up tasks for missing or risky attendance.
           </div>
           <div className="mt-4 space-y-3">
-            <select
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Cohort
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Choose the cohort where attendance follow-up should be opened.
+              </span>
+              <select
               value={bulkAttendanceState.cohortId}
               onChange={(event) => {
                 const cohortId = event.currentTarget.value;
@@ -756,8 +906,16 @@ export function AdminCohortOperationsPanel({
                   {item.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Students
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Select the students who need attendance follow-up tasks.
+              </span>
+              <select
               multiple
               value={bulkAttendanceState.studentIds}
               onChange={(event) => {
@@ -773,8 +931,16 @@ export function AdminCohortOperationsPanel({
                   {student.firstName} {student.lastName}
                 </option>
               ))}
-            </select>
-            <input
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Due by
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Optional deadline for the follow-up tasks.
+              </span>
+              <input
               value={bulkAttendanceState.dueAt}
               onChange={(event) => {
                 const dueAt = event.currentTarget.value;
@@ -782,7 +948,8 @@ export function AdminCohortOperationsPanel({
               }}
               type="datetime-local"
               className="w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            />
+              />
+            </label>
             <button
               type="button"
               onClick={() => {

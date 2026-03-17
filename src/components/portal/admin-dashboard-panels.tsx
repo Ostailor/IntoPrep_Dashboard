@@ -360,93 +360,149 @@ export function AdminDashboardPanels({
         ) : null}
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <input
-            value={taskForm.title}
-            onChange={(event) => {
-              const title = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, title }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Task title"
-            disabled={readOnly}
-          />
-          <input
-            value={taskForm.targetId}
-            onChange={(event) => {
-              const targetId = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, targetId }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Target ID"
-            disabled={readOnly}
-          />
-          <select
-            value={taskForm.taskType}
-            onChange={(event) => {
-              const taskType = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, taskType }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            disabled={readOnly}
-          >
-            {taskTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={taskForm.targetType}
-            onChange={(event) => {
-              const targetType = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, targetType }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            disabled={readOnly}
-          >
-            {targetTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={taskForm.assignedTo}
-            onChange={(event) => {
-              const assignedTo = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, assignedTo }));
-            }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            disabled={readOnly}
-          >
-            <option value="">Assign later</option>
-            {assignableUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name} · {user.role}
-              </option>
-            ))}
-          </select>
-          <input
-            value={taskForm.dueAt}
-            onChange={(event) => {
-              const dueAt = event.currentTarget.value;
-              setTaskForm((current) => ({ ...current, dueAt }));
-            }}
-            type="datetime-local"
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            disabled={readOnly}
-          />
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Task title
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Short queue label the assignee will recognize immediately.
+            </span>
+            <input
+              value={taskForm.title}
+              onChange={(event) => {
+                const title = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, title }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: Follow up on March tuition reminder"
+              disabled={readOnly}
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Target ID
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Internal record id for the invoice, family, cohort, student, or user this task belongs to.
+            </span>
+            <input
+              value={taskForm.targetId}
+              onChange={(event) => {
+                const targetId = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, targetId }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              placeholder="Example: invoice_123 or family_456"
+              disabled={readOnly}
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Task type
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Choose the kind of operational follow-up this work belongs to.
+            </span>
+            <select
+              value={taskForm.taskType}
+              onChange={(event) => {
+                const taskType = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, taskType }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            >
+              {taskTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Target type
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Tell the queue whether the target id points to an invoice, family, cohort, student, or user.
+            </span>
+            <select
+              value={taskForm.targetType}
+              onChange={(event) => {
+                const targetType = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, targetType }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            >
+              {targetTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Assign to
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Pick the teammate who should own this next, or leave it unassigned for later.
+            </span>
+            <select
+              value={taskForm.assignedTo}
+              onChange={(event) => {
+                const assignedTo = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, assignedTo }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            >
+              <option value="">Assign later</option>
+              {assignableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name} · {user.role}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Due by
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              Optional deadline for the follow-up.
+            </span>
+            <input
+              value={taskForm.dueAt}
+              onChange={(event) => {
+                const dueAt = event.currentTarget.value;
+                setTaskForm((current) => ({ ...current, dueAt }));
+              }}
+              type="datetime-local"
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            />
+          </label>
         </div>
-        <textarea
-          value={taskForm.details}
-          onChange={(event) => {
-            const details = event.currentTarget.value;
-            setTaskForm((current) => ({ ...current, details }));
-          }}
-          className="mt-3 min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          placeholder="Add the follow-up context the assignee needs."
-          disabled={readOnly}
-        />
+        <label className="mt-3 flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Assignee notes
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">
+            Include the context, blocker, or next step the assignee needs before they open the record.
+          </span>
+          <textarea
+            value={taskForm.details}
+            onChange={(event) => {
+              const details = event.currentTarget.value;
+              setTaskForm((current) => ({ ...current, details }));
+            }}
+            className="min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            placeholder="Example: Call the guardian, confirm the missed session makeup date, and note the answer in billing follow-up."
+            disabled={readOnly}
+          />
+        </label>
         <button
           type="button"
           onClick={handleTaskCreate}
@@ -608,49 +664,81 @@ export function AdminDashboardPanels({
             Staff and TA announcement
           </h3>
           <div className="mt-5 grid gap-3">
-            <input
-              value={announcementForm.title}
-              onChange={(event) => {
-                const title = event.currentTarget.value;
-                setAnnouncementForm((current) => ({ ...current, title }));
-              }}
-              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-              placeholder="Announcement title"
-              disabled={readOnly}
-            />
-            <textarea
-              value={announcementForm.body}
-              onChange={(event) => {
-                const body = event.currentTarget.value;
-                setAnnouncementForm((current) => ({ ...current, body }));
-              }}
-              className="min-h-[104px] rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-              placeholder="Share the internal operations update."
-              disabled={readOnly}
-            />
-            <div className="grid gap-3 md:grid-cols-2">
-              <select
-                value={announcementForm.tone}
-                onChange={(event) => {
-                  const tone = event.currentTarget.value;
-                  setAnnouncementForm((current) => ({ ...current, tone }));
-                }}
-                className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
-              >
-                <option value="warning">Warning</option>
-                <option value="info">Info</option>
-              </select>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Announcement title
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Short headline staff and TAs will see first.
+              </span>
               <input
-                value={announcementForm.expiresAt}
+                value={announcementForm.title}
                 onChange={(event) => {
-                  const expiresAt = event.currentTarget.value;
-                  setAnnouncementForm((current) => ({ ...current, expiresAt }));
+                  const title = event.currentTarget.value;
+                  setAnnouncementForm((current) => ({ ...current, title }));
                 }}
-                type="datetime-local"
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                placeholder="Example: Wednesday room changes"
                 disabled={readOnly}
               />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Announcement body
+              </span>
+              <span className="text-sm text-[color:var(--muted)]">
+                Explain what changed, who is affected, and what action the team should take.
+              </span>
+              <textarea
+                value={announcementForm.body}
+                onChange={(event) => {
+                  const body = event.currentTarget.value;
+                  setAnnouncementForm((current) => ({ ...current, body }));
+                }}
+                className="min-h-[104px] rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                placeholder="Example: SAT groups in Room B will meet upstairs today. Update signs before 3:30 PM."
+                disabled={readOnly}
+              />
+            </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                  Notice tone
+                </span>
+                <span className="text-sm text-[color:var(--muted)]">
+                  Use warning for time-sensitive changes and info for routine updates.
+                </span>
+                <select
+                  value={announcementForm.tone}
+                  onChange={(event) => {
+                    const tone = event.currentTarget.value;
+                    setAnnouncementForm((current) => ({ ...current, tone }));
+                  }}
+                  className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                  disabled={readOnly}
+                >
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                  Remove after
+                </span>
+                <span className="text-sm text-[color:var(--muted)]">
+                  Optional time when the notice should disappear automatically.
+                </span>
+                <input
+                  value={announcementForm.expiresAt}
+                  onChange={(event) => {
+                    const expiresAt = event.currentTarget.value;
+                    setAnnouncementForm((current) => ({ ...current, expiresAt }));
+                  }}
+                  type="datetime-local"
+                  className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                  disabled={readOnly}
+                />
+              </label>
             </div>
             <div className="flex flex-wrap gap-3 text-sm text-[color:var(--muted)]">
               {(["admin", "staff", "ta"] as const).map((role) => (

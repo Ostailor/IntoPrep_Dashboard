@@ -98,7 +98,13 @@ export function AdminFamilyOpsPanel({
         <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
           Outreach timeline
         </h3>
-        <div className="mt-5">
+        <label className="mt-5 flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Family
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">
+            Choose the family whose outreach history you want to review or update.
+          </span>
           <select
             value={selectedFamilyId}
             onChange={(event) => setSelectedFamilyId(event.currentTarget.value)}
@@ -110,7 +116,7 @@ export function AdminFamilyOpsPanel({
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <div className="mt-5 space-y-3">
           {visibleEvents.map((event) => (
             <div
@@ -163,52 +169,80 @@ export function AdminFamilyOpsPanel({
           </div>
         ) : null}
         <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <select
-            value={formState.contactSource}
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Contact source
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">How the family was contacted.</span>
+            <select
+              value={formState.contactSource}
+              onChange={(event) => {
+                const contactSource = event.currentTarget.value;
+                setFormState((current) => ({ ...current, contactSource }));
+              }}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            >
+              <option value="phone">Phone</option>
+              <option value="email">Email</option>
+              <option value="sms">SMS</option>
+              <option value="meeting">Meeting</option>
+              <option value="portal_message">Portal message</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              Contact time
+            </span>
+            <span className="text-sm text-[color:var(--muted)]">
+              When the outreach happened, if you want to log a specific time.
+            </span>
+            <input
+              value={formState.contactAt}
+              onChange={(event) => {
+                const contactAt = event.currentTarget.value;
+                setFormState((current) => ({ ...current, contactAt }));
+              }}
+              type="datetime-local"
+              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+              disabled={readOnly}
+            />
+          </label>
+        </div>
+        <label className="mt-3 flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Summary
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">What was discussed with the family.</span>
+          <textarea
+            value={formState.summary}
             onChange={(event) => {
-              const contactSource = event.currentTarget.value;
-              setFormState((current) => ({ ...current, contactSource }));
+              const summary = event.currentTarget.value;
+              setFormState((current) => ({ ...current, summary }));
             }}
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            disabled={readOnly}
-          >
-            <option value="phone">Phone</option>
-            <option value="email">Email</option>
-            <option value="sms">SMS</option>
-            <option value="meeting">Meeting</option>
-            <option value="portal_message">Portal message</option>
-          </select>
-          <input
-            value={formState.contactAt}
-            onChange={(event) => {
-              const contactAt = event.currentTarget.value;
-              setFormState((current) => ({ ...current, contactAt }));
-            }}
-            type="datetime-local"
-            className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            className="min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            placeholder="Example: Reviewed the missed class and confirmed the parent wanted a makeup option next week."
             disabled={readOnly}
           />
-        </div>
-        <textarea
-          value={formState.summary}
-          onChange={(event) => {
-            const summary = event.currentTarget.value;
-            setFormState((current) => ({ ...current, summary }));
-          }}
-          className="mt-3 min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          placeholder="What was discussed?"
-          disabled={readOnly}
-        />
-        <textarea
-          value={formState.outcome}
-          onChange={(event) => {
-            const outcome = event.currentTarget.value;
-            setFormState((current) => ({ ...current, outcome }));
-          }}
-          className="mt-3 min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-          placeholder="What happens next?"
-          disabled={readOnly}
-        />
+        </label>
+        <label className="mt-3 flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Next step / outcome
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">
+            Record what should happen next so another admin or staff member can pick it up.
+          </span>
+          <textarea
+            value={formState.outcome}
+            onChange={(event) => {
+              const outcome = event.currentTarget.value;
+              setFormState((current) => ({ ...current, outcome }));
+            }}
+            className="min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+            placeholder="Example: Family will reply by Thursday. Keep billing follow-up open until they confirm."
+            disabled={readOnly}
+          />
+        </label>
         <button
           type="button"
           onClick={handleSave}

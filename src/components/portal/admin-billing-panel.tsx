@@ -238,27 +238,43 @@ export function AdminBillingPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap gap-3">
-        <select
-          value={statusFilter}
-          onChange={(event) => updateFilters({ status: event.currentTarget.value })}
-          className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
-        >
-          <option value="all">All invoice states</option>
-          <option value="pending">Pending</option>
-          <option value="overdue">Overdue</option>
-          <option value="paid">Paid</option>
-        </select>
-        <select
-          value={followUpFilter}
-          onChange={(event) => updateFilters({ followUpState: event.currentTarget.value })}
-          className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
-        >
-          <option value="all">All follow-up states</option>
-          <option value="open">Open</option>
-          <option value="in_progress">In progress</option>
-          <option value="resolved">Resolved</option>
-        </select>
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Invoice state
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">
+            Narrow the list to pending, overdue, or paid invoices.
+          </span>
+          <select
+            value={statusFilter}
+            onChange={(event) => updateFilters({ status: event.currentTarget.value })}
+            className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
+          >
+            <option value="all">All invoice states</option>
+            <option value="pending">Pending</option>
+            <option value="overdue">Overdue</option>
+            <option value="paid">Paid</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Follow-up state
+          </span>
+          <span className="text-sm text-[color:var(--muted)]">
+            Filter by whether the billing follow-up is open, in progress, or resolved.
+          </span>
+          <select
+            value={followUpFilter}
+            onChange={(event) => updateFilters({ followUpState: event.currentTarget.value })}
+            className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
+          >
+            <option value="all">All follow-up states</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="resolved">Resolved</option>
+          </select>
+        </label>
         <button
           type="button"
           onClick={handleSaveView}
@@ -350,19 +366,27 @@ export function AdminBillingPanel({
                   ))}
                 </div>
               </div>
-              <textarea
-                value={noteDrafts[row.invoiceId] ?? ""}
-                onChange={(event) => {
-                  const nextValue = event.currentTarget.value;
-                  setNoteDrafts((current) => ({
-                    ...current,
-                    [row.invoiceId]: nextValue,
-                  }));
-                }}
-                className="mt-4 min-h-[96px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                placeholder="Add internal reconciliation or follow-up note."
-                disabled={readOnly}
-              />
+              <label className="mt-4 flex flex-col gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                  Internal follow-up note
+                </span>
+                <span className="text-sm text-[color:var(--muted)]">
+                  Internal context only. Note what was confirmed, promised, or still blocked for this invoice.
+                </span>
+                <textarea
+                  value={noteDrafts[row.invoiceId] ?? ""}
+                  onChange={(event) => {
+                    const nextValue = event.currentTarget.value;
+                    setNoteDrafts((current) => ({
+                      ...current,
+                      [row.invoiceId]: nextValue,
+                    }));
+                  }}
+                  className="min-h-[96px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                  placeholder="Example: Parent confirmed payment will be made Friday. Leave this in progress until QuickBooks reflects it."
+                  disabled={readOnly}
+                />
+              </label>
               {rowNotes.length > 0 ? (
                 <div className="mt-4 space-y-2">
                   {rowNotes.slice(0, 3).map((note) => (
