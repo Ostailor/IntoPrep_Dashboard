@@ -1036,12 +1036,13 @@ export function EngineerConsolePanels({
                 <input
                   type="checkbox"
                   checked={changeFreezeDraft.enabled}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const enabled = event.currentTarget.checked;
                     setChangeFreezeDraft((current) => ({
                       ...current,
-                      enabled: event.currentTarget.checked,
-                    }))
-                  }
+                      enabled,
+                    }));
+                  }}
                 />
                 <span>Freeze risky writes</span>
               </label>
@@ -1256,17 +1257,18 @@ export function EngineerConsolePanels({
                             <input
                               type="checkbox"
                               checked={enabled}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                const isChecked = event.currentTarget.checked;
                                 setFeatureDrafts((current) => ({
                                   ...current,
                                   [flag.key]: {
                                     ...draft,
-                                    enabledRoles: event.currentTarget.checked
+                                    enabledRoles: isChecked
                                       ? [...enabledRoles, role]
                                       : enabledRoles.filter((candidate) => candidate !== role),
                                   },
-                                }))
-                              }
+                                }));
+                              }}
                             />
                             <span>{roleLabels[role]}</span>
                           </label>
@@ -1311,13 +1313,14 @@ export function EngineerConsolePanels({
                         <input
                           type="checkbox"
                           checked={normalizeEnabledRoles(newFeatureRoles).includes(role)}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const isChecked = event.currentTarget.checked;
                             setNewFeatureRoles((current) =>
-                              event.currentTarget.checked
+                              isChecked
                                 ? [...normalizeEnabledRoles(current), role]
                                 : normalizeEnabledRoles(current).filter((candidate) => candidate !== role),
-                            )
-                          }
+                            );
+                          }}
                         />
                         <span>{roleLabels[role]}</span>
                       </label>

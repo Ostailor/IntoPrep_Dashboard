@@ -444,12 +444,13 @@ export function StaffCohortOperationsPanel({
               >
                 <input
                   checked={Boolean(checklistState[key as keyof typeof checklistState])}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
                     setChecklistState((current) => ({
                       ...current,
-                      [key]: event.currentTarget.checked,
-                    }))
-                  }
+                      [key]: checked,
+                    }));
+                  }}
                   type="checkbox"
                   disabled={readOnly}
                 />

@@ -199,12 +199,13 @@ export function TaAttendanceSupportPanel({
                 <input
                   type="checkbox"
                   checked={checklistState[key]}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
                     setChecklistState((current) => ({
                       ...current,
-                      [key]: event.currentTarget.checked,
-                    }))
-                  }
+                      [key]: checked,
+                    }));
+                  }}
                   disabled={readOnly}
                 />
                 <span>{label}</span>
