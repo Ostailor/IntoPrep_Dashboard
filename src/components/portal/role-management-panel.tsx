@@ -630,7 +630,9 @@ export function RoleManagementPanel({
             const canEditAssignments =
               user.id !== viewerId && canManageCohortAssignments(viewerRole, user.role);
             const draftRole = draftRoles[user.id] ?? user.role;
-            const assignmentDraft = draftAssignments[user.id] ?? user.assignedCohortIds;
+            const assignmentDraft = Array.isArray(draftAssignments[user.id])
+              ? draftAssignments[user.id]
+              : user.assignedCohortIds;
             const assignmentsChanged =
               assignmentDraft.length !== user.assignedCohortIds.length ||
               assignmentDraft.some((cohortId) => !user.assignedCohortIds.includes(cohortId));

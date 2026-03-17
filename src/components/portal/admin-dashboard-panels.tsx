@@ -27,6 +27,9 @@ interface AdminDashboardPanelsProps {
   escalations: AdminEscalation[];
 }
 
+type AnnouncementVisibleRole = "admin" | "staff" | "ta";
+type AnnouncementVisibleRoles = Record<AnnouncementVisibleRole, boolean>;
+
 const taskTypeOptions = [
   { value: "billing_follow_up", label: "Billing follow-up" },
   { value: "family_communication", label: "Family communication" },
@@ -72,6 +75,24 @@ function formatDateTime(value?: string | null) {
   }).format(new Date(value));
 }
 
+function createDefaultAnnouncementVisibleRoles(): AnnouncementVisibleRoles {
+  return {
+    admin: true,
+    staff: true,
+    ta: true,
+  };
+}
+
+function normalizeAnnouncementVisibleRoles(
+  value?: Partial<AnnouncementVisibleRoles> | null,
+): AnnouncementVisibleRoles {
+  return {
+    admin: Boolean(value?.admin),
+    staff: Boolean(value?.staff),
+    ta: Boolean(value?.ta),
+  };
+}
+
 export function AdminDashboardPanels({
   viewerMode,
   tasks,
@@ -102,11 +123,7 @@ export function AdminDashboardPanels({
     body: "",
     tone: "warning",
     expiresAt: "",
-    visibleRoles: {
-      admin: true,
-      staff: true,
-      ta: true,
-    },
+    visibleRoles: createDefaultAnnouncementVisibleRoles(),
   });
   const [reviewPendingId, setReviewPendingId] = useState<string | null>(null);
 
@@ -201,8 +218,8 @@ export function AdminDashboardPanels({
 
     startTransition(async () => {
       try {
-        const visibleRoles = (["admin", "staff", "ta"] as const).filter(
-          (role) => announcementForm.visibleRoles[role],
+        const visibleRoles = (["admin", "staff", "ta"] as const).filter((role) =>
+          normalizeAnnouncementVisibleRoles(announcementForm.visibleRoles)[role],
         );
         const response = await fetch("/api/admin/announcements", {
           method: "POST",
@@ -229,11 +246,7 @@ export function AdminDashboardPanels({
           body: "",
           tone: "warning",
           expiresAt: "",
-          visibleRoles: {
-            admin: true,
-            staff: true,
-            ta: true,
-          },
+          visibleRoles: createDefaultAnnouncementVisibleRoles(),
         });
         setSuccess("Internal operations announcement posted.");
         router.refresh();
@@ -646,13 +659,13 @@ export function AdminDashboardPanels({
                   className="flex items-center gap-2 rounded-full border border-[color:var(--line)] bg-white/90 px-3 py-2"
                 >
                   <input
-                    checked={announcementForm.visibleRoles[role]}
+                    checked={normalizeAnnouncementVisibleRoles(announcementForm.visibleRoles)[role]}
                     onChange={(event) => {
                       const checked = event.currentTarget.checked;
                       setAnnouncementForm((current) => ({
                         ...current,
                         visibleRoles: {
-                          ...current.visibleRoles,
+                          ...normalizeAnnouncementVisibleRoles(current.visibleRoles),
                           [role]: checked,
                         },
                       }));

@@ -79,6 +79,10 @@ const bannerTone = {
   error: "border-rose-200 bg-rose-100 text-rose-800",
 } as const;
 
+function normalizeEnabledRoles(value?: UserRole[] | null) {
+  return Array.isArray(value) ? value : [];
+}
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -231,7 +235,7 @@ export function EngineerConsolePanels({
           flag.key,
           {
             description: flag.description,
-            enabledRoles: flag.enabledRoles,
+            enabledRoles: normalizeEnabledRoles(flag.enabledRoles),
           },
         ]),
       ),
@@ -1217,8 +1221,9 @@ export function EngineerConsolePanels({
               {engineerConsole.featureFlags.map((flag) => {
                 const draft = featureDrafts[flag.key] ?? {
                   description: flag.description,
-                  enabledRoles: flag.enabledRoles,
+                  enabledRoles: normalizeEnabledRoles(flag.enabledRoles),
                 };
+                const enabledRoles = normalizeEnabledRoles(draft.enabledRoles);
                 return (
                   <div
                     key={flag.key}
@@ -1242,7 +1247,7 @@ export function EngineerConsolePanels({
                     />
                     <div className="mt-3 flex flex-wrap gap-2">
                       {(Object.keys(roleLabels) as UserRole[]).map((role) => {
-                        const enabled = draft.enabledRoles.includes(role);
+                        const enabled = enabledRoles.includes(role);
                         return (
                           <label
                             key={`${flag.key}:${role}`}
@@ -1257,8 +1262,8 @@ export function EngineerConsolePanels({
                                   [flag.key]: {
                                     ...draft,
                                     enabledRoles: event.currentTarget.checked
-                                      ? [...draft.enabledRoles, role]
-                                      : draft.enabledRoles.filter((candidate) => candidate !== role),
+                                      ? [...enabledRoles, role]
+                                      : enabledRoles.filter((candidate) => candidate !== role),
                                   },
                                 }))
                               }
@@ -1270,7 +1275,7 @@ export function EngineerConsolePanels({
                     </div>
                     <button
                       type="button"
-                      onClick={() => saveFeatureFlag(flag.key, draft.description, draft.enabledRoles)}
+                      onClick={() => saveFeatureFlag(flag.key, draft.description, enabledRoles)}
                       disabled={pendingKey === `feature-flag:${flag.key}`}
                       className="mt-4 rounded-full border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)] hover:bg-[rgba(23,56,75,0.12)]"
                     >
@@ -1305,12 +1310,12 @@ export function EngineerConsolePanels({
                       >
                         <input
                           type="checkbox"
-                          checked={newFeatureRoles.includes(role)}
+                          checked={normalizeEnabledRoles(newFeatureRoles).includes(role)}
                           onChange={(event) =>
                             setNewFeatureRoles((current) =>
                               event.currentTarget.checked
-                                ? [...current, role]
-                                : current.filter((candidate) => candidate !== role),
+                                ? [...normalizeEnabledRoles(current), role]
+                                : normalizeEnabledRoles(current).filter((candidate) => candidate !== role),
                             )
                           }
                         />
