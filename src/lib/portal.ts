@@ -1,37 +1,31 @@
 import type {
   AdminTask,
+  AcademicNote,
+  Assessment,
   AssessmentResult,
   AttendanceStatus,
+  AttendanceRecord,
+  Campus,
+  Cohort,
+  Enrollment,
+  Family,
   ImportRun,
+  Invoice,
+  Lead,
+  MessageThread,
   PortalSection,
+  Program,
+  Resource,
+  ScoreTrendSnapshot,
+  Session,
+  Student,
   SyncStatus,
+  SyncJob,
+  Task,
+  Term,
   User,
   UserRole,
 } from "@/lib/domain";
-import {
-  academicNotes,
-  assessmentResults,
-  assessments,
-  attendanceRecords,
-  campuses,
-  cohorts,
-  DEMO_DATE,
-  enrollments,
-  families,
-  importRuns,
-  invoices,
-  leads,
-  messageThreads,
-  programs,
-  resources,
-  scoreTrends,
-  sessions,
-  students,
-  syncJobs,
-  tasks,
-  terms,
-  users,
-} from "@/lib/mock-data";
 import {
   canAccessSection,
   canViewFamilyContactBasics,
@@ -40,6 +34,34 @@ import {
   getVisibleSections,
   hasGlobalPortalScope,
 } from "@/lib/permissions";
+
+const academicNotes: AcademicNote[] = [];
+const assessmentResults: AssessmentResult[] = [];
+const assessments: Assessment[] = [];
+const attendanceRecords: AttendanceRecord[] = [];
+const campuses: Campus[] = [];
+const cohorts: Cohort[] = [];
+const enrollments: Enrollment[] = [];
+const families: Family[] = [];
+const importRuns: ImportRun[] = [];
+const invoices: Invoice[] = [];
+const leads: Lead[] = [];
+const messageThreads: MessageThread[] = [];
+const programs: Program[] = [];
+const resources: Resource[] = [];
+const scoreTrends: ScoreTrendSnapshot[] = [];
+const sessions: Session[] = [];
+const students: Student[] = [];
+const syncJobs: SyncJob[] = [];
+const tasks: Task[] = [];
+const terms: Term[] = [];
+const users: User[] = [];
+
+function getFallbackPortalDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
+}
 
 export interface MetricCardData {
   label: string;
@@ -115,6 +137,15 @@ export interface ProgramRow {
   lead: string;
   fillRate: number;
   cadence: string;
+}
+
+interface SessionRosterSource {
+  enrollments: Enrollment[];
+  students: Student[];
+  families: Family[];
+  assessments: Assessment[];
+  attendanceRecords: AttendanceRecord[];
+  scoreTrends: ScoreTrendSnapshot[];
 }
 
 export interface SettingsRoleStats {
@@ -210,15 +241,21 @@ export const sectionMeta: Record<
   },
 };
 
-const userByRole: Record<UserRole, User> = {
-  engineer: users.find((user) => user.role === "engineer")!,
-  admin: users.find((user) => user.role === "admin")!,
-  staff: users.find((user) => user.role === "staff")!,
-  ta: users.find((user) => user.role === "ta")!,
-  instructor: users.find((user) => user.id === "user-instructor")!,
+const defaultTitles: Record<UserRole, string> = {
+  engineer: "Engineer",
+  admin: "Admin",
+  staff: "Staff",
+  ta: "Teaching assistant",
+  instructor: "Instructor",
 };
 
-export const getCurrentUser = (role: UserRole) => userByRole[role];
+export const getCurrentUser = (role: UserRole): User => ({
+  id: `current-${role}`,
+  name: "IntoPrep User",
+  role,
+  title: defaultTitles[role],
+  assignedCohortIds: [],
+});
 
 const unique = <T,>(items: T[]) => Array.from(new Set(items));
 
@@ -290,7 +327,7 @@ export const getPortalContext = (role: UserRole): PortalContext => {
       : messageThreads.filter((thread) => cohortIds.includes(thread.cohortId));
 
   return {
-    currentDate: DEMO_DATE,
+    currentDate: getFallbackPortalDate(),
     user,
     visibleSections: getVisibleSections(role),
     visiblePrograms: programs.filter((program) => visibleProgramIds.includes(program.id)),
@@ -696,19 +733,36 @@ export const getTodaySessions = (role: UserRole) =>
 export const getTodayResults = (role: UserRole) =>
   getTodayResultsFromContext(getPortalContext(role));
 
-const studentById = new Map(students.map((student) => [student.id, student]));
-const familyById = new Map(families.map((family) => [family.id, family]));
-const assessmentById = new Map(assessments.map((assessment) => [assessment.id, assessment]));
+const defaultSessionRosterSource: SessionRosterSource = {
+  enrollments,
+  students,
+  families,
+  assessments,
+  attendanceRecords,
+  scoreTrends,
+};
 
-export const getSessionRosterView = (role: UserRole, sessionId: string): SessionRosterRow[] => {
-  const context = getPortalContext(role);
+export const getSessionRosterView = (
+  role: UserRole,
+  sessionId: string,
+  options?: {
+    context?: PortalContext;
+    source?: SessionRosterSource;
+  },
+): SessionRosterRow[] => {
+  const context = options?.context ?? getPortalContext(role);
+  const source = options?.source ?? defaultSessionRosterSource;
   const session = context.visibleSessions.find((item) => item.id === sessionId);
 
   if (!session) {
     return [];
   }
 
-  const studentIds = enrollments
+  const studentById = new Map(source.students.map((student) => [student.id, student]));
+  const familyById = new Map(source.families.map((family) => [family.id, family]));
+  const assessmentById = new Map(source.assessments.map((assessment) => [assessment.id, assessment]));
+
+  const studentIds = source.enrollments
     .filter((enrollment) => enrollment.cohortId === session.cohortId && enrollment.status === "active")
     .map((enrollment) => enrollment.studentId);
 
@@ -718,9 +772,9 @@ export const getSessionRosterView = (role: UserRole, sessionId: string): Session
       const family = familyById.get(student.familyId)!;
       const latestResult = context.visibleResults.find((result) => result.studentId === studentId);
       const relatedAssessment = latestResult ? assessmentById.get(latestResult.assessmentId) : undefined;
-      const trend = scoreTrends.find((snapshot) => snapshot.studentId === studentId)?.points ?? [];
+      const trend = source.scoreTrends.find((snapshot) => snapshot.studentId === studentId)?.points ?? [];
       const attendance =
-        attendanceRecords.find((record) => record.sessionId === sessionId && record.studentId === studentId)?.status ??
+        source.attendanceRecords.find((record) => record.sessionId === sessionId && record.studentId === studentId)?.status ??
         "present";
 
       return {

@@ -20,7 +20,26 @@ export default async function LoginPage({
       : "/dashboard";
 
   if (!isSupabaseConfigured()) {
-    redirect("/dashboard?role=admin");
+    return (
+      <main className="min-h-screen px-4 py-6 lg:px-6 lg:py-8">
+        <div className="mx-auto max-w-4xl">
+          <section className="glass-panel rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
+            <div className="section-kicker">Setup required</div>
+            <h1 className="display-font mt-3 text-4xl leading-tight text-[color:var(--navy-strong)] lg:text-5xl">
+              IntoPrep authentication is not configured.
+            </h1>
+            <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
+              This portal only runs against a live Supabase project. Add the Supabase environment
+              variables before handing the dashboard off or testing sign-in.
+            </p>
+            <div className="mt-8 rounded-[1.9rem] border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] p-6 text-sm leading-7 text-[color:var(--navy-strong)]">
+              Configure <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>,
+              {" "}and the server-side Supabase credentials, then reload this page.
+            </div>
+          </section>
+        </div>
+      </main>
+    );
   }
 
   const viewer = await getAuthenticatedViewerForRequest();

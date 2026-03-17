@@ -25,7 +25,13 @@ import {
   canViewAllSyncJobs,
   getVisibleSections,
 } from "@/lib/permissions";
-import { getAlertsFromSyncJobs, getBillingRows, getSectionFallback, getSessionRosterView } from "@/lib/portal";
+import {
+  getAlertsFromSyncJobs,
+  getBillingRows,
+  getPortalContext,
+  getSectionFallback,
+  getSessionRosterView,
+} from "@/lib/portal";
 
 describe("permission matrix", () => {
   it("keeps instructor navigation limited to teaching surfaces", () => {
@@ -134,8 +140,213 @@ describe("permission matrix", () => {
 });
 
 describe("roster privacy", () => {
+  const rosterSource = {
+    enrollments: [
+      {
+        id: "enroll-1",
+        studentId: "student-1",
+        cohortId: "cohort-1",
+        status: "active" as const,
+        registeredAt: "2026-03-01",
+      },
+      {
+        id: "enroll-2",
+        studentId: "student-2",
+        cohortId: "cohort-1",
+        status: "active" as const,
+        registeredAt: "2026-03-01",
+      },
+      {
+        id: "enroll-3",
+        studentId: "student-3",
+        cohortId: "cohort-1",
+        status: "active" as const,
+        registeredAt: "2026-03-01",
+      },
+    ],
+    students: [
+      {
+        id: "student-1",
+        familyId: "family-1",
+        firstName: "Ava",
+        lastName: "Stone",
+        gradeLevel: "11",
+        school: "Great Valley",
+        targetTest: "SAT" as const,
+        focus: "Reading timing",
+      },
+      {
+        id: "student-2",
+        familyId: "family-2",
+        firstName: "Liam",
+        lastName: "Hart",
+        gradeLevel: "10",
+        school: "Conestoga",
+        targetTest: "SAT" as const,
+        focus: "Math pacing",
+      },
+      {
+        id: "student-3",
+        familyId: "family-3",
+        firstName: "Mia",
+        lastName: "Chen",
+        gradeLevel: "11",
+        school: "Radnor",
+        targetTest: "SAT" as const,
+        focus: "Module accuracy",
+      },
+    ],
+    families: [
+      {
+        id: "family-1",
+        familyName: "Stone",
+        guardianNames: ["Jordan Stone"],
+        email: "stone.family@intoprep.com",
+        phone: "(610) 555-1001",
+        preferredCampusId: "campus-real",
+        notes: "",
+      },
+      {
+        id: "family-2",
+        familyName: "Hart",
+        guardianNames: ["Riley Hart"],
+        email: "hart.family@intoprep.com",
+        phone: "(610) 555-1002",
+        preferredCampusId: "campus-real",
+        notes: "",
+      },
+      {
+        id: "family-3",
+        familyName: "Chen",
+        guardianNames: ["Casey Chen"],
+        email: "chen.family@intoprep.com",
+        phone: "(610) 555-1003",
+        preferredCampusId: "campus-real",
+        notes: "",
+      },
+    ],
+    assessments: [
+      {
+        id: "assessment-1",
+        cohortId: "cohort-1",
+        title: "Saturday benchmark",
+        date: "2026-03-14",
+        sections: [
+          { label: "Reading & Writing", score: 800 },
+          { label: "Math", score: 800 },
+        ],
+      },
+    ],
+    attendanceRecords: [
+      {
+        id: "session-1:student-1",
+        sessionId: "session-1",
+        studentId: "student-1",
+        status: "present" as const,
+        updatedBy: null,
+      },
+      {
+        id: "session-1:student-2",
+        sessionId: "session-1",
+        studentId: "student-2",
+        status: "tardy" as const,
+        updatedBy: null,
+      },
+      {
+        id: "session-1:student-3",
+        sessionId: "session-1",
+        studentId: "student-3",
+        status: "present" as const,
+        updatedBy: null,
+      },
+    ],
+    scoreTrends: [
+      {
+        studentId: "student-1",
+        points: [
+          { label: "Jan", score: 1380 },
+          { label: "Mar", score: 1450 },
+        ],
+      },
+      {
+        studentId: "student-2",
+        points: [
+          { label: "Jan", score: 1310 },
+          { label: "Mar", score: 1390 },
+        ],
+      },
+      {
+        studentId: "student-3",
+        points: [
+          { label: "Jan", score: 1400 },
+          { label: "Mar", score: 1470 },
+        ],
+      },
+    ],
+  };
+
+  const buildRosterContext = (role: "instructor" | "ta") => ({
+    ...getPortalContext(role),
+    user: {
+      id: `test-${role}`,
+      name: `Test ${role}`,
+      role,
+      title: role,
+      assignedCohortIds: ["cohort-1"],
+    },
+    visibleSessions: [
+      {
+        id: "session-1",
+        cohortId: "cohort-1",
+        title: "Saturday benchmark",
+        startAt: "2026-03-14T08:30:00-04:00",
+        endAt: "2026-03-14T11:30:00-04:00",
+        mode: "Hybrid" as const,
+        roomLabel: "Room A",
+      },
+    ],
+    visibleResults: [
+      {
+        id: "result-1",
+        assessmentId: "assessment-1",
+        studentId: "student-1",
+        totalScore: 1450,
+        sectionScores: [
+          { label: "Reading & Writing", score: 710 },
+          { label: "Math", score: 740 },
+        ],
+        deltaFromPrevious: 70,
+      },
+      {
+        id: "result-2",
+        assessmentId: "assessment-1",
+        studentId: "student-2",
+        totalScore: 1390,
+        sectionScores: [
+          { label: "Reading & Writing", score: 680 },
+          { label: "Math", score: 710 },
+        ],
+        deltaFromPrevious: 80,
+      },
+      {
+        id: "result-3",
+        assessmentId: "assessment-1",
+        studentId: "student-3",
+        totalScore: 1470,
+        sectionScores: [
+          { label: "Reading & Writing", score: 720 },
+          { label: "Math", score: 750 },
+        ],
+        deltaFromPrevious: 70,
+      },
+    ],
+  });
+
   it("sanitizes instructor roster data to names plus academic context only", () => {
-    const roster = getSessionRosterView("instructor", "session-sat-mock");
+    const roster = getSessionRosterView("instructor", "session-1", {
+      context: buildRosterContext("instructor"),
+      source: rosterSource,
+    });
 
     expect(roster).toHaveLength(3);
     expect(roster[0]?.studentName).toBeTruthy();
@@ -147,7 +358,10 @@ describe("roster privacy", () => {
   });
 
   it("preserves family contact visibility for TA roster support", () => {
-    const roster = getSessionRosterView("ta", "session-sat-mock");
+    const roster = getSessionRosterView("ta", "session-1", {
+      context: buildRosterContext("ta"),
+      source: rosterSource,
+    });
 
     expect(roster[0]?.familyEmail).toContain("@");
     expect(roster[0]?.familyPhone).toContain("(");

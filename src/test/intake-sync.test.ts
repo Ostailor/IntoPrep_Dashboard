@@ -5,9 +5,9 @@ describe("google forms sync source validation", () => {
   it("accepts https csv export urls", () => {
     expect(
       normalizeSourceUrl(
-        "https://docs.google.com/spreadsheets/d/demo/export?format=csv&gid=0",
+        "https://docs.google.com/spreadsheets/d/sheet123/export?format=csv&gid=0",
       ),
-    ).toBe("https://docs.google.com/spreadsheets/d/demo/export?format=csv&gid=0");
+    ).toBe("https://docs.google.com/spreadsheets/d/sheet123/export?format=csv&gid=0");
   });
 
   it("rejects invalid or unsupported urls", () => {

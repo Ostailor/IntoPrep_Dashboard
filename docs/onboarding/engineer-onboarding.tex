@@ -262,7 +262,7 @@ These tools are for platform operations only and should not replace normal admin
   \item sensitive access is audited
   \item dangerous actions require explicit confirmation
   \item engineer activity should stay inside the hosted app for production investigations
-  \item local development should stay on seeded or synthetic data
+  \item local development should stay on synthetic or isolated local data
 \end{itemize}
 
 \section*{Verified Behavior}
@@ -270,7 +270,7 @@ Verified in the live browser pass:
 \begin{itemize}
   \item engineer login succeeded
   \item engineer could access ``Roles and access''
-  \item engineer could create a break-glass grant for ``family-bennett''
+  \item engineer could create a scoped break-glass grant
   \item engineer could revoke that same grant successfully
   \item sensitive family context stayed redacted before grant access
 \end{itemize}
@@ -289,7 +289,7 @@ Verified in the live browser pass:
   \item review ``Operating pulse''
   \item open ``Roles and access''
   \item inspect the audit log
-  \item test one break-glass grant and revoke flow in the demo data
+  \item test one break-glass grant and revoke flow on a real support case when needed
   \item review current drift and sync warnings before governance changes
 \end{itemize}
 

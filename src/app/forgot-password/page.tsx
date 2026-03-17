@@ -113,7 +113,7 @@ export default async function ForgotPasswordPage({
                 name="email"
                 type="email"
                 className="w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm outline-none ring-0 focus:border-[rgba(187,110,69,0.34)]"
-                placeholder="admin@intoprep.dev"
+                placeholder="name@intoprep.com"
               />
             </div>
             <button

@@ -211,8 +211,7 @@ export async function PortalShell({
   const meta = sectionMeta[section];
   const currentUser = viewer.user;
   const baseContext = getPortalContext(role);
-  const livePortal =
-    viewer.mode !== "preview" ? await getLivePortalBundle(viewer.user, section) : null;
+  const livePortal = await getLivePortalBundle(viewer.user, section);
   const context = livePortal
     ? {
         ...baseContext,
@@ -239,10 +238,7 @@ export async function PortalShell({
         ...baseContext,
         user: currentUser,
       };
-  const liveAttendance =
-    viewer.mode !== "preview" && section === "attendance"
-      ? await getLiveAttendanceBundle(viewer.user)
-      : null;
+  const liveAttendance = section === "attendance" ? await getLiveAttendanceBundle(viewer.user) : null;
   const metrics = livePortal
     ? getDashboardMetricsFromContext(role, context)
     : getDashboardMetrics(role);
@@ -283,7 +279,7 @@ export async function PortalShell({
   const fallbackSection = getSectionFallback(role);
   const permissions = getPermissionProfile(role);
   const settingsReadinessRows =
-    viewer.mode !== "preview" && livePortal
+    livePortal
       ? [
           {
             label: "User access",
@@ -321,24 +317,27 @@ export async function PortalShell({
         ]
       : [
           {
-            label: "Preview access",
-            detail: "Preview mode uses sample account roles so you can review the dashboard layout and permissions.",
+            label: "Live data unavailable",
+            detail: "No live portal bundle was loaded for this request. The dashboard will stay empty until live records and server access are available.",
             tone: "warning" as const,
           },
           {
             label: "Program catalog",
-            detail: `${countLabel(context.visiblePrograms.length, "sample program")} with ${countLabel(context.visibleCampuses.length, "campus", "campuses")} and ${countLabel(context.visibleTerms.length, "term")} are available in preview mode.`,
-            tone: "healthy" as const,
+            detail: `${countLabel(context.visiblePrograms.length, "program")} with ${countLabel(context.visibleCampuses.length, "campus", "campuses")} and ${countLabel(context.visibleTerms.length, "term")} are currently loaded.`,
+            tone: context.visiblePrograms.length > 0 ? ("healthy" as const) : ("warning" as const),
           },
           {
             label: "Current records",
-            detail: `${context.visibleCohorts.length} cohorts and ${context.visibleStudents.length} students are available in preview mode.`,
-            tone: "healthy" as const,
+            detail: `${context.visibleCohorts.length} cohorts and ${context.visibleStudents.length} students are currently loaded.`,
+            tone: context.visibleCohorts.length > 0 ? ("healthy" as const) : ("warning" as const),
           },
           {
             label: "Assignment coverage",
-            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} sample role-to-cohort links show the intended access boundaries.`,
-            tone: "healthy" as const,
+            detail: `${settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0)} cohort assignment links are currently loaded.`,
+            tone:
+              settingsRoleRows.reduce((sum, row) => sum + row.assignmentLinks, 0) > 0
+                ? ("healthy" as const)
+                : ("warning" as const),
           },
         ];
 
@@ -399,7 +398,7 @@ export async function PortalShell({
   const previewChoices = (["admin", "staff", "ta", "instructor"] satisfies UserRole[]);
   const withPreviewRole = (path: string, candidateRole: UserRole) => `${path}?role=${candidateRole}`;
   const sectionHref = (path: string) =>
-    viewer.mode === "live-role-preview" || viewer.mode === "preview" ? withPreviewRole(path, role) : path;
+    viewer.mode === "live-role-preview" ? withPreviewRole(path, role) : path;
   const currentSectionHref = sectionHref(`/${section}`);
   const navHrefs = context.visibleSections
     .map((item) => sectionHref(`/${item}`))
@@ -419,7 +418,7 @@ export async function PortalShell({
 
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
-      <PortalLiveSync enabled={viewer.mode !== "preview"} section={section} />
+      <PortalLiveSync enabled section={section} />
       <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[320px] xl:overflow-y-auto">
@@ -518,20 +517,18 @@ export async function PortalShell({
                 ))}
               </div>
             ) : null}
-            {viewer.mode !== "preview" ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <DesktopUpdateButton />
-                <InstallAppButton />
-                <form action={signOutAction}>
-                  <button
-                    type="submit"
-                    className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)] hover:bg-stone-50"
-                  >
-                    Sign out
-                  </button>
-                </form>
-              </div>
-            ) : null}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <DesktopUpdateButton />
+              <InstallAppButton />
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)] hover:bg-stone-50"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
           </div>
 
           <div className="mt-6 rounded-[1.75rem] border border-[color:var(--line)] bg-white/65 p-4">
@@ -632,30 +629,11 @@ export async function PortalShell({
 
               <div className="w-full max-w-xl rounded-[1.75rem] border border-[color:var(--line)] bg-[rgba(255,255,255,0.72)] p-4">
                 <div className="section-kicker">{viewer.mode === "live" ? "Account" : "Preview role"}</div>
-                {viewer.mode === "preview" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(Object.keys(roleLabels) as UserRole[]).map((candidate) => (
-                      <Link
-                        key={candidate}
-                        href={withPreviewRole(`/${section}`, candidate)}
-                        className={clsx(
-                          "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
-                          candidate === role
-                            ? roleAccent[candidate]
-                            : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-stone-50",
-                        )}
-                      >
-                        {roleLabels[candidate]}
-                      </Link>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-[1.25rem] border border-[rgba(45,125,99,0.18)] bg-[rgba(45,125,99,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
-                    {viewer.mode === "live-role-preview"
-                      ? `Signed in as ${currentUser.name}. Preview writes are blocked.`
-                      : `Signed in as ${currentUser.name}.`}
-                  </div>
-                )}
+                <div className="mt-3 rounded-[1.25rem] border border-[rgba(45,125,99,0.18)] bg-[rgba(45,125,99,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+                  {viewer.mode === "live-role-preview"
+                    ? `Signed in as ${currentUser.name}. Preview writes are blocked.`
+                    : `Signed in as ${currentUser.name}.`}
+                </div>
                 <div className="mt-4 flex items-center gap-3 text-sm text-[color:var(--muted)]">
                   <Clock3 className="h-4 w-4" />
                   {formatLongDate(snapshotDate)}
@@ -811,8 +789,8 @@ export async function PortalShell({
                 billingRows,
                 programRows,
                 settingsRoleRows,
-                settingsUsers: viewer.mode !== "preview" ? livePortal?.settingsUsers ?? null : null,
-                settingsAuditLogs: viewer.mode !== "preview" ? livePortal?.settingsAuditLogs ?? null : null,
+                settingsUsers: livePortal?.settingsUsers ?? null,
+                settingsAuditLogs: livePortal?.settingsAuditLogs ?? null,
                 adminOps,
                 staffOps,
                 taOps,
@@ -1849,7 +1827,7 @@ function renderSectionContent({
               viewerId={viewerId}
               viewerRole={role}
               viewerMode={viewerMode}
-              users={viewerMode !== "preview" ? settingsUsers : null}
+              users={settingsUsers}
               cohorts={context.visibleCohorts.map((cohort) => ({
                 id: cohort.id,
                 name: cohort.name,

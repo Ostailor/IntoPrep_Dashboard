@@ -543,7 +543,7 @@ export function RoleManagementPanel({
                     setCreateForm((current) => ({ ...current, email }));
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)] outline-none focus:border-[rgba(187,110,69,0.34)]"
-                  placeholder="admin2@intoprep.dev"
+                  placeholder="new.staff@intoprep.com"
                   type="email"
                   disabled={readOnly}
                 />

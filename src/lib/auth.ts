@@ -1,7 +1,6 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import type { AccountStatus, User, UserRole } from "@/lib/domain";
-import { users } from "@/lib/mock-data";
 import { normalizeRole } from "@/lib/permissions";
 import type { Database } from "@/lib/supabase/database.types";
 import { isSupabaseConfigured, hasSupabaseServiceRole } from "@/lib/supabase/config";
@@ -9,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 export interface PortalViewer {
-  mode: "preview" | "live" | "live-role-preview";
+  mode: "live" | "live-role-preview";
   user: User;
   email?: string;
   accountStatus?: AccountStatus;
@@ -19,18 +18,12 @@ export interface PortalViewer {
   previewSourceName?: string | null;
 }
 
-const previewUsersByRole = new Map(users.map((user) => [user.role, user]));
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type UserTemplateRow = Database["public"]["Tables"]["user_templates"]["Row"];
 type CohortAssignmentRow = Database["public"]["Tables"]["cohort_assignments"]["Row"];
 
-function getPreviewViewer(roleInput?: string | string[]): PortalViewer {
-  const role = normalizeRole(roleInput);
-  const user = previewUsersByRole.get(role) ?? previewUsersByRole.get("admin")!;
-  return {
-    mode: "preview",
-    user,
-  };
+function formatPreviewTitle(role: UserRole) {
+  return `${role[0]?.toUpperCase()}${role.slice(1)} preview`;
 }
 
 async function ensureLiveProfile(
@@ -217,25 +210,19 @@ async function resolveLiveRolePreview(
       : ((previewAssignments.data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[]).map(
           (assignment) => assignment.cohort_id,
         );
-  const fallbackPreview = previewUsersByRole.get(normalizedPreviewRole);
 
   return {
     ...viewer,
     mode: "live-role-preview",
     previewRole: normalizedPreviewRole,
-    previewSourceUserId: previewProfile?.id ?? fallbackPreview?.id ?? null,
-    previewSourceName: previewProfile?.full_name ?? fallbackPreview?.name ?? null,
+    previewSourceUserId: previewProfile?.id ?? null,
+    previewSourceName: previewProfile?.full_name ?? null,
     user: {
       id: viewer.user.id,
       name: viewer.user.name,
       role: normalizedPreviewRole,
-      title: fallbackPreview?.title ?? `${normalizedPreviewRole[0]?.toUpperCase()}${normalizedPreviewRole.slice(1)} preview`,
-      assignedCohortIds:
-        previewProfile || fallbackPreview
-          ? assignedCohortIds.length > 0
-            ? assignedCohortIds
-            : fallbackPreview?.assignedCohortIds ?? []
-          : [],
+      title: previewProfile?.title ?? formatPreviewTitle(normalizedPreviewRole),
+      assignedCohortIds,
     },
   };
 }
@@ -248,7 +235,7 @@ export async function resolvePortalViewer({
   path: string;
 }): Promise<PortalViewer> {
   if (!isSupabaseConfigured()) {
-    return getPreviewViewer(previewRole);
+    redirect("/login?error=Portal%20authentication%20is%20not%20configured.");
   }
 
   const supabase = await createSupabaseServerClient();
