@@ -37,7 +37,7 @@ type PortalReleaseMetadataRow = Database["public"]["Tables"]["portal_release_met
 type IntakeImportRunRow = Database["public"]["Tables"]["intake_import_runs"]["Row"];
 
 export const BREAK_GLASS_DURATION_MINUTES = 30;
-export const CURRENT_SCHEMA_VERSION = "20260316170000_admin_archive_controls";
+export const CURRENT_SCHEMA_VERSION = "20260317123000_remove_demo_seed_data";
 
 export interface SensitiveAccessMap {
   grants: SensitiveAccessGrant[];
