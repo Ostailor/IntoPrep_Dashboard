@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   canAccessSection,
+  canManageAdminAnnouncements,
+  canManageBillingFollowUp,
+  canManageBulkOperations,
   canManageCohortAssignments,
+  canManageOperationalTasks,
+  canManageSavedViews,
+  canManageSchedules,
   canDeleteRole,
   canGrantSensitiveAccess,
   canManageFeatureFlags,
@@ -9,8 +15,13 @@ import {
   canPreviewRoles,
   canProvisionRole,
   canRevokeSessions,
+  canRunIntakeImports,
   canSendPasswordResetForRole,
   canSuspendRole,
+  canStartFamilyThreads,
+  canUpdateAssignedTasks,
+  canUpdateSessionChecklists,
+  canViewFamilyContactBasics,
   canViewAllSyncJobs,
   getVisibleSections,
 } from "@/lib/permissions";
@@ -23,21 +34,38 @@ describe("permission matrix", () => {
       "calendar",
       "cohorts",
       "attendance",
+      "academics",
     ]);
-    expect(canAccessSection("instructor", "academics")).toBe(false);
+    expect(canAccessSection("instructor", "academics")).toBe(true);
+    expect(canAccessSection("instructor", "students")).toBe(false);
+    expect(canAccessSection("instructor", "messaging")).toBe(false);
+    expect(canViewFamilyContactBasics("instructor")).toBe(false);
+    expect(canUpdateAssignedTasks("instructor")).toBe(true);
+    expect(canStartFamilyThreads("instructor")).toBe(false);
+    expect(canRunIntakeImports("instructor")).toBe(false);
     expect(getSectionFallback("instructor")).toBe("dashboard");
   });
 
   it("blocks billing for TAs while leaving student-facing support surfaces open", () => {
     expect(canAccessSection("ta", "billing")).toBe(false);
     expect(canAccessSection("ta", "messaging")).toBe(true);
+    expect(canAccessSection("ta", "programs")).toBe(false);
+    expect(canAccessSection("ta", "settings")).toBe(false);
     expect(getBillingRows("ta")).toEqual([]);
+  });
+
+  it("gives TAs support-only permissions inside assigned cohorts", () => {
+    expect(canViewFamilyContactBasics("ta")).toBe(true);
+    expect(canUpdateSessionChecklists("ta")).toBe(true);
+    expect(canStartFamilyThreads("ta")).toBe(true);
+    expect(canRunIntakeImports("ta")).toBe(false);
   });
 
   it("keeps integrations visible to staff but still hides settings", () => {
     expect(canAccessSection("staff", "integrations")).toBe(true);
     expect(canAccessSection("staff", "settings")).toBe(false);
     expect(canViewAllSyncJobs("staff")).toBe(true);
+    expect(canRunIntakeImports("staff")).toBe(true);
   });
 
   it("gives engineer full portal access including settings", () => {
@@ -87,8 +115,21 @@ describe("permission matrix", () => {
     expect(canSendPasswordResetForRole("admin", "admin")).toBe(false);
     expect(canSendPasswordResetForRole("admin", "instructor")).toBe(true);
     expect(canManageCohortAssignments("admin", "ta")).toBe(true);
-    expect(canManageCohortAssignments("admin", "staff")).toBe(false);
+    expect(canManageCohortAssignments("admin", "staff")).toBe(true);
     expect(canManageCohortAssignments("engineer", "instructor")).toBe(true);
+  });
+
+  it("gives admin explicit operations controls without engineer-only escalation tools", () => {
+    expect(canManageBillingFollowUp("admin")).toBe(true);
+    expect(canManageOperationalTasks("admin")).toBe(true);
+    expect(canManageSavedViews("admin")).toBe(true);
+    expect(canManageAdminAnnouncements("admin")).toBe(true);
+    expect(canManageSchedules("admin")).toBe(true);
+    expect(canManageBulkOperations("admin")).toBe(true);
+    expect(canGrantSensitiveAccess("admin")).toBe(false);
+    expect(canPreviewRoles("admin")).toBe(false);
+    expect(canRevokeSessions("admin")).toBe(false);
+    expect(canManageFeatureFlags("admin")).toBe(false);
   });
 });
 

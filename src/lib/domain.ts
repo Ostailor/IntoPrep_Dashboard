@@ -27,6 +27,58 @@ export type SyncStatus = "healthy" | "warning" | "error";
 export type ProgramTrack = "SAT" | "ACT" | "Admissions" | "Support";
 export type SensitiveScopeType = "student" | "family" | "billing" | "support_case";
 export type IntegrationControlState = "active" | "paused" | "maintenance";
+export type BillingFollowUpState = "open" | "in_progress" | "resolved";
+export type LeadStage = "inquiry" | "assessment" | "registered" | "waitlist";
+export type AdminTaskType =
+  | "billing_follow_up"
+  | "family_communication"
+  | "attendance_follow_up"
+  | "score_cleanup"
+  | "cohort_staffing";
+export type AdminTaskStatus = "open" | "in_progress" | "done";
+export type AdminTaskTargetType = "invoice" | "family" | "cohort" | "student" | "user";
+export type ContactSource = "email" | "phone" | "sms" | "meeting" | "portal_message";
+export type CapacityForecastState = "near_full" | "balanced" | "underfilled";
+export type TaskActivityNoteType = "progress" | "handoff" | "blocker";
+export type ApprovalRequestStatus = "pending" | "approved" | "rejected" | "withdrawn";
+export type ApprovalRequestType =
+  | "bulk_cohort_move"
+  | "staffing_change"
+  | "archive_restore"
+  | "billing_export"
+  | "source_configuration";
+export type ApprovalTargetType =
+  | "cohort"
+  | "session"
+  | "invoice"
+  | "family"
+  | "integration_source";
+export type AdminEscalationStatus = "open" | "acknowledged" | "closed";
+export type AdminEscalationSourceType =
+  | "task"
+  | "lead"
+  | "billing_follow_up"
+  | "family"
+  | "thread"
+  | "cohort"
+  | "session";
+export type OutreachTemplateCategory =
+  | "schedule_change"
+  | "missed_attendance"
+  | "score_follow_up"
+  | "billing_handoff"
+  | "general";
+export type MessageThreadCategory = "attendance" | "scheduling" | "academic_follow_up";
+export type AttendanceExceptionFlagType =
+  | "late_pattern"
+  | "missing_guardian_reply"
+  | "needs_staff_follow_up";
+export type SessionCoverageStatus =
+  | "needs_substitute"
+  | "availability_change"
+  | "clear";
+export type InstructorFollowUpTargetType = "student" | "session";
+export type InstructorFollowUpStatus = "open" | "acknowledged" | "resolved";
 
 export interface User {
   id: string;
@@ -41,8 +93,12 @@ export interface Lead {
   studentName: string;
   guardianName: string;
   targetProgram: string;
-  stage: "inquiry" | "assessment" | "registered" | "waitlist";
+  stage: LeadStage;
   submittedAt: string;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  followUpDueAt?: string | null;
+  notes?: string | null;
 }
 
 export interface Family {
@@ -162,9 +218,43 @@ export interface AcademicNote {
   id: string;
   studentId: string;
   authorId: string;
+  authorName?: string | null;
   visibility: "internal";
   summary: string;
   createdAt: string;
+}
+
+export interface SessionInstructionNote {
+  id: string;
+  sessionId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InstructionalAccommodation {
+  id: string;
+  studentId: string;
+  title: string;
+  detail: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InstructorFollowUpFlag {
+  id: string;
+  targetType: InstructorFollowUpTargetType;
+  targetId: string;
+  cohortId: string;
+  summary: string;
+  note?: string | null;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  status: InstructorFollowUpStatus;
 }
 
 export interface Resource {
@@ -184,6 +274,10 @@ export interface Invoice {
   dueDate: string;
   status: "paid" | "pending" | "overdue";
   source: "QuickBooks" | "Manual";
+  followUpState?: BillingFollowUpState;
+  lastFollowUpAt?: string | null;
+  lastFollowUpBy?: string | null;
+  lastFollowUpByName?: string | null;
   sensitiveAccessGranted?: boolean;
 }
 
@@ -198,6 +292,8 @@ export interface Payment {
 export interface MessageThread {
   id: string;
   cohortId: string;
+  familyId?: string | null;
+  category?: MessageThreadCategory | null;
   subject: string;
   participants: string[];
   lastMessagePreview: string;
@@ -295,6 +391,178 @@ export interface Task {
   title: string;
   dueLabel: string;
   status: "active" | "watch";
+}
+
+export interface BillingFollowUpNote {
+  id: string;
+  invoiceId: string;
+  familyId: string;
+  authorId: string | null;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface AdminTask {
+  id: string;
+  taskType: AdminTaskType;
+  targetType: AdminTaskTargetType;
+  targetId: string;
+  title: string;
+  details?: string | null;
+  assignedTo: string | null;
+  assignedToName?: string | null;
+  dueAt?: string | null;
+  status: AdminTaskStatus;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskActivity {
+  id: string;
+  taskId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  noteType: TaskActivityNoteType;
+  statusFrom?: AdminTaskStatus | null;
+  statusTo?: AdminTaskStatus | null;
+  createdAt: string;
+}
+
+export interface AdminSavedView {
+  id: string;
+  name: string;
+  section: PortalSection;
+  filterState: Record<string, string | string[] | boolean | number>;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FamilyContactEvent {
+  id: string;
+  familyId: string;
+  contactSource: ContactSource;
+  summary: string;
+  outcome: string;
+  actorId: string | null;
+  actorName: string;
+  contactAt: string;
+  createdAt: string;
+}
+
+export interface SessionChecklist {
+  id: string;
+  sessionId: string;
+  roomConfirmed: boolean;
+  rosterReviewed: boolean;
+  materialsReady: boolean;
+  familyNoticeSentIfNeeded: boolean;
+  attendanceComplete: boolean;
+  scoresLoggedIfNeeded: boolean;
+  followUpSentIfNeeded: boolean;
+  notesClosedOut: boolean;
+  updatedBy?: string | null;
+  updatedByName?: string | null;
+  updatedAt: string;
+}
+
+export interface SessionHandoffNote {
+  id: string;
+  sessionId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface AttendanceExceptionFlag {
+  id: string;
+  sessionId: string;
+  studentId: string;
+  flagType: AttendanceExceptionFlagType;
+  note: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface SessionCoverageFlag {
+  id: string;
+  sessionId: string;
+  status: SessionCoverageStatus;
+  note: string;
+  updatedBy: string;
+  updatedByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  requestType: ApprovalRequestType;
+  targetType: ApprovalTargetType;
+  targetId: string;
+  reason: string;
+  handoffNote?: string | null;
+  requestedBy: string;
+  requestedByName: string;
+  status: ApprovalRequestStatus;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
+export interface AdminEscalation {
+  id: string;
+  sourceType: AdminEscalationSourceType;
+  sourceId: string;
+  reason: string;
+  handoffNote?: string | null;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  status: AdminEscalationStatus;
+}
+
+export interface OutreachTemplate {
+  id: string;
+  ownerId: string;
+  title: string;
+  category: OutreachTemplateCategory;
+  subject: string;
+  body: string;
+  updatedAt: string;
+}
+
+export interface AdminAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  tone: "info" | "warning";
+  visibleRoles: UserRole[];
+  isActive: boolean;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startsAt: string;
+  expiresAt?: string | null;
+}
+
+export interface CapacityForecastRow {
+  cohortId: string;
+  cohortName: string;
+  enrolled: number;
+  capacity: number;
+  fillRate: number;
+  state: CapacityForecastState;
+  detail: string;
 }
 
 export interface SensitiveAccessGrant {

@@ -49,7 +49,7 @@ async function ensureLiveProfile(
     .maybeSingle();
   const existingProfile = (existingProfileResult.data ?? null) as ProfileRow | null;
   const templateResult =
-    !existingProfile && normalizedEmail
+    normalizedEmail
       ? await serviceClient
           .from("user_templates")
           .select("*")
@@ -88,6 +88,7 @@ async function ensureLiveProfile(
     existingProfile.title !== title ||
     existingProfile.account_status !== accountStatus ||
     existingProfile.must_change_password !== mustChangePassword;
+  const lastSignedInAt = new Date().toISOString();
 
   if (needsProfileUpsert) {
     await serviceClient.from("profiles").upsert({
@@ -98,20 +99,49 @@ async function ensureLiveProfile(
       title,
       account_status: accountStatus,
       must_change_password: mustChangePassword,
+      last_signed_in_at: lastSignedInAt,
     });
+  } else {
+    await serviceClient
+      .from("profiles")
+      .update({ last_signed_in_at: lastSignedInAt })
+      .eq("id", authUser.id);
   }
 
-  if (template && !existingProfile) {
-    const desiredAssignments = template.assigned_cohort_ids.map((cohortId) => ({
-      cohort_id: cohortId,
-      user_id: authUser.id,
-      role: template.role,
-    }));
+  if (template) {
+    const currentAssignmentsResult = await serviceClient
+      .from("cohort_assignments")
+      .select("cohort_id,role")
+      .eq("user_id", authUser.id);
+    const currentAssignments =
+      (currentAssignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id" | "role">[];
+    const desiredAssignmentIds = new Set(template.assigned_cohort_ids);
+    const assignmentsToUpsert = template.assigned_cohort_ids
+      .filter((cohortId) => {
+        const currentAssignment = currentAssignments.find((assignment) => assignment.cohort_id === cohortId);
+        return !currentAssignment || currentAssignment.role !== template.role;
+      })
+      .map((cohortId) => ({
+        cohort_id: cohortId,
+        user_id: authUser.id,
+        role: template.role,
+      }));
+    const assignmentsToDelete = currentAssignments
+      .filter((assignment) => !desiredAssignmentIds.has(assignment.cohort_id))
+      .map((assignment) => assignment.cohort_id);
 
-    if (desiredAssignments.length > 0) {
+    if (assignmentsToUpsert.length > 0) {
       await serviceClient
         .from("cohort_assignments")
-        .upsert(desiredAssignments, { onConflict: "user_id,cohort_id" });
+        .upsert(assignmentsToUpsert, { onConflict: "user_id,cohort_id" });
+    }
+
+    if (assignmentsToDelete.length > 0) {
+      await serviceClient
+        .from("cohort_assignments")
+        .delete()
+        .eq("user_id", authUser.id)
+        .in("cohort_id", assignmentsToDelete);
     }
   }
   const assignmentsResult = await serviceClient
@@ -130,6 +160,7 @@ async function ensureLiveProfile(
           title,
           account_status: accountStatus,
           must_change_password: mustChangePassword,
+          last_signed_in_at: lastSignedInAt,
         } as ProfileRow)
       : existingProfile;
 

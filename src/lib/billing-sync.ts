@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type { BillingSyncRun, BillingSyncSource, SyncStatus, User } from "@/lib/domain";
 import { parseCsv } from "@/lib/intake-import";
 import { normalizeSourceUrl } from "@/lib/intake-sync-shared";
-import { canRunIntakeImports } from "@/lib/permissions";
+import { canManageSyncSources, canRunIntakeImports } from "@/lib/permissions";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   finalizeSyncRun,
@@ -282,7 +282,7 @@ export async function saveQuickBooksSyncSource({
     throw new Error("Supabase service-role access is required for QuickBooks sync.");
   }
 
-  if (!canRunIntakeImports(viewer.role)) {
+  if (!canManageSyncSources(viewer.role)) {
     throw new Error("You cannot configure QuickBooks sync.");
   }
 

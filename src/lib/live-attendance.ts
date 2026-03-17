@@ -1,4 +1,9 @@
-import type { User } from "@/lib/domain";
+import type {
+  AttendanceExceptionFlag,
+  SessionCoverageFlag,
+  SessionHandoffNote,
+  User,
+} from "@/lib/domain";
 import { canViewFamilyAttendanceContext, viewerCanAccessCohort } from "@/lib/attendance";
 import { formatTimeRange, type SessionRosterRow } from "@/lib/portal";
 import { hasGlobalPortalScope } from "@/lib/permissions";
@@ -20,11 +25,17 @@ type AttendanceRecordRow = Database["public"]["Tables"]["attendance_records"]["R
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 type FamilyRow = Database["public"]["Tables"]["families"]["Row"];
 type CohortAssignmentRow = Database["public"]["Tables"]["cohort_assignments"]["Row"];
+type SessionHandoffNoteRow = Database["public"]["Tables"]["session_handoff_notes"]["Row"];
+type AttendanceExceptionFlagRow = Database["public"]["Tables"]["attendance_exception_flags"]["Row"];
+type SessionCoverageFlagRow = Database["public"]["Tables"]["session_coverage_flags"]["Row"];
 
 export interface LiveAttendanceBundle {
   currentDate: string;
   sessions: AttendanceSessionCard[];
   rosters: Record<string, SessionRosterRow[]>;
+  handoffNotes: SessionHandoffNote[];
+  exceptionFlags: AttendanceExceptionFlag[];
+  coverageFlags: SessionCoverageFlag[];
 }
 
 function getNewYorkDate() {
@@ -130,13 +141,16 @@ export async function getLiveAttendanceBundle(
       currentDate,
       sessions: [],
       rosters: {},
+      handoffNotes: [],
+      exceptionFlags: [],
+      coverageFlags: [],
     };
   }
 
   const cohortIds = Array.from(new Set(sessions.map((session) => session.cohort_id)));
   const sessionIds = sessions.map((session) => session.id);
 
-  const [enrollmentsResult, attendanceRecordsResult, assessmentsResult, allAssessmentsResult] =
+  const [enrollmentsResult, attendanceRecordsResult, assessmentsResult, allAssessmentsResult, handoffNotesResult, exceptionFlagsResult, coverageFlagsResult] =
     await Promise.all([
     serviceClient
       .from("enrollments")
@@ -146,11 +160,29 @@ export async function getLiveAttendanceBundle(
     serviceClient.from("attendance_records").select("*").in("session_id", sessionIds),
     serviceClient.from("assessments").select("*").in("cohort_id", cohortIds).eq("date", currentDate),
     serviceClient.from("assessments").select("*").in("cohort_id", cohortIds).order("date", { ascending: true }),
+    serviceClient
+      .from("session_handoff_notes")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("created_at", { ascending: false }),
+    serviceClient
+      .from("attendance_exception_flags")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("created_at", { ascending: false }),
+    serviceClient
+      .from("session_coverage_flags")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("updated_at", { ascending: false }),
   ]);
   const enrollments = (enrollmentsResult.data ?? []) as EnrollmentRow[];
   const attendanceRecords = (attendanceRecordsResult.data ?? []) as AttendanceRecordRow[];
   const assessments = (assessmentsResult.data ?? []) as AssessmentRow[];
   const allAssessments = (allAssessmentsResult.data ?? []) as AssessmentRow[];
+  const handoffNoteRows = (handoffNotesResult.data ?? []) as SessionHandoffNoteRow[];
+  const exceptionFlagRows = (exceptionFlagsResult.data ?? []) as AttendanceExceptionFlagRow[];
+  const coverageFlagRows = (coverageFlagsResult.data ?? []) as SessionCoverageFlagRow[];
 
   const studentIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.student_id)));
   const assessmentIds = assessments.map((assessment) => assessment.id);
@@ -165,7 +197,15 @@ export async function getLiveAttendanceBundle(
     ? Array.from(new Set(studentRows.map((student) => student.family_id)))
     : [];
 
-  const [familiesResult, todayResultsResult, historicalResultsResult] = await Promise.all([
+  const supportProfileIds = Array.from(
+    new Set([
+      ...handoffNoteRows.map((note) => note.author_id),
+      ...exceptionFlagRows.map((flag) => flag.created_by),
+      ...coverageFlagRows.map((flag) => flag.updated_by),
+    ]),
+  );
+
+  const [familiesResult, todayResultsResult, historicalResultsResult, supportProfilesResult] = await Promise.all([
     familyIds.length > 0
       ? serviceClient.from("families").select("id, email, phone").in("id", familyIds)
       : Promise.resolve({ data: [] }),
@@ -175,14 +215,22 @@ export async function getLiveAttendanceBundle(
     allAssessmentIds.length > 0
       ? serviceClient.from("assessment_results").select("*").in("assessment_id", allAssessmentIds)
       : Promise.resolve({ data: [], error: null }),
+    supportProfileIds.length > 0
+      ? serviceClient.from("profiles").select("id, full_name").in("id", supportProfileIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const familyRows = (familiesResult.data ?? []) as Pick<FamilyRow, "id" | "email" | "phone">[];
   const todayResults = (todayResultsResult.data ?? []) as AssessmentResultRow[];
   const historicalResults = (historicalResultsResult.data ?? []) as AssessmentResultRow[];
+  const supportProfiles = (supportProfilesResult.data ?? []) as Pick<
+    Database["public"]["Tables"]["profiles"]["Row"],
+    "id" | "full_name"
+  >[];
 
   const studentMap = new Map(studentRows.map((student) => [student.id, student]));
   const familyMap = new Map(familyRows.map((family) => [family.id, family]));
+  const supportProfilesById = new Map(supportProfiles.map((profile) => [profile.id, profile]));
   const todayAssessmentByCohort = new Map(assessments.map((assessment) => [assessment.cohort_id, assessment]));
   const todayResultByStudent = new Map(todayResults.map((result) => [result.student_id, result]));
   const trendMap = buildStudentTrendMap(allAssessments, historicalResults);
@@ -248,6 +296,58 @@ export async function getLiveAttendanceBundle(
       roomLabel: session.room_label,
     })),
     rosters,
+    handoffNotes: handoffNoteRows.map((note) => ({
+      id: note.id,
+      sessionId: note.session_id,
+      authorId: note.author_id,
+      authorName: supportProfilesById.get(note.author_id)?.full_name ?? "IntoPrep TA",
+      body: note.body,
+      createdAt: note.created_at,
+    })),
+    exceptionFlags: exceptionFlagRows.flatMap((flag) => {
+      if (
+        flag.flag_type !== "late_pattern" &&
+        flag.flag_type !== "missing_guardian_reply" &&
+        flag.flag_type !== "needs_staff_follow_up"
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          id: flag.id,
+          sessionId: flag.session_id,
+          studentId: flag.student_id,
+          flagType: flag.flag_type,
+          note: flag.note,
+          createdBy: flag.created_by,
+          createdByName: supportProfilesById.get(flag.created_by)?.full_name ?? "IntoPrep TA",
+          createdAt: flag.created_at,
+        },
+      ];
+    }),
+    coverageFlags: coverageFlagRows.flatMap((flag) => {
+      if (
+        flag.status !== "needs_substitute" &&
+        flag.status !== "availability_change" &&
+        flag.status !== "clear"
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          id: flag.id,
+          sessionId: flag.session_id,
+          status: flag.status,
+          note: flag.note,
+          updatedBy: flag.updated_by,
+          updatedByName: supportProfilesById.get(flag.updated_by)?.full_name ?? "IntoPrep TA",
+          createdAt: flag.created_at,
+          updatedAt: flag.updated_at,
+        },
+      ];
+    }),
   };
 }
 

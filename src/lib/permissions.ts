@@ -9,6 +9,7 @@ export interface PermissionProfile {
   accessibleSections: PortalSection[];
   canViewBilling: boolean;
   canViewFamilyProfiles: boolean;
+  canViewFamilyContactBasics: boolean;
   canViewStudentProfileData: boolean;
   canManageScores: boolean;
   canMessageFamilies: boolean;
@@ -21,6 +22,27 @@ export interface PermissionProfile {
   canPreviewRoles: boolean;
   canRevokeSessions: boolean;
   canManageFeatureFlags: boolean;
+  canManageBillingFollowUp: boolean;
+  canExportBilling: boolean;
+  canManageOperationalTasks: boolean;
+  canManageSavedViews: boolean;
+  canManageAdminAnnouncements: boolean;
+  canManageSchedules: boolean;
+  canManageBulkOperations: boolean;
+  canRunRoutineImports: boolean;
+  canManageSyncSources: boolean;
+  canUpdateAssignedTasks: boolean;
+  canEditSessions: boolean;
+  canMoveSingleEnrollment: boolean;
+  canManageAssignedBillingFollowUp: boolean;
+  canLogFamilyContact: boolean;
+  canClaimLeads: boolean;
+  canEscalateToAdmin: boolean;
+  canSubmitApprovalRequests: boolean;
+  canManageOwnTemplates: boolean;
+  canUpdateSessionChecklists: boolean;
+  canSavePersonalViews: boolean;
+  canStartFamilyThreads: boolean;
 }
 
 const permissionProfiles: Record<UserRole, PermissionProfile> = {
@@ -28,6 +50,7 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     accessibleSections: [...PORTAL_SECTIONS],
     canViewBilling: false,
     canViewFamilyProfiles: false,
+    canViewFamilyContactBasics: false,
     canViewStudentProfileData: false,
     canManageScores: true,
     canMessageFamilies: true,
@@ -40,11 +63,33 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canPreviewRoles: true,
     canRevokeSessions: true,
     canManageFeatureFlags: true,
+    canManageBillingFollowUp: false,
+    canExportBilling: false,
+    canManageOperationalTasks: false,
+    canManageSavedViews: false,
+    canManageAdminAnnouncements: false,
+    canManageSchedules: false,
+    canManageBulkOperations: false,
+    canRunRoutineImports: true,
+    canManageSyncSources: true,
+    canUpdateAssignedTasks: false,
+    canEditSessions: false,
+    canMoveSingleEnrollment: false,
+    canManageAssignedBillingFollowUp: false,
+    canLogFamilyContact: false,
+    canClaimLeads: false,
+    canEscalateToAdmin: false,
+    canSubmitApprovalRequests: false,
+    canManageOwnTemplates: false,
+    canUpdateSessionChecklists: true,
+    canSavePersonalViews: false,
+    canStartFamilyThreads: true,
   },
   admin: {
     accessibleSections: [...PORTAL_SECTIONS],
     canViewBilling: true,
     canViewFamilyProfiles: true,
+    canViewFamilyContactBasics: true,
     canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
@@ -57,6 +102,27 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canPreviewRoles: false,
     canRevokeSessions: false,
     canManageFeatureFlags: false,
+    canManageBillingFollowUp: true,
+    canExportBilling: true,
+    canManageOperationalTasks: true,
+    canManageSavedViews: true,
+    canManageAdminAnnouncements: true,
+    canManageSchedules: true,
+    canManageBulkOperations: true,
+    canRunRoutineImports: true,
+    canManageSyncSources: true,
+    canUpdateAssignedTasks: true,
+    canEditSessions: true,
+    canMoveSingleEnrollment: true,
+    canManageAssignedBillingFollowUp: true,
+    canLogFamilyContact: true,
+    canClaimLeads: true,
+    canEscalateToAdmin: true,
+    canSubmitApprovalRequests: true,
+    canManageOwnTemplates: true,
+    canUpdateSessionChecklists: true,
+    canSavePersonalViews: true,
+    canStartFamilyThreads: true,
   },
   staff: {
     accessibleSections: [
@@ -74,6 +140,7 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     ],
     canViewBilling: true,
     canViewFamilyProfiles: true,
+    canViewFamilyContactBasics: true,
     canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
@@ -86,6 +153,27 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canPreviewRoles: false,
     canRevokeSessions: false,
     canManageFeatureFlags: false,
+    canManageBillingFollowUp: false,
+    canExportBilling: false,
+    canManageOperationalTasks: false,
+    canManageSavedViews: false,
+    canManageAdminAnnouncements: false,
+    canManageSchedules: false,
+    canManageBulkOperations: false,
+    canRunRoutineImports: true,
+    canManageSyncSources: false,
+    canUpdateAssignedTasks: true,
+    canEditSessions: true,
+    canMoveSingleEnrollment: true,
+    canManageAssignedBillingFollowUp: true,
+    canLogFamilyContact: true,
+    canClaimLeads: true,
+    canEscalateToAdmin: true,
+    canSubmitApprovalRequests: true,
+    canManageOwnTemplates: true,
+    canUpdateSessionChecklists: true,
+    canSavePersonalViews: true,
+    canStartFamilyThreads: true,
   },
   ta: {
     accessibleSections: [
@@ -99,7 +187,8 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
       "messaging",
     ],
     canViewBilling: false,
-    canViewFamilyProfiles: true,
+    canViewFamilyProfiles: false,
+    canViewFamilyContactBasics: true,
     canViewStudentProfileData: true,
     canManageScores: true,
     canMessageFamilies: true,
@@ -112,23 +201,66 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canPreviewRoles: false,
     canRevokeSessions: false,
     canManageFeatureFlags: false,
+    canManageBillingFollowUp: false,
+    canExportBilling: false,
+    canManageOperationalTasks: false,
+    canManageSavedViews: false,
+    canManageAdminAnnouncements: false,
+    canManageSchedules: false,
+    canManageBulkOperations: false,
+    canRunRoutineImports: false,
+    canManageSyncSources: false,
+    canUpdateAssignedTasks: true,
+    canEditSessions: false,
+    canMoveSingleEnrollment: false,
+    canManageAssignedBillingFollowUp: false,
+    canLogFamilyContact: false,
+    canClaimLeads: false,
+    canEscalateToAdmin: false,
+    canSubmitApprovalRequests: false,
+    canManageOwnTemplates: false,
+    canUpdateSessionChecklists: true,
+    canSavePersonalViews: false,
+    canStartFamilyThreads: true,
   },
   instructor: {
-    accessibleSections: ["dashboard", "calendar", "cohorts", "attendance"],
+    accessibleSections: ["dashboard", "calendar", "cohorts", "attendance", "academics"],
     canViewBilling: false,
     canViewFamilyProfiles: false,
+    canViewFamilyContactBasics: false,
     canViewStudentProfileData: false,
     canManageScores: false,
     canMessageFamilies: false,
     canConfigureSystem: false,
     canManageRoles: false,
-    canWriteAcademicNotes: false,
+    canWriteAcademicNotes: true,
     canPublishResources: false,
     canGrantSensitiveAccess: false,
     canManageIncidents: false,
     canPreviewRoles: false,
     canRevokeSessions: false,
     canManageFeatureFlags: false,
+    canManageBillingFollowUp: false,
+    canExportBilling: false,
+    canManageOperationalTasks: false,
+    canManageSavedViews: false,
+    canManageAdminAnnouncements: false,
+    canManageSchedules: false,
+    canManageBulkOperations: false,
+    canRunRoutineImports: false,
+    canManageSyncSources: false,
+    canUpdateAssignedTasks: true,
+    canEditSessions: false,
+    canMoveSingleEnrollment: false,
+    canManageAssignedBillingFollowUp: false,
+    canLogFamilyContact: false,
+    canClaimLeads: false,
+    canEscalateToAdmin: false,
+    canSubmitApprovalRequests: false,
+    canManageOwnTemplates: false,
+    canUpdateSessionChecklists: false,
+    canSavePersonalViews: false,
+    canStartFamilyThreads: false,
   },
 };
 
@@ -152,7 +284,10 @@ export const hasGlobalPortalScope = (role: UserRole) =>
   role === "engineer" || role === "admin" || role === "staff";
 
 export const canRunIntakeImports = (role: UserRole) =>
-  role === "engineer" || role === "admin" || role === "staff";
+  permissionProfiles[role].canRunRoutineImports;
+
+export const canViewFamilyContactBasics = (role: UserRole) =>
+  permissionProfiles[role].canViewFamilyContactBasics;
 
 export const canViewAllSyncJobs = (role: UserRole) =>
   role === "engineer" || role === "admin" || role === "staff";
@@ -243,11 +378,71 @@ export const canRevokeSessions = (role: UserRole) =>
 export const canManageFeatureFlags = (role: UserRole) =>
   permissionProfiles[role].canManageFeatureFlags;
 
+export const canManageBillingFollowUp = (role: UserRole) =>
+  permissionProfiles[role].canManageBillingFollowUp;
+
+export const canExportBilling = (role: UserRole) =>
+  permissionProfiles[role].canExportBilling;
+
+export const canManageOperationalTasks = (role: UserRole) =>
+  permissionProfiles[role].canManageOperationalTasks;
+
+export const canManageSavedViews = (role: UserRole) =>
+  permissionProfiles[role].canManageSavedViews;
+
+export const canManageAdminAnnouncements = (role: UserRole) =>
+  permissionProfiles[role].canManageAdminAnnouncements;
+
+export const canManageSchedules = (role: UserRole) =>
+  permissionProfiles[role].canManageSchedules;
+
+export const canManageBulkOperations = (role: UserRole) =>
+  permissionProfiles[role].canManageBulkOperations;
+
+export const canManageSyncSources = (role: UserRole) =>
+  permissionProfiles[role].canManageSyncSources;
+
+export const canUpdateAssignedTasks = (role: UserRole) =>
+  permissionProfiles[role].canUpdateAssignedTasks;
+
+export const canEditSessions = (role: UserRole) =>
+  permissionProfiles[role].canEditSessions;
+
+export const canMoveSingleEnrollment = (role: UserRole) =>
+  permissionProfiles[role].canMoveSingleEnrollment;
+
+export const canManageAssignedBillingFollowUp = (role: UserRole) =>
+  permissionProfiles[role].canManageAssignedBillingFollowUp;
+
+export const canLogFamilyContact = (role: UserRole) =>
+  permissionProfiles[role].canLogFamilyContact;
+
+export const canClaimLeads = (role: UserRole) =>
+  permissionProfiles[role].canClaimLeads;
+
+export const canEscalateToAdmin = (role: UserRole) =>
+  permissionProfiles[role].canEscalateToAdmin;
+
+export const canSubmitApprovalRequests = (role: UserRole) =>
+  permissionProfiles[role].canSubmitApprovalRequests;
+
+export const canManageOwnTemplates = (role: UserRole) =>
+  permissionProfiles[role].canManageOwnTemplates;
+
+export const canUpdateSessionChecklists = (role: UserRole) =>
+  permissionProfiles[role].canUpdateSessionChecklists;
+
+export const canSavePersonalViews = (role: UserRole) =>
+  permissionProfiles[role].canSavePersonalViews;
+
+export const canStartFamilyThreads = (role: UserRole) =>
+  permissionProfiles[role].canStartFamilyThreads;
+
 export const canManageCohortAssignments = (
   managerRole: UserRole,
   targetRole: UserRole,
 ) => {
-  if (targetRole !== "ta" && targetRole !== "instructor") {
+  if (targetRole !== "staff" && targetRole !== "ta" && targetRole !== "instructor") {
     return false;
   }
 

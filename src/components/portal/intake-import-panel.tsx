@@ -10,6 +10,7 @@ interface IntakeImportPanelProps {
   recentRuns: ImportRun[];
   syncSource: IntakeSyncSource | null;
   readOnly?: boolean;
+  canManageSource?: boolean;
 }
 
 const statusTone = {
@@ -38,6 +39,7 @@ export function IntakeImportPanel({
   recentRuns,
   syncSource,
   readOnly = false,
+  canManageSource = true,
 }: IntakeImportPanelProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -112,6 +114,11 @@ export function IntakeImportPanel({
   const handleSourceSave = () => {
     if (readOnly) {
       setError("Role preview is read-only.");
+      return;
+    }
+
+    if (!canManageSource) {
+      setError("Only admin and engineer can change linked-source settings.");
       return;
     }
 
@@ -202,6 +209,10 @@ export function IntakeImportPanel({
             <div className="mt-3 rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
               Role preview is read-only. Exit preview to save sources or run intake actions.
             </div>
+          ) : !canManageSource ? (
+            <div className="mt-3 rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+              Staff can run imports here, but only admin and engineer can change linked-source settings.
+            </div>
           ) : null}
           <p className="mt-2 text-sm text-[color:var(--muted)]">
             Use the linked responses-sheet CSV export URL. The morning cron checks active linked
@@ -217,7 +228,7 @@ export function IntakeImportPanel({
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="Google Forms linked responses sheet"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <input
               value={sourceDraft.sourceUrl}
@@ -228,7 +239,7 @@ export function IntakeImportPanel({
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
               type="url"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <input
               value={sourceDraft.cadence}
@@ -238,7 +249,7 @@ export function IntakeImportPanel({
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="Daily around 7:00 AM ET"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <label className="flex items-center gap-3 rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]">
               <input
@@ -248,7 +259,7 @@ export function IntakeImportPanel({
                   setSourceDraft((current) => ({ ...current, isActive }));
                 }}
                 type="checkbox"
-                disabled={readOnly}
+                disabled={readOnly || !canManageSource}
               />
               <span>Source active</span>
             </label>
@@ -257,7 +268,7 @@ export function IntakeImportPanel({
             <button
               type="button"
               onClick={handleSourceSave}
-              disabled={sourcePending || readOnly}
+              disabled={sourcePending || readOnly || !canManageSource}
               className={clsx(
                 "rounded-full px-4 py-2 text-sm font-semibold text-white",
                 sourcePending

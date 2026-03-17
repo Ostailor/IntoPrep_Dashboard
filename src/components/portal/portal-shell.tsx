@@ -54,7 +54,7 @@ import {
   getVisibleImportRunsFromContext,
   getVisibleSyncJobs,
   getVisibleSyncJobsFromContext,
-  getVisibleTasks,
+  getVisibleTaskCards,
   isSectionVisibleToRole,
   sectionMeta,
 } from "@/lib/portal";
@@ -75,6 +75,24 @@ import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { InstallAppButton } from "@/components/install-app-button";
+import { AdminDashboardPanels } from "@/components/portal/admin-dashboard-panels";
+import { AdminBillingPanel } from "@/components/portal/admin-billing-panel";
+import { AdminCohortOperationsPanel } from "@/components/portal/admin-cohort-operations-panel";
+import { AdminFamilyOpsPanel } from "@/components/portal/admin-family-ops-panel";
+import { AdminMessagingBulkPanel } from "@/components/portal/admin-messaging-bulk-panel";
+import { AdminProgramArchivePanel } from "@/components/portal/admin-program-archive-panel";
+import { StaffBillingPanel } from "@/components/portal/staff-billing-panel";
+import { StaffCohortOperationsPanel } from "@/components/portal/staff-cohort-operations-panel";
+import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
+import { StaffFamilyOpsPanel } from "@/components/portal/staff-family-ops-panel";
+import { StaffMessagingPanel } from "@/components/portal/staff-messaging-panel";
+import { InstructorAcademicsPanel } from "@/components/portal/instructor-academics-panel";
+import { InstructorAttendanceSupportPanel } from "@/components/portal/instructor-attendance-support-panel";
+import { InstructorDashboardPanels } from "@/components/portal/instructor-dashboard-panels";
+import { TaAttendanceSupportPanel } from "@/components/portal/ta-attendance-support-panel";
+import { TaDashboardPanels } from "@/components/portal/ta-dashboard-panels";
+import { TaFamilySupportPanel } from "@/components/portal/ta-family-support-panel";
+import { TaMessagingPanel } from "@/components/portal/ta-messaging-panel";
 
 const sectionIcons: Record<PortalSection, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -239,7 +257,9 @@ export async function PortalShell({
   const visibleLeads = livePortal
     ? getVisibleLeadsFromContext(role, context)
     : getVisibleLeads(role);
-  const visibleTasks = getVisibleTasks(role);
+  const visibleTaskCards = livePortal
+    ? getVisibleTaskCards(role, livePortal.visibleAdminTasks)
+    : getVisibleTaskCards(role);
   const visibleSyncJobs = livePortal
     ? getVisibleSyncJobsFromContext(role, context)
     : getVisibleSyncJobs(role);
@@ -334,6 +354,43 @@ export async function PortalShell({
       timeLabel: formatTimeRange(session.startAt, session.endAt),
       roomLabel: session.roomLabel,
     }));
+  const instructorSupportSessions =
+    role === "instructor" && attendanceSessions.length === 0
+      ? context.visibleSessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          timeLabel: formatTimeRange(session.startAt, session.endAt),
+          roomLabel: session.roomLabel,
+        }))
+      : attendanceSessions;
+  const instructorSupportRosters =
+    role === "instructor" && attendanceSessions.length === 0
+      ? Object.fromEntries(
+          context.visibleSessions.map((session) => [
+            session.id,
+            context.visibleEnrollments
+              .filter(
+                (enrollment) =>
+                  enrollment.cohortId === session.cohortId && enrollment.status === "active",
+              )
+              .map((enrollment) => {
+                const student = context.visibleStudents.find(
+                  (candidate) => candidate.id === enrollment.studentId,
+                );
+
+                return student
+                  ? {
+                      studentId: student.id,
+                      studentName: `${student.firstName} ${student.lastName}`,
+                      attendance: "present" as const,
+                      trend: [],
+                    }
+                  : null;
+              })
+              .filter((row): row is { studentId: string; studentName: string; attendance: "present"; trend: [] } => row !== null),
+          ]),
+        )
+      : rosterMaps;
   const roleScopedCohortCount =
     role === "engineer" || role === "admin" || role === "staff"
       ? context.visibleCohorts.length
@@ -348,8 +405,17 @@ export async function PortalShell({
     .map((item) => sectionHref(`/${item}`))
     .filter((href) => href !== currentSectionHref);
   const snapshotDate = liveAttendance?.currentDate ?? context.currentDate;
+  const attendanceHandoffNotes = liveAttendance?.handoffNotes ?? [];
+  const attendanceExceptionFlags = liveAttendance?.exceptionFlags ?? [];
+  const attendanceCoverageFlags = liveAttendance?.coverageFlags ?? [];
   const activeMaintenanceBanner = livePortal?.maintenanceBanner ?? null;
+  const activeAdminAnnouncements = livePortal?.visibleAdminAnnouncements ?? [];
   const engineerConsole = livePortal?.engineerConsole ?? null;
+  const adminOps = livePortal?.adminOps ?? null;
+  const staffOps = livePortal?.staffOps ?? null;
+  const taOps = livePortal?.taOps ?? null;
+  const instructorOps = livePortal?.instructorOps ?? null;
+  const visibleInstructorFollowUpFlags = livePortal?.visibleInstructorFollowUpFlags ?? [];
 
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
@@ -520,6 +586,25 @@ export async function PortalShell({
             </div>
           ) : null}
 
+          {activeAdminAnnouncements.length > 0 ? (
+            <div className="mb-5 space-y-3">
+              {activeAdminAnnouncements.slice(0, 2).map((announcement) => (
+                <div
+                  key={announcement.id}
+                  className={clsx(
+                    "rounded-[1.75rem] border px-5 py-4 text-sm shadow-[var(--shadow)]",
+                    announcement.tone === "warning"
+                      ? "border-amber-200 bg-amber-100 text-amber-800"
+                      : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)]",
+                  )}
+                >
+                  <div className="font-semibold">{announcement.title}</div>
+                  <div className="mt-1">{announcement.body}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {role === "engineer" &&
           viewer.mode === "live" &&
           engineerConsole &&
@@ -615,10 +700,15 @@ export async function PortalShell({
                         description={getRoleHeadline(role)}
                       />
                       <div className="mt-5 flex flex-wrap gap-3">
-                      <div className={clsx("rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]", roleAccent[role])}>
-                        {currentUser.title}
-                      </div>
-                      <div className="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        <div
+                          className={clsx(
+                            "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
+                            roleAccent[role],
+                          )}
+                        >
+                          {currentUser.title}
+                        </div>
+                        <div className="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                           {roleScopedCohortCount} visible cohort{roleScopedCohortCount === 1 ? "" : "s"}
                         </div>
                         <div className="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
@@ -626,7 +716,7 @@ export async function PortalShell({
                         </div>
                       </div>
                       <div className="mt-6 grid gap-4 md:grid-cols-2">
-                        {visibleTasks.map((task) => (
+                        {visibleTaskCards.map((task) => (
                           <div
                             key={task.id}
                             className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/70 p-4"
@@ -723,10 +813,22 @@ export async function PortalShell({
                 settingsRoleRows,
                 settingsUsers: viewer.mode !== "preview" ? livePortal?.settingsUsers ?? null : null,
                 settingsAuditLogs: viewer.mode !== "preview" ? livePortal?.settingsAuditLogs ?? null : null,
+                adminOps,
+                staffOps,
+                taOps,
+                instructorOps,
+                visibleAdminTasks: livePortal?.visibleAdminTasks ?? [],
+                visibleAdminAnnouncements: activeAdminAnnouncements,
+                visibleInstructorFollowUpFlags,
                 engineerConsole,
                 settingsReadinessRows,
                 attendanceSessions,
                 rosterMaps,
+                instructorSupportSessions,
+                instructorSupportRosters,
+                attendanceHandoffNotes,
+                attendanceExceptionFlags,
+                attendanceCoverageFlags,
                 permissions,
                 todayResults,
                 context,
@@ -759,10 +861,22 @@ function renderSectionContent({
   settingsRoleRows,
   settingsUsers,
   settingsAuditLogs,
+  adminOps,
+  staffOps,
+  taOps,
+  instructorOps,
+  visibleAdminTasks,
+  visibleAdminAnnouncements,
+  visibleInstructorFollowUpFlags,
   engineerConsole,
   settingsReadinessRows,
   attendanceSessions,
   rosterMaps,
+  instructorSupportSessions,
+  instructorSupportRosters,
+  attendanceHandoffNotes,
+  attendanceExceptionFlags,
+  attendanceCoverageFlags,
   permissions,
   todayResults,
   context,
@@ -786,6 +900,13 @@ function renderSectionContent({
   settingsRoleRows: ReturnType<typeof getSettingsRoleRows>;
   settingsUsers: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsUsers"];
   settingsAuditLogs: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsAuditLogs"];
+  adminOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["adminOps"];
+  staffOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["staffOps"];
+  taOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["taOps"];
+  instructorOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["instructorOps"];
+  visibleAdminTasks: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["visibleAdminTasks"];
+  visibleAdminAnnouncements: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["visibleAdminAnnouncements"];
+  visibleInstructorFollowUpFlags: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["visibleInstructorFollowUpFlags"];
   engineerConsole: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["engineerConsole"];
   settingsReadinessRows: {
     label: string;
@@ -799,6 +920,16 @@ function renderSectionContent({
     roomLabel: string;
   }[];
   rosterMaps: Record<string, ReturnType<typeof getSessionRosterView>>;
+  instructorSupportSessions: {
+    id: string;
+    title: string;
+    timeLabel: string;
+    roomLabel: string;
+  }[];
+  instructorSupportRosters: Record<string, ReturnType<typeof getSessionRosterView>>;
+  attendanceHandoffNotes: NonNullable<Awaited<ReturnType<typeof getLiveAttendanceBundle>>>["handoffNotes"];
+  attendanceExceptionFlags: NonNullable<Awaited<ReturnType<typeof getLiveAttendanceBundle>>>["exceptionFlags"];
+  attendanceCoverageFlags: NonNullable<Awaited<ReturnType<typeof getLiveAttendanceBundle>>>["coverageFlags"];
   permissions: ReturnType<typeof getPermissionProfile>;
   todayResults: ReturnType<typeof getTodayResults>;
   context: ReturnType<typeof getPortalContext>;
@@ -816,6 +947,93 @@ function renderSectionContent({
               billingSyncSource={billingSyncSource}
               users={settingsUsers}
             />
+          ) : null}
+          {role === "admin" && adminOps ? (
+            <AdminDashboardPanels
+              viewerMode={viewerMode}
+              tasks={visibleAdminTasks}
+              savedViews={adminOps.savedViews}
+              announcements={visibleAdminAnnouncements}
+              capacityForecastRows={adminOps.capacityForecastRows}
+              users={settingsUsers}
+              syncJobs={visibleSyncJobs}
+              approvalRequests={adminOps.approvalRequests}
+              escalations={adminOps.escalations}
+            />
+          ) : null}
+          {role === "staff" && staffOps ? (
+            <StaffDashboardPanels
+              viewerMode={viewerMode}
+              tasks={visibleAdminTasks}
+              taskActivities={staffOps.taskActivities}
+              leads={visibleLeads}
+              threads={context.visibleThreads.map((thread) => ({
+                id: thread.id,
+                subject: thread.subject,
+                lastMessageAt: thread.lastMessageAt,
+                unreadCount: thread.unreadCount,
+              }))}
+              syncJobs={visibleSyncJobs}
+              sessions={context.visibleSessions}
+              sessionChecklists={staffOps.sessionChecklists}
+              invoices={context.visibleInvoices}
+              approvalRequests={staffOps.approvalRequests}
+              escalations={staffOps.escalations}
+            />
+          ) : null}
+          {role === "ta" && taOps ? (
+            <TaDashboardPanels
+              viewerMode={viewerMode}
+              tasks={visibleAdminTasks}
+              taskActivities={taOps.taskActivities}
+              threads={context.visibleThreads}
+              sessions={context.visibleSessions}
+              sessionChecklists={taOps.sessionChecklists}
+              handoffNotes={taOps.handoffNotes}
+              coverageFlags={taOps.coverageFlags}
+              announcements={visibleAdminAnnouncements}
+              trendRows={trendRows}
+            />
+          ) : null}
+          {role === "instructor" && instructorOps ? (
+            <InstructorDashboardPanels
+              viewerMode={viewerMode}
+              tasks={visibleAdminTasks}
+              taskActivities={instructorOps.taskActivities}
+              followUpFlags={visibleInstructorFollowUpFlags}
+              sessions={context.visibleSessions}
+              students={context.visibleStudents}
+            />
+          ) : null}
+          {(role === "admin" || role === "staff" || role === "ta") &&
+          visibleInstructorFollowUpFlags.length > 0 ? (
+            <SectionPanel>
+              <SectionHeading
+                eyebrow="Instructor watch"
+                title="Teaching follow-up flags"
+                description="Open classroom notes created by instructors for TA, staff, and admin follow-through."
+              />
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {visibleInstructorFollowUpFlags.slice(0, 6).map((flag) => (
+                  <div
+                    key={flag.id}
+                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-base font-semibold text-[color:var(--navy-strong)]">
+                        {flag.summary}
+                      </div>
+                      <span className="rounded-full border border-[rgba(23,56,75,0.16)] bg-[rgba(23,56,75,0.08)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]">
+                        {flag.status}
+                      </span>
+                    </div>
+                    {flag.note ? (
+                      <div className="mt-2 text-sm text-[color:var(--muted)]">{flag.note}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </SectionPanel>
           ) : null}
           <section className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
             <SectionPanel>
@@ -1020,77 +1238,129 @@ function renderSectionContent({
 
     case "cohorts":
       return (
-        <section className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-          <SectionPanel>
-            <SectionHeading
-              eyebrow="Cohort inventory"
-              title="Active teaching groups"
-              description="Capacity, cadence, and staffing for every cohort visible to the current role."
+        <div className="space-y-5">
+          {role === "admin" && adminOps ? (
+            <AdminCohortOperationsPanel
+              viewerMode={viewerMode}
+              cohorts={context.visibleCohorts}
+              archivedCohorts={adminOps.archivedCohorts}
+              sessions={context.visibleSessions}
+              students={context.visibleStudents}
+              enrollments={context.visibleEnrollments}
+              users={context.visibleUsers}
+              forecastRows={adminOps.capacityForecastRows}
+              savedViews={adminOps.savedViews}
             />
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              {context.visibleCohorts.map((cohort) => (
-                <div
-                  key={cohort.id}
-                  className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                >
-                  <div className="text-lg font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
-                  <div className="mt-2 text-sm text-[color:var(--muted)]">{cohort.cadence}</div>
-                  <div className="mt-4 flex items-center justify-between text-sm text-[color:var(--muted)]">
-                    <span>{cohort.roomLabel}</span>
-                    <span>{cohort.enrolled}/{cohort.capacity}</span>
+          ) : null}
+          {role === "staff" && staffOps ? (
+            <StaffCohortOperationsPanel
+              viewerMode={viewerMode}
+              cohorts={context.visibleCohorts}
+              sessions={context.visibleSessions}
+              students={context.visibleStudents}
+              enrollments={context.visibleEnrollments}
+              sessionChecklists={staffOps.sessionChecklists}
+              savedViews={staffOps.savedViews}
+            />
+          ) : null}
+          <section className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+            <SectionPanel>
+              <SectionHeading
+                eyebrow="Cohort inventory"
+                title="Active teaching groups"
+                description="Capacity, cadence, and staffing for every cohort visible to the current role."
+              />
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {context.visibleCohorts.map((cohort) => (
+                  <div
+                    key={cohort.id}
+                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                  >
+                    <div className="text-lg font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
+                    <div className="mt-2 text-sm text-[color:var(--muted)]">{cohort.cadence}</div>
+                    <div className="mt-4 flex items-center justify-between text-sm text-[color:var(--muted)]">
+                      <span>{cohort.roomLabel}</span>
+                      <span>{cohort.enrolled}/{cohort.capacity}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </SectionPanel>
+                ))}
+              </div>
+            </SectionPanel>
 
-          <SectionPanel>
-            <SectionHeading
-              eyebrow={role === "instructor" ? "Assigned trends" : "Academic direction"}
-              title={role === "instructor" ? "Student progress pulse" : "Performance direction"}
-              description={
-                role === "instructor"
-                  ? "Read-only score trends for students attached to assigned classes."
-                  : "Trend movement helps teaching teams decide where intervention is needed next."
-              }
-            />
-            <div className="mt-5 space-y-4">
-              {trendRows.map((student) => (
-                <div key={student.studentId} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-base font-semibold text-[color:var(--navy-strong)]">{student.studentName}</div>
-                      <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
-                        {student.latestScore ?? "—"}
+            <SectionPanel>
+              <SectionHeading
+                eyebrow={role === "instructor" ? "Assigned trends" : "Academic direction"}
+                title={role === "instructor" ? "Student progress pulse" : "Performance direction"}
+                description={
+                  role === "instructor"
+                    ? "Read-only score trends for students attached to assigned classes."
+                    : "Trend movement helps teaching teams decide where intervention is needed next."
+                }
+              />
+              <div className="mt-5 space-y-4">
+                {trendRows.map((student) => (
+                  <div key={student.studentId} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-[color:var(--navy-strong)]">{student.studentName}</div>
+                        <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
                       </div>
-                      <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                        {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
-                        {student.deltaFromPrevious ?? 0} latest delta
+                      <div className="text-right">
+                        <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
+                          {student.latestScore ?? "—"}
+                        </div>
+                        <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                          {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
+                          {student.deltaFromPrevious ?? 0} latest delta
+                        </div>
                       </div>
                     </div>
+                    <TrendSparkline className="mt-3" points={student.trend} tone={role === "instructor" ? "navy" : "copper"} />
                   </div>
-                  <TrendSparkline className="mt-3" points={student.trend} tone={role === "instructor" ? "navy" : "copper"} />
-                </div>
-              ))}
-            </div>
-          </SectionPanel>
-        </section>
+                ))}
+              </div>
+            </SectionPanel>
+          </section>
+        </div>
       );
 
     case "attendance":
       return (
-        <AttendanceBoard
-          role={role}
-          sessions={attendanceSessions}
-          rosters={rosterMaps}
-          persistence={{
-            enabled: viewerMode === "live",
-            endpoint: "/api/attendance",
-          }}
-        />
+        <div className="space-y-5">
+          <AttendanceBoard
+            role={role}
+            sessions={attendanceSessions}
+            rosters={rosterMaps}
+            persistence={{
+              enabled: viewerMode === "live",
+              endpoint: "/api/attendance",
+            }}
+            handoffNotes={attendanceHandoffNotes}
+            exceptionFlags={attendanceExceptionFlags}
+            coverageFlags={attendanceCoverageFlags}
+            instructionalAccommodations={instructorOps?.instructionalAccommodations}
+          />
+          {role === "ta" && taOps ? (
+            <TaAttendanceSupportPanel
+              viewerMode={viewerMode}
+              sessions={attendanceSessions}
+              rosters={rosterMaps}
+              sessionChecklists={taOps.sessionChecklists}
+              handoffNotes={taOps.handoffNotes}
+              exceptionFlags={taOps.attendanceExceptionFlags}
+              coverageFlags={taOps.coverageFlags}
+            />
+          ) : null}
+          {role === "instructor" && instructorOps ? (
+            <InstructorAttendanceSupportPanel
+              viewerMode={viewerMode}
+              sessions={instructorSupportSessions}
+              rosters={instructorSupportRosters}
+              accommodations={instructorOps.instructionalAccommodations}
+              followUpFlags={visibleInstructorFollowUpFlags}
+            />
+          ) : null}
+        </div>
       );
 
     case "students":
@@ -1099,7 +1369,11 @@ function renderSectionContent({
           <SectionHeading
             eyebrow="Student directory"
             title="Academic-facing student list"
-            description="TA, staff, and admin can see student records with support-ready context. Instructors do not see this surface."
+            description={
+              role === "ta"
+                ? "TA access stays limited to assigned-cohort student context plus family contact basics."
+                : "TA, staff, and admin can see student records with support-ready context. Instructors do not see this surface."
+            }
           />
           <div className="mt-5 overflow-hidden rounded-[1.75rem] border border-[color:var(--line)]">
             <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-4 bg-[rgba(23,56,75,0.06)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
@@ -1136,7 +1410,9 @@ function renderSectionContent({
                   </div>
                   <div className="text-[color:var(--muted)]">
                     {family
-                      ? permissions.canViewFamilyProfiles || family.sensitiveAccessGranted
+                      ? permissions.canViewFamilyProfiles ||
+                        permissions.canViewFamilyContactBasics ||
+                        family.sensitiveAccessGranted
                         ? family.email
                         : "Protected"
                       : "Restricted"}
@@ -1150,96 +1426,150 @@ function renderSectionContent({
 
     case "families":
       return (
-        <section className="grid gap-4 md:grid-cols-2">
-          {context.visibleFamilies.map((family) => {
-            const invoice = billingRows.find((row) => row.familyName === family.familyName);
-            return (
-              <SectionPanel key={family.id}>
-                <div className="section-kicker">Guardian relationship</div>
-                <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
-                  {family.familyName} family
-                </h3>
-                <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-                  <div>{family.guardianNames.join(" · ")}</div>
-                  <div>{family.email}</div>
-                  <div>{family.phone}</div>
-                  <div>{family.notes}</div>
-                </div>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    Campus preference noted
-                  </span>
-                  {(permissions.canViewBilling || role === "engineer") && invoice ? (
-                    <span className="rounded-full border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
-                      {typeof invoice.amountDue === "number" ? formatMoney(invoice.amountDue) : "Protected"} due
+        <div className="space-y-5">
+          {role === "admin" && adminOps ? (
+            <AdminFamilyOpsPanel
+              viewerMode={viewerMode}
+              families={context.visibleFamilies}
+              contactEvents={adminOps.familyContactEvents}
+            />
+          ) : null}
+          {role === "staff" && staffOps ? (
+            <StaffFamilyOpsPanel
+              viewerMode={viewerMode}
+              families={context.visibleFamilies}
+              contactEvents={staffOps.familyContactEvents}
+            />
+          ) : null}
+          {role === "ta" ? (
+            <TaFamilySupportPanel
+              families={context.visibleFamilies}
+              students={context.visibleStudents}
+              threads={context.visibleThreads}
+            />
+          ) : null}
+          {role === "ta" ? null : (
+            <section className="grid gap-4 md:grid-cols-2">
+            {context.visibleFamilies.map((family) => {
+              const invoice = billingRows.find((row) => row.familyName === family.familyName);
+              return (
+                <SectionPanel key={family.id}>
+                  <div className="section-kicker">Guardian relationship</div>
+                  <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
+                    {family.familyName} family
+                  </h3>
+                  <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
+                    <div>{family.guardianNames.join(" · ")}</div>
+                    <div>{family.email}</div>
+                    <div>{family.phone}</div>
+                    <div>{family.notes}</div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Campus preference noted
                     </span>
-                  ) : null}
-                  {role === "engineer" && !family.sensitiveAccessGranted ? (
-                    <EngineerBreakGlassButton
-                      scopeType="family"
-                      scopeId={family.id}
-                      label={`${family.familyName} family`}
-                    />
-                  ) : null}
-                </div>
-              </SectionPanel>
-            );
-          })}
-        </section>
+                    {(permissions.canViewBilling || role === "engineer") && invoice ? (
+                      <span className="rounded-full border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
+                        {typeof invoice.amountDue === "number" ? formatMoney(invoice.amountDue) : "Protected"} due
+                      </span>
+                    ) : null}
+                    {role === "engineer" && !family.sensitiveAccessGranted ? (
+                      <EngineerBreakGlassButton
+                        scopeType="family"
+                        scopeId={family.id}
+                        label={`${family.familyName} family`}
+                      />
+                    ) : null}
+                  </div>
+                </SectionPanel>
+              );
+            })}
+            </section>
+          )}
+        </div>
       );
 
     case "programs":
       return (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {programRows.map((row) => (
-            <SectionPanel key={row.cohortId}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="section-kicker">{row.termName}</div>
-                  <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
-                    {row.cohortName}
-                  </h3>
+        <div className="space-y-5">
+          {role === "admin" && adminOps ? (
+            <AdminProgramArchivePanel
+              viewerMode={viewerMode}
+              programs={context.visiblePrograms}
+              archivedPrograms={adminOps.archivedPrograms}
+            />
+          ) : null}
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {programRows.map((row) => (
+              <SectionPanel key={row.cohortId}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="section-kicker">{row.termName}</div>
+                    <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
+                      {row.cohortName}
+                    </h3>
+                  </div>
+                  <span className="rounded-full border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]">
+                    {row.programTrack}
+                  </span>
                 </div>
-                <span className="rounded-full border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]">
-                  {row.programTrack}
-                </span>
-              </div>
-              <div className="mt-3 text-sm text-[color:var(--muted)]">{row.programName}</div>
-              <div className="mt-5 grid gap-3 text-sm text-[color:var(--muted)]">
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    Delivery
+                <div className="mt-3 text-sm text-[color:var(--muted)]">{row.programName}</div>
+                <div className="mt-5 grid gap-3 text-sm text-[color:var(--muted)]">
+                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Delivery
+                    </div>
+                    <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">{row.programFormat}</div>
                   </div>
-                  <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">{row.programFormat}</div>
-                </div>
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    Campus
+                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Campus
+                    </div>
+                    <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">
+                      {row.campusName} · {row.campusModality}
+                    </div>
                   </div>
-                  <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">
-                    {row.campusName} · {row.campusModality}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    Staffing
-                  </div>
-                  <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">Lead: {row.lead}</div>
-                  <div className="mt-1 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    {row.cadence}
+                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Staffing
+                    </div>
+                    <div className="mt-2 font-semibold text-[color:var(--navy-strong)]">Lead: {row.lead}</div>
+                    <div className="mt-1 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      {row.cadence}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm font-semibold text-[color:var(--navy-strong)]">
-                <span>Fill rate {row.fillRate}%</span>
-                <span>{formatMoney(row.tuition)}</span>
-              </div>
-            </SectionPanel>
-          ))}
-        </section>
+                <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm font-semibold text-[color:var(--navy-strong)]">
+                  <span>Fill rate {row.fillRate}%</span>
+                  <span>{formatMoney(row.tuition)}</span>
+                </div>
+              </SectionPanel>
+            ))}
+          </section>
+        </div>
       );
 
     case "academics":
+      if (role === "instructor" && instructorOps) {
+        return (
+          <InstructorAcademicsPanel
+            viewerMode={viewerMode}
+            viewerId={viewerId}
+            students={context.visibleStudents}
+            sessions={context.visibleSessions.map((session) => ({
+              id: session.id,
+              title: session.title,
+              cohortId: session.cohortId,
+            }))}
+            notes={visibleNotes}
+            sessionNotes={instructorOps.sessionInstructionNotes}
+            accommodations={instructorOps.instructionalAccommodations}
+            followUpFlags={visibleInstructorFollowUpFlags}
+            trendRows={trendRows}
+          />
+        );
+      }
+
       return (
         <section className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
           <SectionPanel>
@@ -1363,16 +1693,61 @@ function renderSectionContent({
 
     case "messaging":
       return (
-        <MessagingReplyPanel
-          viewerRole={role}
-          threads={context.visibleThreads}
-          threadPosts={visibleThreadPosts}
-          readOnly={viewerMode === "live-role-preview"}
-        />
+        <div className="space-y-5">
+          {role === "admin" ? (
+            <AdminMessagingBulkPanel
+              viewerMode={viewerMode}
+              cohorts={context.visibleCohorts}
+              families={context.visibleFamilies}
+              students={context.visibleStudents}
+              enrollments={context.visibleEnrollments}
+            />
+          ) : null}
+          {role === "staff" && staffOps ? (
+            <StaffMessagingPanel
+              viewerMode={viewerMode}
+              cohorts={context.visibleCohorts}
+              families={context.visibleFamilies}
+              students={context.visibleStudents}
+              enrollments={context.visibleEnrollments}
+              templates={staffOps.outreachTemplates}
+            />
+          ) : null}
+          {role === "ta" ? (
+            <TaMessagingPanel
+              viewerMode={viewerMode}
+              cohorts={context.visibleCohorts}
+              families={context.visibleFamilies}
+              students={context.visibleStudents}
+              enrollments={context.visibleEnrollments}
+            />
+          ) : null}
+          <MessagingReplyPanel
+            viewerRole={role}
+            threads={context.visibleThreads}
+            threadPosts={visibleThreadPosts}
+            readOnly={viewerMode === "live-role-preview"}
+          />
+        </div>
       );
 
     case "billing":
-      return (
+      return role === "admin" && adminOps ? (
+        <AdminBillingPanel
+          viewerMode={viewerMode}
+          rows={billingRows}
+          notes={adminOps.billingFollowUpNotes}
+          savedViews={adminOps.savedViews}
+        />
+      ) : role === "staff" && staffOps ? (
+        <StaffBillingPanel
+          viewerMode={viewerMode}
+          rows={billingRows}
+          tasks={visibleAdminTasks}
+          notes={staffOps.billingFollowUpNotes}
+          savedViews={staffOps.savedViews}
+        />
+      ) : (
         <SectionPanel>
           <SectionHeading
             eyebrow="Read-only finance"
@@ -1420,10 +1795,12 @@ function renderSectionContent({
             recentRuns={visibleImportRuns}
             syncSource={intakeSyncSource}
             readOnly={viewerMode === "live-role-preview"}
+            canManageSource={permissions.canManageSyncSources}
           />
           <BillingSyncPanel
             syncSource={billingSyncSource}
             readOnly={viewerMode === "live-role-preview"}
+            canManageSource={permissions.canManageSyncSources}
           />
           {role === "engineer" && engineerConsole ? (
             <EngineerConsolePanels

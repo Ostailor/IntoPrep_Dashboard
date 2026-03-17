@@ -2,7 +2,15 @@
 
 import { startTransition, useEffect, useState } from "react";
 import clsx from "clsx";
-import { ATTENDANCE_STATUSES, type AttendanceStatus, type UserRole } from "@/lib/domain";
+import {
+  ATTENDANCE_STATUSES,
+  type AttendanceExceptionFlag,
+  type AttendanceStatus,
+  type InstructionalAccommodation,
+  type SessionCoverageFlag,
+  type SessionHandoffNote,
+  type UserRole,
+} from "@/lib/domain";
 import type { SessionRosterRow } from "@/lib/portal";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 
@@ -19,6 +27,10 @@ interface AttendanceBoardProps {
     enabled: boolean;
     endpoint: string;
   };
+  handoffNotes?: SessionHandoffNote[];
+  exceptionFlags?: AttendanceExceptionFlag[];
+  coverageFlags?: SessionCoverageFlag[];
+  instructionalAccommodations?: InstructionalAccommodation[];
 }
 
 const statusTone = {
@@ -32,6 +44,10 @@ export function AttendanceBoard({
   sessions,
   rosters,
   persistence,
+  handoffNotes = [],
+  exceptionFlags = [],
+  coverageFlags = [],
+  instructionalAccommodations = [],
 }: AttendanceBoardProps) {
   const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id ?? "");
   const [attendanceMap, setAttendanceMap] = useState<Record<string, Record<string, AttendanceStatus>>>(() =>
@@ -73,6 +89,11 @@ export function AttendanceBoard({
 
   const selectedRows = rosters[selectedSessionId] ?? [];
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const selectedHandoffNotes = handoffNotes
+    .filter((note) => note.sessionId === selectedSessionId)
+    .slice(0, 3);
+  const selectedCoverageFlag =
+    coverageFlags.find((flag) => flag.sessionId === selectedSessionId && flag.status !== "clear") ?? null;
   const statusCounts = ATTENDANCE_STATUSES.reduce(
     (counts, status) => ({
       ...counts,
@@ -157,7 +178,7 @@ export function AttendanceBoard({
           </h3>
           <p className="mt-2 max-w-3xl text-sm text-[color:var(--muted)]">
             {role === "instructor"
-              ? "Instructor access is limited to roster names, attendance state, same-day scores, and read-only trends."
+              ? "Instructor access is limited to attendance, classroom accommodations, internal handoff context, and read-only student trends."
               : "TA, staff, and admin access adds family contact context and broader academic support signals."}
           </p>
         </div>
@@ -216,6 +237,28 @@ export function AttendanceBoard({
             </div>
           </div>
 
+          {selectedCoverageFlag ? (
+            <div className="mb-4 rounded-[1.25rem] border border-amber-200 bg-amber-100/90 px-4 py-3 text-sm text-amber-900">
+              Coverage watch: {selectedCoverageFlag.note}
+            </div>
+          ) : null}
+
+          {selectedHandoffNotes.length > 0 ? (
+            <div className="mb-4 space-y-2">
+              {selectedHandoffNotes.map((note) => (
+                <div
+                  key={note.id}
+                  className="rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                >
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                    Handoff from {note.authorName}
+                  </div>
+                  <div className="mt-2">{note.body}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {saveState.error ? (
             <div className="mb-4 rounded-[1.25rem] border border-rose-200 bg-rose-100/90 px-4 py-3 text-sm text-rose-800">
               {saveState.error}
@@ -226,6 +269,12 @@ export function AttendanceBoard({
             {selectedRows.map((row) => {
               const currentStatus = attendanceMap[selectedSessionId]?.[row.studentId] ?? row.attendance;
               const saveKey = `${selectedSessionId}:${row.studentId}`;
+              const rowFlags = exceptionFlags
+                .filter((flag) => flag.sessionId === selectedSessionId && flag.studentId === row.studentId)
+                .slice(0, 3);
+              const rowAccommodations = instructionalAccommodations.filter(
+                (item) => item.studentId === row.studentId,
+              );
               return (
                 <div
                   key={row.studentId}
@@ -258,6 +307,32 @@ export function AttendanceBoard({
                           {row.latestAssessment.deltaFromPrevious >= 0 ? "+" : ""}
                           {row.latestAssessment.deltaFromPrevious}
                         </span>
+                      </div>
+                    ) : null}
+                    {rowFlags.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {rowFlags.map((flag) => (
+                          <span
+                            key={flag.id}
+                            className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800"
+                            title={flag.note}
+                          >
+                            {flag.flagType.replaceAll("_", " ")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {role === "instructor" && rowAccommodations.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {rowAccommodations.map((accommodation) => (
+                          <span
+                            key={accommodation.id}
+                            className="rounded-full border border-[rgba(23,56,75,0.16)] bg-[rgba(23,56,75,0.08)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]"
+                            title={accommodation.detail}
+                          >
+                            {accommodation.title}
+                          </span>
+                        ))}
                       </div>
                     ) : null}
                   </div>

@@ -195,28 +195,53 @@ set
   kind = excluded.kind,
   published_at = excluded.published_at;
 
-insert into public.invoices (id, family_id, amount_due, due_date, status, source)
+insert into public.invoices (
+  id,
+  family_id,
+  amount_due,
+  due_date,
+  status,
+  source,
+  follow_up_state,
+  last_follow_up_at,
+  last_follow_up_by
+)
 values
-  ('invoice-bennett', 'family-bennett', 2250, '2026-03-20', 'pending', 'QuickBooks'),
-  ('invoice-park', 'family-park', 0, '2026-03-01', 'paid', 'QuickBooks'),
-  ('invoice-patel', 'family-patel', 850, '2026-03-08', 'overdue', 'Manual'),
-  ('invoice-liu', 'family-liu', 1200, '2026-03-18', 'pending', 'QuickBooks')
+  ('invoice-bennett', 'family-bennett', 2250, '2026-03-20', 'pending', 'QuickBooks', 'open', '2026-03-14T13:10:00+00:00', null),
+  ('invoice-park', 'family-park', 0, '2026-03-01', 'paid', 'QuickBooks', 'resolved', null, null),
+  ('invoice-patel', 'family-patel', 850, '2026-03-08', 'overdue', 'Manual', 'in_progress', '2026-03-14T13:25:00+00:00', null),
+  ('invoice-liu', 'family-liu', 1200, '2026-03-18', 'pending', 'QuickBooks', 'open', null, null)
 on conflict (id) do update
 set
   family_id = excluded.family_id,
   amount_due = excluded.amount_due,
   due_date = excluded.due_date,
   status = excluded.status,
-  source = excluded.source;
+  source = excluded.source,
+  follow_up_state = excluded.follow_up_state,
+  last_follow_up_at = excluded.last_follow_up_at,
+  last_follow_up_by = excluded.last_follow_up_by;
 
-insert into public.message_threads (id, cohort_id, subject, participants, last_message_preview, last_message_at, unread_count)
+insert into public.message_threads (
+  id,
+  cohort_id,
+  family_id,
+  category,
+  subject,
+  participants,
+  last_message_preview,
+  last_message_at,
+  unread_count
+)
 values
-  ('thread-bennett', 'cohort-sat-spring', 'Aria pacing check-in', array['Janelle Bennett', 'Mina Chen'], 'Could we confirm whether Aria should repeat the full math packet tomorrow?', '2026-03-14T11:50:00+00:00', 2),
-  ('thread-park', 'cohort-sat-spring', 'Lucas arrival timing', array['Yuna Park', 'Mina Chen'], 'Traffic may make Lucas 10 minutes late to the March 14 session.', '2026-03-14T12:02:00+00:00', 1),
-  ('thread-patel', 'cohort-act-sprint', 'Maya English trend', array['Asha Patel', 'Leila Kim'], 'The English trend is strong. We are planning an extra math block next week.', '2026-03-13T22:40:00+00:00', 0)
+  ('thread-bennett', 'cohort-sat-spring', 'family-bennett', 'academic_follow_up', 'Aria pacing check-in', array['Janelle Bennett', 'Mina Chen'], 'Could we confirm whether Aria should repeat the full math packet tomorrow?', '2026-03-14T11:50:00+00:00', 2),
+  ('thread-park', 'cohort-sat-spring', 'family-park', 'attendance', 'Lucas arrival timing', array['Yuna Park', 'Mina Chen'], 'Traffic may make Lucas 10 minutes late to the March 14 session.', '2026-03-14T12:02:00+00:00', 1),
+  ('thread-patel', 'cohort-act-sprint', 'family-patel', 'academic_follow_up', 'Maya English trend', array['Asha Patel', 'Leila Kim'], 'The English trend is strong. We are planning an extra math block next week.', '2026-03-13T22:40:00+00:00', 0)
 on conflict (id) do update
 set
   cohort_id = excluded.cohort_id,
+  family_id = excluded.family_id,
+  category = excluded.category,
   subject = excluded.subject,
   participants = excluded.participants,
   last_message_preview = excluded.last_message_preview,
@@ -327,3 +352,262 @@ on conflict (session_id, student_id) do update
 set
   status = excluded.status,
   updated_by = excluded.updated_by;
+
+insert into public.billing_follow_up_notes (id, invoice_id, family_id, author_id, body, created_at)
+values
+  ('billing-note-bennett', 'invoice-bennett', 'family-bennett', null, 'Confirm the March installment plan before the next parent check-in.', '2026-03-14T13:10:00+00:00'),
+  ('billing-note-patel', 'invoice-patel', 'family-patel', null, 'Overdue balance needs follow-up before Saturday’s next ACT block.', '2026-03-14T13:25:00+00:00')
+on conflict (id) do update
+set
+  invoice_id = excluded.invoice_id,
+  family_id = excluded.family_id,
+  author_id = excluded.author_id,
+  body = excluded.body,
+  created_at = excluded.created_at;
+
+insert into public.admin_tasks (
+  id,
+  task_type,
+  target_type,
+  target_id,
+  title,
+  details,
+  assigned_to,
+  due_at,
+  status,
+  created_by,
+  created_at,
+  updated_at
+)
+values
+  ('admin-task-billing-patel', 'billing_follow_up', 'invoice', 'invoice-patel', 'Resolve Patel billing follow-up', 'Reach out before the weekend ACT sprint and log the outcome in billing follow-up.', null, '2026-03-17T14:00:00+00:00', 'open', null, '2026-03-14T12:30:00+00:00', '2026-03-14T12:30:00+00:00'),
+  ('admin-task-attendance-park', 'attendance_follow_up', 'student', 'student-lucas-park', 'Check repeated tardy arrival for Lucas Park', 'Confirm Saturday arrival plan with the family and update the cohort team.', null, '2026-03-16T15:00:00+00:00', 'in_progress', null, '2026-03-14T12:45:00+00:00', '2026-03-14T13:05:00+00:00')
+on conflict (id) do update
+set
+  task_type = excluded.task_type,
+  target_type = excluded.target_type,
+  target_id = excluded.target_id,
+  title = excluded.title,
+  details = excluded.details,
+  assigned_to = excluded.assigned_to,
+  due_at = excluded.due_at,
+  status = excluded.status,
+  created_by = excluded.created_by,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at;
+
+insert into public.admin_saved_views (id, name, section, filter_state, created_by, created_at, updated_at)
+values
+  ('admin-view-overdue-billing', 'Overdue billing follow-up', 'billing', '{"followUpState":"in_progress","status":"overdue"}'::jsonb, null, '2026-03-14T12:15:00+00:00', '2026-03-14T12:15:00+00:00'),
+  ('admin-view-missing-scores', 'Missing scores', 'academics', '{"scoreState":"missing"}'::jsonb, null, '2026-03-14T12:16:00+00:00', '2026-03-14T12:16:00+00:00'),
+  ('admin-view-underfilled-cohorts', 'Underfilled cohorts', 'cohorts', '{"forecast":"underfilled"}'::jsonb, null, '2026-03-14T12:17:00+00:00', '2026-03-14T12:17:00+00:00')
+on conflict (id) do update
+set
+  name = excluded.name,
+  section = excluded.section,
+  filter_state = excluded.filter_state,
+  created_by = excluded.created_by,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at;
+
+insert into public.family_contact_events (
+  id,
+  family_id,
+  contact_source,
+  summary,
+  outcome,
+  actor_id,
+  contact_at,
+  created_at
+)
+values
+  ('contact-bennett-0314', 'family-bennett', 'portal_message', 'Confirmed Aria’s Saturday packet plan and pacing reset follow-up.', 'Family requested the updated math packet link before the next lab.', null, '2026-03-14T12:05:00+00:00', '2026-03-14T12:05:00+00:00'),
+  ('contact-park-0314', 'family-park', 'phone', 'Discussed late arrival risk for Lucas and next-session check-in.', 'Parent will text the TA by 8:00 AM if traffic changes the arrival window.', null, '2026-03-14T12:20:00+00:00', '2026-03-14T12:20:00+00:00')
+on conflict (id) do update
+set
+  family_id = excluded.family_id,
+  contact_source = excluded.contact_source,
+  summary = excluded.summary,
+  outcome = excluded.outcome,
+  actor_id = excluded.actor_id,
+  contact_at = excluded.contact_at,
+  created_at = excluded.created_at;
+
+insert into public.admin_announcements (
+  id,
+  title,
+  body,
+  tone,
+  visible_roles,
+  is_active,
+  created_by,
+  created_at,
+  updated_at,
+  starts_at,
+  expires_at
+)
+values
+  ('admin-announcement-ops', 'Attendance follow-up priority', 'Please close out Saturday attendance follow-up before Monday morning staffing assignments are finalized.', 'warning', '{admin,staff,ta}'::public.app_role[], true, null, '2026-03-14T12:00:00+00:00', '2026-03-14T12:00:00+00:00', '2026-03-14T12:00:00+00:00', '2026-03-18T00:00:00+00:00')
+on conflict (id) do update
+set
+  title = excluded.title,
+  body = excluded.body,
+  tone = excluded.tone,
+  visible_roles = excluded.visible_roles,
+  is_active = excluded.is_active,
+  created_by = excluded.created_by,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  starts_at = excluded.starts_at,
+  expires_at = excluded.expires_at;
+
+insert into public.session_handoff_notes (id, session_id, author_id, body, created_at)
+select
+  'handoff-sat-mock',
+  'session-sat-mock',
+  profiles.id,
+  'Flag Lucas arrival timing for the instructor and keep the opening warm-up flexible for the first 10 minutes.',
+  '2026-03-14T12:40:00+00:00'
+from public.profiles
+where profiles.full_name = 'Mina Chen'
+on conflict (id) do update
+set
+  session_id = excluded.session_id,
+  author_id = excluded.author_id,
+  body = excluded.body,
+  created_at = excluded.created_at;
+
+insert into public.attendance_exception_flags (
+  id,
+  session_id,
+  student_id,
+  flag_type,
+  note,
+  created_by,
+  created_at
+)
+select
+  'attendance-flag-lucas',
+  'session-sat-mock',
+  'student-lucas-park',
+  'late_pattern',
+  'Lucas has now arrived late twice this month and needs a pre-session reminder.',
+  profiles.id,
+  '2026-03-14T12:45:00+00:00'
+from public.profiles
+where profiles.full_name = 'Mina Chen'
+on conflict (id) do update
+set
+  session_id = excluded.session_id,
+  student_id = excluded.student_id,
+  flag_type = excluded.flag_type,
+  note = excluded.note,
+  created_by = excluded.created_by,
+  created_at = excluded.created_at;
+
+insert into public.session_coverage_flags (
+  id,
+  session_id,
+  status,
+  note,
+  updated_by,
+  created_at,
+  updated_at
+)
+select
+  'coverage-flag-act-lab',
+  'session-act-lab',
+  'availability_change',
+  'Watch ACT lab coverage if the TA arrival slips past 5:45 PM.',
+  profiles.id,
+  '2026-03-14T12:50:00+00:00',
+  '2026-03-14T12:50:00+00:00'
+from public.profiles
+where profiles.full_name = 'Mina Chen'
+on conflict (session_id) do update
+set
+  status = excluded.status,
+  note = excluded.note,
+  updated_by = excluded.updated_by,
+  updated_at = excluded.updated_at;
+
+insert into public.session_instruction_notes (
+  id,
+  session_id,
+  author_id,
+  body,
+  created_at,
+  updated_at
+)
+select
+  'session-note-sat-mock-instructor',
+  'session-sat-mock',
+  profiles.id,
+  'Reading pacing held up, but Lucas will need a slower first pass on the harder module next session.',
+  '2026-03-16T13:05:00+00:00',
+  '2026-03-16T13:05:00+00:00'
+from public.profiles
+where profiles.full_name = 'Daniel Ruiz'
+on conflict (id) do update
+set
+  session_id = excluded.session_id,
+  author_id = excluded.author_id,
+  body = excluded.body,
+  updated_at = excluded.updated_at;
+
+insert into public.instructional_accommodations (
+  id,
+  student_id,
+  title,
+  detail,
+  created_by,
+  created_at,
+  updated_at
+)
+select
+  'accommodation-lucas-park',
+  'student-lucas-park',
+  'Pacing support',
+  'Start with one guided question before independent work, then check for timing drift after the first section.',
+  profiles.id,
+  '2026-03-16T13:10:00+00:00',
+  '2026-03-16T13:10:00+00:00'
+from public.profiles
+where profiles.full_name = 'Leila Kim'
+on conflict (id) do update
+set
+  student_id = excluded.student_id,
+  title = excluded.title,
+  detail = excluded.detail,
+  created_by = excluded.created_by,
+  updated_at = excluded.updated_at;
+
+insert into public.instructor_follow_up_flags (
+  id,
+  target_type,
+  target_id,
+  cohort_id,
+  summary,
+  note,
+  created_by,
+  created_at,
+  status
+)
+select
+  'instructor-flag-lucas-park',
+  'student',
+  'student-lucas-park',
+  'cohort-sat-spring',
+  'Check pacing support next session',
+  'Lucas responded better after a guided first question. TA should reinforce timing setup at the start of class.',
+  profiles.id,
+  '2026-03-16T13:20:00+00:00',
+  'open'
+from public.profiles
+where profiles.full_name = 'Daniel Ruiz'
+on conflict (id) do update
+set
+  summary = excluded.summary,
+  note = excluded.note,
+  created_by = excluded.created_by,
+  status = excluded.status;

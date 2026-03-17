@@ -124,6 +124,13 @@ export function MessagingReplyPanel({
                 <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
                   {thread.subject}
                 </h3>
+                {thread.category ? (
+                  <div className="mt-3">
+                    <span className="rounded-full border border-[rgba(115,138,123,0.22)] bg-[rgba(115,138,123,0.12)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--sage)]">
+                      {thread.category.replaceAll("_", " ")}
+                    </span>
+                  </div>
+                ) : null}
                 <p className="mt-3 text-sm text-[color:var(--muted)]">{thread.lastMessagePreview}</p>
               </div>
               <div className="flex items-center gap-2">

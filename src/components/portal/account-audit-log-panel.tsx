@@ -21,11 +21,28 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
   const [issueReference, setIssueReference] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [targetFilter, setTargetFilter] = useState("all");
+  const [timeRangeFilter, setTimeRangeFilter] = useState("all");
+  const [referenceNow, setReferenceNow] = useState(() => Date.now());
+
   const filteredEntries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const normalizedIssueReference = issueReference.trim().toLowerCase();
+    const minimumTimestamp =
+      timeRangeFilter === "24h"
+        ? referenceNow - 24 * 60 * 60 * 1000
+        : timeRangeFilter === "7d"
+          ? referenceNow - 7 * 24 * 60 * 60 * 1000
+          : timeRangeFilter === "30d"
+            ? referenceNow - 30 * 24 * 60 * 60 * 1000
+            : timeRangeFilter === "90d"
+              ? referenceNow - 90 * 24 * 60 * 60 * 1000
+              : null;
 
     return (entries ?? []).filter((entry) => {
+      if (minimumTimestamp && Date.parse(entry.createdAt) < minimumTimestamp) {
+        return false;
+      }
+
       if (actionFilter !== "all" && entry.action !== actionFilter) {
         return false;
       }
@@ -50,7 +67,7 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [actionFilter, entries, issueReference, query, targetFilter]);
+  }, [actionFilter, entries, issueReference, query, referenceNow, targetFilter, timeRangeFilter]);
 
   return (
     <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
@@ -62,7 +79,7 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
         Recent account, role, suspension, and password-governance actions recorded in Supabase.
       </p>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <input
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
@@ -98,6 +115,20 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
               {target.replaceAll("_", " ")}
             </option>
           ))}
+        </select>
+        <select
+          value={timeRangeFilter}
+          onChange={(event) => {
+            setTimeRangeFilter(event.currentTarget.value);
+            setReferenceNow(Date.now());
+          }}
+          className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+        >
+          <option value="all">All time</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="90d">Last 90 days</option>
         </select>
       </div>
 

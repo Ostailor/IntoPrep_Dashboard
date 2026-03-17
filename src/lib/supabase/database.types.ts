@@ -25,6 +25,7 @@ export interface Database {
           title: string | null;
           account_status: "active" | "suspended";
           must_change_password: boolean;
+          last_signed_in_at: string | null;
           session_revoked_at: string | null;
           deleted_at: string | null;
           deleted_by: string | null;
@@ -39,6 +40,7 @@ export interface Database {
           title?: string | null;
           account_status?: "active" | "suspended";
           must_change_password?: boolean;
+          last_signed_in_at?: string | null;
           session_revoked_at?: string | null;
           deleted_at?: string | null;
           deleted_by?: string | null;
@@ -118,13 +120,26 @@ export interface Database {
         location: string;
         modality: string;
       }>;
-      programs: Table<{
-        id: string;
-        name: string;
-        track: string;
-        format: string;
-        tuition: number;
-      }>;
+      programs: Table<
+        {
+          id: string;
+          name: string;
+          track: string;
+          format: string;
+          tuition: number;
+          is_archived: boolean;
+          archived_at: string | null;
+        },
+        {
+          id: string;
+          name: string;
+          track: string;
+          format: string;
+          tuition: number;
+          is_archived?: boolean;
+          archived_at?: string | null;
+        }
+      >;
       terms: Table<
         {
           id: string;
@@ -170,6 +185,8 @@ export interface Database {
           lead_instructor_id: string | null;
           cadence: string;
           room_label: string;
+          is_archived: boolean;
+          archived_at: string | null;
         },
         {
           id: string;
@@ -182,6 +199,8 @@ export interface Database {
           lead_instructor_id?: string | null;
           cadence: string;
           room_label: string;
+          is_archived?: boolean;
+          archived_at?: string | null;
         }
       >;
       enrollments: Table<
@@ -292,6 +311,68 @@ export interface Database {
           created_at?: string;
         }
       >;
+      session_instruction_notes: Table<
+        {
+          id: string;
+          session_id: string;
+          author_id: string;
+          body: string;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          author_id: string;
+          body: string;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      instructional_accommodations: Table<
+        {
+          id: string;
+          student_id: string;
+          title: string;
+          detail: string;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          student_id: string;
+          title: string;
+          detail: string;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      instructor_follow_up_flags: Table<
+        {
+          id: string;
+          target_type: string;
+          target_id: string;
+          cohort_id: string;
+          summary: string;
+          note: string | null;
+          created_by: string;
+          created_at: string;
+          status: string;
+        },
+        {
+          id: string;
+          target_type: string;
+          target_id: string;
+          cohort_id: string;
+          summary: string;
+          note?: string | null;
+          created_by: string;
+          created_at?: string;
+          status?: string;
+        }
+      >;
       resources: Table<
         {
           id: string;
@@ -322,6 +403,9 @@ export interface Database {
           due_date: string;
           status: string;
           source: string;
+          follow_up_state: string;
+          last_follow_up_at: string | null;
+          last_follow_up_by: string | null;
         },
         {
           id: string;
@@ -330,12 +414,135 @@ export interface Database {
           due_date: string;
           status: string;
           source: string;
+          follow_up_state?: string;
+          last_follow_up_at?: string | null;
+          last_follow_up_by?: string | null;
+        }
+      >;
+      billing_follow_up_notes: Table<
+        {
+          id: string;
+          invoice_id: string;
+          family_id: string;
+          author_id: string | null;
+          body: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          invoice_id: string;
+          family_id: string;
+          author_id?: string | null;
+          body: string;
+          created_at?: string;
+        }
+      >;
+      admin_tasks: Table<
+        {
+          id: string;
+          task_type: string;
+          target_type: string;
+          target_id: string;
+          title: string;
+          details: string | null;
+          assigned_to: string | null;
+          due_at: string | null;
+          status: string;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          task_type: string;
+          target_type: string;
+          target_id: string;
+          title: string;
+          details?: string | null;
+          assigned_to?: string | null;
+          due_at?: string | null;
+          status?: string;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      admin_saved_views: Table<
+        {
+          id: string;
+          name: string;
+          section: string;
+          filter_state: Json;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          name: string;
+          section: string;
+          filter_state?: Json;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      family_contact_events: Table<
+        {
+          id: string;
+          family_id: string;
+          contact_source: string;
+          summary: string;
+          outcome: string;
+          actor_id: string | null;
+          contact_at: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          family_id: string;
+          contact_source: string;
+          summary: string;
+          outcome: string;
+          actor_id?: string | null;
+          contact_at?: string;
+          created_at?: string;
+        }
+      >;
+      admin_announcements: Table<
+        {
+          id: string;
+          title: string;
+          body: string;
+          tone: string;
+          visible_roles: ("engineer" | "admin" | "staff" | "ta" | "instructor")[];
+          is_active: boolean;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          starts_at: string;
+          expires_at: string | null;
+        },
+        {
+          id: string;
+          title: string;
+          body: string;
+          tone?: string;
+          visible_roles?: ("engineer" | "admin" | "staff" | "ta" | "instructor")[];
+          is_active?: boolean;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          starts_at?: string;
+          expires_at?: string | null;
         }
       >;
       message_threads: Table<
         {
           id: string;
           cohort_id: string;
+          family_id: string | null;
+          category: string | null;
           subject: string;
           participants: string[];
           last_message_preview: string;
@@ -345,6 +552,8 @@ export interface Database {
         {
           id: string;
           cohort_id: string;
+          family_id?: string | null;
+          category?: string | null;
           subject: string;
           participants?: string[];
           last_message_preview: string;
@@ -376,6 +585,9 @@ export interface Database {
           target_program: string;
           stage: string;
           submitted_at: string;
+          owner_id: string | null;
+          follow_up_due_at: string | null;
+          notes: string | null;
         },
         {
           id: string;
@@ -384,6 +596,187 @@ export interface Database {
           target_program: string;
           stage: string;
           submitted_at?: string;
+          owner_id?: string | null;
+          follow_up_due_at?: string | null;
+          notes?: string | null;
+        }
+      >;
+      task_activities: Table<
+        {
+          id: string;
+          task_id: string;
+          author_id: string;
+          body: string;
+          note_type: string;
+          status_from: string | null;
+          status_to: string | null;
+          created_at: string;
+        },
+        {
+          id: string;
+          task_id: string;
+          author_id: string;
+          body: string;
+          note_type: string;
+          status_from?: string | null;
+          status_to?: string | null;
+          created_at?: string;
+        }
+      >;
+      session_checklists: Table<
+        {
+          id: string;
+          session_id: string;
+          room_confirmed: boolean;
+          roster_reviewed: boolean;
+          materials_ready: boolean;
+          family_notice_sent_if_needed: boolean;
+          attendance_complete: boolean;
+          scores_logged_if_needed: boolean;
+          follow_up_sent_if_needed: boolean;
+          notes_closed_out: boolean;
+          updated_by: string | null;
+          updated_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          room_confirmed?: boolean;
+          roster_reviewed?: boolean;
+          materials_ready?: boolean;
+          family_notice_sent_if_needed?: boolean;
+          attendance_complete?: boolean;
+          scores_logged_if_needed?: boolean;
+          follow_up_sent_if_needed?: boolean;
+          notes_closed_out?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+        }
+      >;
+      session_handoff_notes: Table<
+        {
+          id: string;
+          session_id: string;
+          author_id: string;
+          body: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          author_id: string;
+          body: string;
+          created_at?: string;
+        }
+      >;
+      attendance_exception_flags: Table<
+        {
+          id: string;
+          session_id: string;
+          student_id: string;
+          flag_type: string;
+          note: string;
+          created_by: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          student_id: string;
+          flag_type: string;
+          note: string;
+          created_by: string;
+          created_at?: string;
+        }
+      >;
+      session_coverage_flags: Table<
+        {
+          id: string;
+          session_id: string;
+          status: string;
+          note: string;
+          updated_by: string;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          status: string;
+          note: string;
+          updated_by: string;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      approval_requests: Table<
+        {
+          id: string;
+          request_type: string;
+          target_type: string;
+          target_id: string;
+          reason: string;
+          handoff_note: string | null;
+          requested_by: string;
+          status: string;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+        },
+        {
+          id: string;
+          request_type: string;
+          target_type: string;
+          target_id: string;
+          reason: string;
+          handoff_note?: string | null;
+          requested_by: string;
+          status?: string;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          created_at?: string;
+        }
+      >;
+      admin_escalations: Table<
+        {
+          id: string;
+          source_type: string;
+          source_id: string;
+          reason: string;
+          handoff_note: string | null;
+          created_by: string;
+          created_at: string;
+          status: string;
+        },
+        {
+          id: string;
+          source_type: string;
+          source_id: string;
+          reason: string;
+          handoff_note?: string | null;
+          created_by: string;
+          created_at?: string;
+          status?: string;
+        }
+      >;
+      outreach_templates: Table<
+        {
+          id: string;
+          owner_id: string;
+          title: string;
+          category: string;
+          subject: string;
+          body: string;
+          updated_at: string;
+        },
+        {
+          id: string;
+          owner_id: string;
+          title: string;
+          category: string;
+          subject: string;
+          body: string;
+          updated_at?: string;
         }
       >;
       sync_jobs: Table<

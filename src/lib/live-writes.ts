@@ -147,7 +147,7 @@ export async function persistAcademicNote({
   if (noteId) {
     const { data: noteData, error: noteError } = await serviceClient
       .from("academic_notes")
-      .select("id, student_id")
+      .select("id, student_id, author_id")
       .eq("id", noteId)
       .maybeSingle();
 
@@ -159,11 +159,14 @@ export async function persistAcademicNote({
       throw new Error("That note could not be found.");
     }
 
+    if (viewer.role === "instructor" && noteData.author_id !== viewer.id) {
+      throw new Error("Instructors can only edit their own instructional notes.");
+    }
+
     const { error: updateError } = await serviceClient
       .from("academic_notes")
       .update({
         summary: normalizedSummary,
-        author_id: viewer.id,
       })
       .eq("id", noteId);
 

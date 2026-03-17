@@ -9,6 +9,7 @@ import type { BillingSyncRun, BillingSyncSource } from "@/lib/domain";
 interface BillingSyncPanelProps {
   syncSource: BillingSyncSource | null;
   readOnly?: boolean;
+  canManageSource?: boolean;
 }
 
 const syncTone = {
@@ -30,6 +31,7 @@ function formatDateTime(value: string) {
 export function BillingSyncPanel({
   syncSource,
   readOnly = false,
+  canManageSource = true,
 }: BillingSyncPanelProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -58,6 +60,11 @@ export function BillingSyncPanel({
   const handleSourceSave = () => {
     if (readOnly) {
       setError("Role preview is read-only.");
+      return;
+    }
+
+    if (!canManageSource) {
+      setError("Only admin and engineer can change linked-source settings.");
       return;
     }
 
@@ -201,6 +208,10 @@ export function BillingSyncPanel({
             <div className="mt-3 rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
               Role preview is read-only. Exit preview to save sources or run billing actions.
             </div>
+          ) : !canManageSource ? (
+            <div className="mt-3 rounded-[1.25rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+              Staff can run syncs and imports here, but only admin and engineer can change linked-source settings.
+            </div>
           ) : null}
           <p className="mt-2 text-sm text-[color:var(--muted)]">
             The morning cron checks active linked sources around 7:00 AM Eastern and updates the
@@ -215,7 +226,7 @@ export function BillingSyncPanel({
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="QuickBooks invoice export"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <input
               value={sourceDraft.sourceUrl}
@@ -226,7 +237,7 @@ export function BillingSyncPanel({
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="https://example.com/quickbooks-invoices.csv"
               type="url"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <input
               value={sourceDraft.cadence}
@@ -236,7 +247,7 @@ export function BillingSyncPanel({
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               placeholder="Daily around 7:00 AM ET"
-              disabled={readOnly}
+              disabled={readOnly || !canManageSource}
             />
             <label className="flex items-center gap-3 rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]">
               <input
@@ -246,7 +257,7 @@ export function BillingSyncPanel({
                   setSourceDraft((current) => ({ ...current, isActive }));
                 }}
                 type="checkbox"
-                disabled={readOnly}
+                disabled={readOnly || !canManageSource}
               />
               <span>Source active</span>
             </label>
@@ -255,7 +266,7 @@ export function BillingSyncPanel({
             <button
               type="button"
               onClick={handleSourceSave}
-              disabled={sourcePending || readOnly}
+              disabled={sourcePending || readOnly || !canManageSource}
               className={clsx(
                 "rounded-full px-4 py-2 text-sm font-semibold text-white",
                 sourcePending

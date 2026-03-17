@@ -20,7 +20,28 @@ export type AccountGovernanceAction =
   | "maintenance_banner_updated"
   | "feature_flag_updated"
   | "support_note_logged"
-  | "repair_action_run";
+  | "repair_action_run"
+  | "billing_follow_up_updated"
+  | "billing_exported"
+  | "admin_task_updated"
+  | "admin_saved_view_updated"
+  | "family_contact_logged"
+  | "admin_announcement_updated"
+  | "cohort_operation_run"
+  | "bulk_operation_run"
+  | "archive_state_updated"
+  | "task_activity_logged"
+  | "lead_updated"
+  | "approval_request_updated"
+  | "escalation_updated"
+  | "outreach_template_updated"
+  | "session_checklist_updated"
+  | "message_thread_started"
+  | "session_handoff_logged"
+  | "session_instruction_note_saved"
+  | "instructor_follow_up_flag_created"
+  | "attendance_exception_flagged"
+  | "session_coverage_flagged";
 
 export function normalizeManagedEmail(value: string) {
   return value.trim().toLowerCase();

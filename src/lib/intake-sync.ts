@@ -3,7 +3,7 @@ import "server-only";
 import type { IntakeSyncSource, SyncStatus, User } from "@/lib/domain";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import { normalizeSourceUrl } from "@/lib/intake-sync-shared";
-import { canRunIntakeImports } from "@/lib/permissions";
+import { canManageSyncSources, canRunIntakeImports } from "@/lib/permissions";
 import {
   finalizeSyncRun,
   maybeSendSyncAlertEmail,
@@ -110,7 +110,7 @@ export async function saveGoogleFormsSyncSource({
     throw new Error("Supabase service-role access is required for sync configuration.");
   }
 
-  if (!canRunIntakeImports(viewer.role)) {
+  if (!canManageSyncSources(viewer.role)) {
     throw new Error("You cannot configure Google Forms sync.");
   }
 

@@ -649,6 +649,9 @@ export async function importIntakeCsv({
         target_program: targetProgram,
         stage: row.stage,
         submitted_at: submittedAt,
+        owner_id: existingLead?.owner_id ?? null,
+        follow_up_due_at: existingLead?.follow_up_due_at ?? null,
+        notes: existingLead?.notes ?? null,
       });
       leadByFingerprint.set(leadFingerprint, {
         id: leadId,
@@ -657,6 +660,9 @@ export async function importIntakeCsv({
         target_program: targetProgram,
         stage: row.stage,
         submitted_at: submittedAt,
+        owner_id: existingLead?.owner_id ?? null,
+        follow_up_due_at: existingLead?.follow_up_due_at ?? null,
+        notes: existingLead?.notes ?? null,
       });
 
       if (row.stage === "registered" || row.stage === "waitlist") {

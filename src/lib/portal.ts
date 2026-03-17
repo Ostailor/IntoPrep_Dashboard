@@ -1,4 +1,5 @@
 import type {
+  AdminTask,
   AssessmentResult,
   AttendanceStatus,
   ImportRun,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/mock-data";
 import {
   canAccessSection,
+  canViewFamilyContactBasics,
   canViewAllSyncJobs,
   getPermissionProfile,
   getVisibleSections,
@@ -247,7 +249,7 @@ const settingsRoleCopy: Record<UserRole, { label: string; summary: string }> = {
   },
   instructor: {
     label: "Instructor",
-    summary: "Assigned classes only, roster names, attendance, same-day scores, and read-only trends.",
+    summary: "Assigned classes only, attendance, instructional notes, classroom accommodations, and read-only trends.",
   },
 };
 
@@ -267,7 +269,12 @@ export const getPortalContext = (role: UserRole): PortalContext => {
   const studentIds = unique(visibleEnrollments.map((enrollment) => enrollment.studentId));
   const visibleStudents = students.filter((student) => studentIds.includes(student.id));
   const familyIds = unique(visibleStudents.map((student) => student.familyId));
-  const visibleFamilies = families.filter((family) => familyIds.includes(family.id));
+  const visibleFamilies = families
+    .filter((family) => familyIds.includes(family.id))
+    .map((family) => ({
+      ...family,
+      notes: getPermissionProfile(role).canViewFamilyProfiles ? family.notes : "",
+    }));
   const assessmentIds = unique(
     assessments.filter((assessment) => cohortIds.includes(assessment.cohortId)).map((assessment) => assessment.id),
   );
@@ -316,6 +323,35 @@ export const getVisibleLeads = (role: UserRole) =>
 export const getVisibleTasks = (role: UserRole) =>
   tasks.filter((task) => task.ownerRole === role || task.ownerRole === "all");
 
+function formatTaskDueLabel(value?: string | null) {
+  if (!value) {
+    return "No due date";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "America/New_York",
+  }).format(new Date(value));
+}
+
+export const getVisibleTaskCards = (
+  role: UserRole,
+  liveAdminTasks: AdminTask[] = [],
+) => {
+  if (liveAdminTasks.length === 0) {
+    return getVisibleTasks(role);
+  }
+
+  return liveAdminTasks.slice(0, 4).map((task) => ({
+    id: task.id,
+    ownerRole: role,
+    title: task.title,
+    dueLabel: formatTaskDueLabel(task.dueAt),
+    status: task.status === "done" ? ("watch" as const) : ("active" as const),
+  }));
+};
+
 export const getVisibleSyncJobsFromContext = (
   role: UserRole,
   context: PortalContext,
@@ -337,13 +373,13 @@ export const getRoleHeadline = (role: UserRole) => {
     case "engineer":
       return "System oversight, incident controls, admin governance, and audited support access when production issues need attention.";
     case "admin":
-      return "System-wide view over instruction, revenue, and sync stability.";
+      return "Operations view across cohorts, classrooms, family follow-up, and tuition visibility.";
     case "staff":
       return "Enrollment, cohort health, and billing visibility without configuration access.";
     case "ta":
       return "Assigned-cohort support lane with family communication and academic operations.";
     case "instructor":
-      return "Tight teaching lane: assigned classes, attendance, today’s scores, and student trends.";
+      return "Tight teaching lane: assigned classes, attendance, instructional notes, classroom supports, and read-only trends.";
   }
 };
 
@@ -456,27 +492,27 @@ export const getDashboardMetricsFromContext = (
         {
           label: "Active cohorts",
           value: String(context.visibleCohorts.length),
-          detail: "Spring 2026 tracks live across Malvern, UPenn, and online.",
+          detail: "Every live cohort, staffing lane, and classroom block in the current term.",
           tone: "navy",
         },
         {
-          label: "Seats open",
+          label: "Capacity watch",
           value: String(
-            context.visibleCohorts.reduce((accumulator, cohort) => accumulator + cohort.capacity - cohort.enrolled, 0),
+            context.visibleCohorts.filter((cohort) => cohort.capacity > 0 && cohort.enrolled / cohort.capacity >= 0.85).length,
           ),
-          detail: "Immediate capacity still available before summer rollout.",
+          detail: "Near-full cohorts that may need rebalancing or staffing attention.",
           tone: "copper",
         },
         {
-          label: "Open balances",
+          label: "Billing follow-up",
           value: `${pendingInvoices.length}`,
-          detail: "Pending or overdue tuition records need staff follow-up.",
+          detail: "Families with pending or overdue tuition visibility in the operations queue.",
           tone: "sage",
         },
         {
-          label: "Today’s classes",
+          label: "Today’s classrooms",
           value: String(todaySessions.length),
-          detail: "Live sessions on March 14, 2026.",
+          detail: "Live classes, rooming, and staff coverage for the current day.",
           tone: "navy",
         },
       ];
@@ -692,8 +728,8 @@ export const getSessionRosterView = (role: UserRole, sessionId: string): Session
         studentName: `${student.firstName} ${student.lastName}`,
         gradeLevel: getPermissionProfile(role).canViewStudentProfileData ? student.gradeLevel : undefined,
         school: getPermissionProfile(role).canViewStudentProfileData ? student.school : undefined,
-        familyEmail: getPermissionProfile(role).canViewFamilyProfiles ? family.email : undefined,
-        familyPhone: getPermissionProfile(role).canViewFamilyProfiles ? family.phone : undefined,
+        familyEmail: canViewFamilyContactBasics(role) ? family.email : undefined,
+        familyPhone: canViewFamilyContactBasics(role) ? family.phone : undefined,
         attendance,
         latestAssessment:
           latestResult && relatedAssessment
@@ -734,6 +770,9 @@ export const getBillingRowsFromContext = (context: PortalContext, role: UserRole
       dueDate: invoice.dueDate,
       status: invoice.status,
       source: invoice.source,
+      followUpState: invoice.followUpState ?? "open",
+      lastFollowUpAt: invoice.lastFollowUpAt ?? null,
+      lastFollowUpByName: invoice.lastFollowUpByName ?? null,
       sensitiveAccessGranted: invoice.sensitiveAccessGranted ?? getPermissionProfile(role).canViewBilling,
     };
   }).filter((row) => row !== null);

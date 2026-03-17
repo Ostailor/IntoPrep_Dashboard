@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
-import { canRunIntakeImports } from "@/lib/permissions";
+import { canManageSyncSources } from "@/lib/permissions";
 import { saveQuickBooksSyncSource } from "@/lib/billing-sync";
 
 export async function POST(request: Request) {
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
-  if (!canRunIntakeImports(viewer.user.role)) {
+  if (!canManageSyncSources(viewer.user.role)) {
     return NextResponse.json({ error: "You cannot configure QuickBooks sync." }, { status: 403 });
   }
 
