@@ -4,6 +4,7 @@ import type {
   SessionHandoffNote,
   User,
 } from "@/lib/domain";
+import { unstable_cache } from "next/cache";
 import { canViewFamilyAttendanceContext, viewerCanAccessCohort } from "@/lib/attendance";
 import { formatTimeRange, type SessionRosterRow } from "@/lib/portal";
 import { hasGlobalPortalScope } from "@/lib/permissions";
@@ -107,7 +108,7 @@ function buildStudentTrendMap(
   return trendMap;
 }
 
-export async function getLiveAttendanceBundle(
+async function loadLiveAttendanceBundle(
   viewer: User,
 ): Promise<LiveAttendanceBundle | null> {
   if (!hasSupabaseServiceRole()) {
@@ -349,6 +350,43 @@ export async function getLiveAttendanceBundle(
       ];
     }),
   };
+}
+
+function getLiveAttendanceCacheViewer(viewer: User) {
+  const scopedViewerId = hasGlobalPortalScope(viewer.role)
+    ? `global:${viewer.role}`
+    : viewer.id;
+
+  return JSON.stringify({
+    id: scopedViewerId,
+    role: viewer.role,
+    assignedCohortIds: hasGlobalPortalScope(viewer.role)
+      ? []
+      : [...viewer.assignedCohortIds].sort(),
+  });
+}
+
+const getCachedLiveAttendanceBundle = unstable_cache(
+  async (viewerJson: string) => {
+    const viewer = JSON.parse(viewerJson) as User;
+
+    return loadLiveAttendanceBundle(viewer);
+  },
+  ["live-attendance-bundle-v1"],
+  {
+    revalidate: 15,
+    tags: ["portal-live"],
+  },
+);
+
+export async function getLiveAttendanceBundle(
+  viewer: User,
+): Promise<LiveAttendanceBundle | null> {
+  if (!hasSupabaseServiceRole()) {
+    return null;
+  }
+
+  return getCachedLiveAttendanceBundle(getLiveAttendanceCacheViewer(viewer));
 }
 
 export async function persistAttendanceStatus({

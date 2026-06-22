@@ -54,6 +54,7 @@ import {
   type UserRole,
   type PortalSection,
 } from "@/lib/domain";
+import { unstable_cache } from "next/cache";
 import {
   canViewFamilyContactBasics,
   canRunIntakeImports,
@@ -760,7 +761,7 @@ async function getAccessibleCohortIds(viewer: User) {
   );
 }
 
-export async function getLivePortalBundle(
+async function loadLivePortalBundle(
   viewer: User,
   section?: PortalSection,
 ): Promise<LivePortalBundle | null> {
@@ -2601,4 +2602,52 @@ export async function getLivePortalBundle(
           }
         : null,
   };
+}
+
+function getLivePortalCacheSection(viewer: User, section?: PortalSection) {
+  return viewer.role === "instructor" && section === "dashboard"
+    ? "instructor-dashboard"
+    : "shared";
+}
+
+function getLivePortalCacheViewer(viewer: User) {
+  const scopedViewerId = hasGlobalPortalScope(viewer.role)
+    ? `global:${viewer.role}`
+    : viewer.id;
+
+  return JSON.stringify({
+    id: scopedViewerId,
+    role: viewer.role,
+    assignedCohortIds: hasGlobalPortalScope(viewer.role)
+      ? []
+      : [...viewer.assignedCohortIds].sort(),
+  });
+}
+
+const getCachedLivePortalBundle = unstable_cache(
+  async (viewerJson: string, cacheSection: string) => {
+    const viewer = JSON.parse(viewerJson) as User;
+    const section = cacheSection === "instructor-dashboard" ? "dashboard" : undefined;
+
+    return loadLivePortalBundle(viewer, section);
+  },
+  ["live-portal-bundle-v1"],
+  {
+    revalidate: 15,
+    tags: ["portal-live"],
+  },
+);
+
+export async function getLivePortalBundle(
+  viewer: User,
+  section?: PortalSection,
+): Promise<LivePortalBundle | null> {
+  if (!hasSupabaseServiceRole()) {
+    return null;
+  }
+
+  return getCachedLivePortalBundle(
+    getLivePortalCacheViewer(viewer),
+    getLivePortalCacheSection(viewer, section),
+  );
 }

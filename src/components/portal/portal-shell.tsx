@@ -422,12 +422,12 @@ export async function PortalShell({
       <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-lg border border-[color:var(--line)] p-4 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[300px] xl:overflow-y-auto">
-          <div className="operations-image rounded-lg p-5 text-white">
+          <div className="operations-image rounded-lg p-4 text-white">
             <div className="section-kicker text-white/60">IntoPrep internal</div>
-            <div className="mt-3 flex items-center justify-between gap-4">
+            <div className="mt-3 flex items-center justify-between gap-3">
               <div>
-                <h1 className="text-2xl font-semibold">IntoPrep Dashboard</h1>
-                <p className="mt-2 max-w-[16rem] text-sm text-white/72">
+                <h1 className="text-xl font-semibold">IntoPrep Dashboard</h1>
+                <p className="mt-1 hidden max-w-[16rem] text-sm text-white/72 2xl:block">
                   One place to manage classes, cohorts, staff coordination, and daily operations.
                 </p>
               </div>
@@ -435,18 +435,13 @@ export async function PortalShell({
                 v1
               </div>
             </div>
-            <div className="mt-6 rounded-lg border border-white/10 bg-white/10 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-white/52">Snapshot date</div>
-              <div className="mt-2 text-lg font-semibold">{formatLongDate(snapshotDate)}</div>
-              <div className="mt-2 text-sm text-white/60">
-                {viewer.mode === "live"
-                  ? "Current dashboard view for today’s schedule, classroom activity, and team workflows."
-                  : "Reference view of the IntoPrep dashboard."}
-              </div>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/10 px-3 py-2">
+              <div className="text-xs uppercase tracking-[0.16em] text-white/52">Snapshot</div>
+              <div className="text-sm font-semibold">{formatLongDate(snapshotDate)}</div>
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-4">
             <div className="section-kicker">Navigation</div>
             <nav className="mt-3 space-y-1">
               {context.visibleSections.map((item) => {

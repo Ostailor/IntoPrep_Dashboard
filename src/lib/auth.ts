@@ -1,4 +1,5 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
+import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 import type { AccountStatus, User, UserRole } from "@/lib/domain";
 import { normalizeRole } from "@/lib/permissions";
@@ -21,13 +22,33 @@ export interface PortalViewer {
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type UserTemplateRow = Database["public"]["Tables"]["user_templates"]["Row"];
 type CohortAssignmentRow = Database["public"]["Tables"]["cohort_assignments"]["Row"];
+interface AuthUserCacheFields {
+  id: string;
+  email: string | null;
+  user_metadata: SupabaseAuthUser["user_metadata"];
+}
+
+const LAST_SIGNED_IN_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 function formatPreviewTitle(role: UserRole) {
   return `${role[0]?.toUpperCase()}${role.slice(1)} preview`;
 }
 
-async function ensureLiveProfile(
-  authUser: SupabaseAuthUser,
+function shouldRefreshLastSignedInAt(lastSignedInAt: string | null) {
+  if (!lastSignedInAt) {
+    return true;
+  }
+
+  const lastRefreshTime = new Date(lastSignedInAt).getTime();
+
+  return (
+    !Number.isFinite(lastRefreshTime) ||
+    Date.now() - lastRefreshTime > LAST_SIGNED_IN_REFRESH_INTERVAL_MS
+  );
+}
+
+async function loadLiveProfile(
+  authUser: AuthUserCacheFields,
 ): Promise<{ profile: ProfileRow | null; assignedCohortIds: string[] } | null> {
   if (!hasSupabaseServiceRole()) {
     return null;
@@ -82,6 +103,9 @@ async function ensureLiveProfile(
     existingProfile.account_status !== accountStatus ||
     existingProfile.must_change_password !== mustChangePassword;
   const lastSignedInAt = new Date().toISOString();
+  const needsLastSignedInRefresh = shouldRefreshLastSignedInAt(
+    existingProfile?.last_signed_in_at ?? null,
+  );
 
   if (needsProfileUpsert) {
     await serviceClient.from("profiles").upsert({
@@ -94,7 +118,7 @@ async function ensureLiveProfile(
       must_change_password: mustChangePassword,
       last_signed_in_at: lastSignedInAt,
     });
-  } else {
+  } else if (needsLastSignedInRefresh) {
     await serviceClient
       .from("profiles")
       .update({ last_signed_in_at: lastSignedInAt })
@@ -161,6 +185,37 @@ async function ensureLiveProfile(
     profile: hydratedProfile,
     assignedCohortIds: assignments?.map((assignment) => assignment.cohort_id) ?? [],
   };
+}
+
+function getLiveProfileCacheUser(authUser: SupabaseAuthUser) {
+  return JSON.stringify({
+    id: authUser.id,
+    email: authUser.email?.toLowerCase() ?? null,
+    user_metadata: authUser.user_metadata,
+  } satisfies AuthUserCacheFields);
+}
+
+const getCachedLiveProfile = unstable_cache(
+  async (authUserJson: string) => {
+    const authUser = JSON.parse(authUserJson) as AuthUserCacheFields;
+
+    return loadLiveProfile(authUser);
+  },
+  ["live-profile-v1"],
+  {
+    revalidate: 15,
+    tags: ["portal-live"],
+  },
+);
+
+async function ensureLiveProfile(
+  authUser: SupabaseAuthUser,
+): Promise<{ profile: ProfileRow | null; assignedCohortIds: string[] } | null> {
+  if (!hasSupabaseServiceRole()) {
+    return null;
+  }
+
+  return getCachedLiveProfile(getLiveProfileCacheUser(authUser));
 }
 
 async function resolveLiveRolePreview(

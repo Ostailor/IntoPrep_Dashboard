@@ -13,20 +13,17 @@ export function PortalNavPrefetch({ hrefs }: { hrefs: string[] }) {
 
     let cancelled = false;
 
-    const runPrefetch = () => {
-      hrefs.forEach((href, index) => {
-        window.setTimeout(() => {
-          if (!cancelled) {
-            router.prefetch(href);
-          }
-        }, index * 120);
-      });
-    };
+    const timeoutIds = hrefs.map((href, index) =>
+      window.setTimeout(() => {
+        if (!cancelled) {
+          router.prefetch(href);
+        }
+      }, index * 30),
+    );
 
-    const timeoutId = window.setTimeout(runPrefetch, 300);
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
     };
   }, [hrefs, router]);
 
