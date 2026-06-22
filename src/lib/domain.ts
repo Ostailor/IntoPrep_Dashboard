@@ -79,6 +79,9 @@ export type SessionCoverageStatus =
   | "clear";
 export type InstructorFollowUpTargetType = "student" | "session";
 export type InstructorFollowUpStatus = "open" | "acknowledged" | "resolved";
+export type FeedbackCategory = "addition" | "bug" | "confusing" | "other";
+export type FeedbackPriority = "normal" | "urgent";
+export type FeedbackStatus = "new" | "reviewed" | "planned" | "resolved" | "closed";
 
 export interface User {
   id: string;
@@ -86,6 +89,25 @@ export interface User {
   role: UserRole;
   title: string;
   assignedCohortIds: string[];
+}
+
+export interface FeedbackSubmission {
+  id: string;
+  reporterId: string | null;
+  reporterEmail: string | null;
+  reporterName: string;
+  reporterRole: UserRole;
+  category: FeedbackCategory;
+  priority: FeedbackPriority;
+  status: FeedbackStatus;
+  subject: string;
+  body: string;
+  pagePath: string | null;
+  reviewedBy: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Lead {

@@ -537,6 +537,44 @@ export interface Database {
           expires_at?: string | null;
         }
       >;
+      feedback_submissions: Table<
+        {
+          id: string;
+          reporter_id: string | null;
+          reporter_email: string | null;
+          reporter_name: string;
+          reporter_role: "engineer" | "admin" | "staff" | "ta" | "instructor";
+          category: string;
+          priority: string;
+          status: string;
+          subject: string;
+          body: string;
+          page_path: string | null;
+          user_agent: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          reporter_id?: string | null;
+          reporter_email?: string | null;
+          reporter_name: string;
+          reporter_role: "engineer" | "admin" | "staff" | "ta" | "instructor";
+          category?: string;
+          priority?: string;
+          status?: string;
+          subject: string;
+          body: string;
+          page_path?: string | null;
+          user_agent?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
       message_threads: Table<
         {
           id: string;

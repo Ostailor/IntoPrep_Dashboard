@@ -70,6 +70,7 @@ import { EngineerConsolePanels } from "@/components/portal/engineer-console-pane
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
+import { PortalFeedbackButton } from "@/components/portal/portal-feedback-button";
 import { PortalNavPrefetch } from "@/components/portal/portal-nav-prefetch";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
@@ -93,6 +94,7 @@ import { TaAttendanceSupportPanel } from "@/components/portal/ta-attendance-supp
 import { TaDashboardPanels } from "@/components/portal/ta-dashboard-panels";
 import { TaFamilySupportPanel } from "@/components/portal/ta-family-support-panel";
 import { TaMessagingPanel } from "@/components/portal/ta-messaging-panel";
+import { FeedbackManagementPanel } from "@/components/portal/feedback-management-panel";
 
 const sectionIcons: Record<PortalSection, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -515,6 +517,7 @@ export async function PortalShell({
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <DesktopUpdateButton />
               <InstallAppButton />
+              <PortalFeedbackButton userName={currentUser.name} userRole={roleLabels[role]} />
               <form action={signOutAction}>
                 <button
                   type="submit"
@@ -788,6 +791,7 @@ export async function PortalShell({
                 settingsRoleRows,
                 settingsUsers: livePortal?.settingsUsers ?? null,
                 settingsAuditLogs: livePortal?.settingsAuditLogs ?? null,
+                feedbackSubmissions: livePortal?.feedbackSubmissions ?? [],
                 adminOps,
                 staffOps,
                 taOps,
@@ -836,6 +840,7 @@ function renderSectionContent({
   settingsRoleRows,
   settingsUsers,
   settingsAuditLogs,
+  feedbackSubmissions,
   adminOps,
   staffOps,
   taOps,
@@ -875,6 +880,7 @@ function renderSectionContent({
   settingsRoleRows: ReturnType<typeof getSettingsRoleRows>;
   settingsUsers: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsUsers"];
   settingsAuditLogs: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsAuditLogs"];
+  feedbackSubmissions: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["feedbackSubmissions"];
   adminOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["adminOps"];
   staffOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["staffOps"];
   taOps: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["taOps"];
@@ -1878,6 +1884,10 @@ function renderSectionContent({
 
           <div className="space-y-5">
             <AccountAuditLogPanel entries={viewerMode === "live" ? settingsAuditLogs : null} />
+
+            {role === "engineer" || role === "admin" ? (
+              <FeedbackManagementPanel submissions={feedbackSubmissions} />
+            ) : null}
 
             <SectionPanel>
               <SectionHeading

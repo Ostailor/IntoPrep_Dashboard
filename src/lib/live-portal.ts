@@ -23,6 +23,7 @@ import {
   type FeatureFlag,
   type Family,
   type FamilyContactEvent,
+  type FeedbackSubmission,
   type ImportRun,
   type InstructionalAccommodation,
   type InstructorFollowUpFlag,
@@ -82,6 +83,7 @@ import {
   parseFallbackFollowUpReason,
   stripFallbackSessionNoteBody,
 } from "@/lib/instructor-fallbacks";
+import { listFeedbackSubmissions } from "@/lib/feedback";
 import { RESOURCE_BUCKET_NAME } from "@/lib/live-writes";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
@@ -239,6 +241,7 @@ export interface LivePortalBundle {
   settingsRoleStats: LiveSettingsRoleStats | null;
   settingsUsers: LiveSettingsUserRow[] | null;
   settingsAuditLogs: LiveSettingsAuditRow[] | null;
+  feedbackSubmissions: FeedbackSubmission[];
   adminOps: LiveAdminOpsBundle | null;
   staffOps: LiveStaffOpsBundle | null;
   taOps: LiveTaOpsBundle | null;
@@ -277,6 +280,7 @@ function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
     settingsRoleStats: null,
     settingsUsers: null,
     settingsAuditLogs: null,
+    feedbackSubmissions: [],
     adminOps: null,
     staffOps: null,
     taOps: null,
@@ -1760,6 +1764,7 @@ async function loadLivePortalBundle(
       : null;
   const engineerSupportNotes =
     viewer.role === "engineer" ? await getEngineerSupportNotes() : [];
+  const feedbackSubmissions = await listFeedbackSubmissions(viewer);
   const engineerFeatureFlags = viewer.role === "engineer" ? await getFeatureFlags() : [];
   const engineerChangeFreeze = viewer.role === "engineer" ? await getChangeFreeze() : null;
   const activeMaintenanceBanner = await getMaintenanceBanner();
@@ -2585,6 +2590,7 @@ async function loadLivePortalBundle(
     settingsRoleStats,
     settingsUsers,
     settingsAuditLogs,
+    feedbackSubmissions,
     adminOps,
     staffOps,
     taOps,
