@@ -19,6 +19,10 @@ export async function PortalPage({
     path: `/${section}`,
   });
 
+  if (viewer.mustChangePassword) {
+    redirect(`/reset-password?mode=required&next=${encodeURIComponent(`/${section}`)}`);
+  }
+
   if (!canAccessSection(viewer.user.role, section)) {
     const fallbackSection = getVisibleSections(viewer.user.role)[0] ?? "dashboard";
     redirect(`/${fallbackSection}`);

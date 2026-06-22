@@ -44,6 +44,10 @@ export default async function LoginPage({
 
   const viewer = await getAuthenticatedViewerForRequest();
   if (viewer) {
+    if (viewer.mustChangePassword) {
+      redirect(`/reset-password?mode=required&next=${encodeURIComponent(next)}`);
+    }
+
     redirect(next);
   }
 

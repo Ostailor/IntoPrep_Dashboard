@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 function getNextPath(formData: FormData) {
   const next = formData.get("next");
@@ -32,7 +34,7 @@ export async function signInAction(formData: FormData) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
@@ -41,6 +43,32 @@ export async function signInAction(formData: FormData) {
     redirect(
       `/login?error=${encodeURIComponent(normalizeSignInErrorMessage(error.message))}&next=${encodeURIComponent(next)}`,
     );
+  }
+
+  if (data.user && hasSupabaseServiceRole()) {
+    const serviceClient = createSupabaseServiceClient();
+    const normalizedEmail = data.user.email?.toLowerCase();
+    const [{ data: profile }, { data: template }] = await Promise.all([
+      serviceClient
+        .from("profiles")
+        .select("must_change_password")
+        .eq("id", data.user.id)
+        .maybeSingle(),
+      normalizedEmail
+        ? serviceClient
+            .from("user_templates")
+            .select("must_change_password")
+            .eq("email", normalizedEmail)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const mustChangePassword =
+      template?.must_change_password ?? profile?.must_change_password ?? false;
+
+    if (mustChangePassword) {
+      redirect(`/reset-password?mode=required&next=${encodeURIComponent(next)}`);
+    }
   }
 
   redirect(next);
