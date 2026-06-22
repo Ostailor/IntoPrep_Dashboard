@@ -105,10 +105,14 @@ export default async function ForgotPasswordPage({
 
           <form action={requestPasswordResetAction} className="mt-6 space-y-4">
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              <label
+                className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                htmlFor="forgot-password-email"
+              >
                 Email
               </label>
               <input
+                id="forgot-password-email"
                 required
                 name="email"
                 type="email"

@@ -49,16 +49,18 @@ export default async function LoginPage({
 
   return (
     <main className="min-h-screen px-4 py-6 lg:px-6 lg:py-8">
-      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="glass-panel overflow-hidden rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
-          <div className="section-kicker">IntoPrep operations</div>
-          <h1 className="display-font mt-3 max-w-3xl text-5xl leading-tight text-[color:var(--navy-strong)] lg:text-6xl">
-            The internal dashboard for running cohorts and classrooms.
-          </h1>
-          <p className="mt-6 max-w-2xl text-base leading-8 text-[color:var(--muted)]">
-            Use the portal to coordinate daily class operations, attendance, academic follow-up,
-            cohort visibility, billing status, and internal staff workflows across IntoPrep.
-          </p>
+      <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <section className="glass-panel overflow-hidden p-6 lg:p-8">
+          <div className="operations-image -m-6 mb-7 min-h-[230px] p-6 text-white lg:-m-8 lg:mb-8 lg:min-h-[300px] lg:p-8">
+            <div className="section-kicker text-white/72">IntoPrep operations</div>
+            <h1 className="mt-4 max-w-2xl text-4xl font-semibold leading-tight tracking-normal lg:text-6xl">
+              The internal command center for cohorts, classes, and family follow-up.
+            </h1>
+            <p className="mt-5 max-w-xl text-sm leading-7 text-white/76">
+              Coordinate daily class operations, attendance, academic follow-up, billing status,
+              and staff workflows across IntoPrep.
+            </p>
+          </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {[
@@ -77,7 +79,7 @@ export default async function LoginPage({
             ].map((item) => (
               <div
                 key={item.label}
-                className="rounded-[1.75rem] border border-[color:var(--line)] bg-white/72 p-5"
+                className="rounded-lg border border-[color:var(--line)] bg-white p-5"
               >
                 <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
                   {item.label}
@@ -90,7 +92,7 @@ export default async function LoginPage({
           </div>
 
           <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-[1.9rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] p-6">
+            <div className="rounded-lg border border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
                 Daily usage
               </div>
@@ -101,7 +103,7 @@ export default async function LoginPage({
               </div>
             </div>
 
-            <div className="rounded-[1.9rem] border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] p-6">
+            <div className="rounded-lg border border-[rgba(49,95,212,0.2)] bg-[rgba(49,95,212,0.08)] p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--muted)]">
                 Access model
               </div>
@@ -114,9 +116,9 @@ export default async function LoginPage({
           </div>
         </section>
 
-        <section className="glass-panel rounded-[2.5rem] border border-white/45 p-8 lg:p-10">
+        <section className="glass-panel p-6 lg:p-8">
           <div className="section-kicker">Staff access</div>
-          <h2 className="display-font mt-3 text-3xl text-[color:var(--navy-strong)]">
+          <h2 className="mt-3 text-3xl font-semibold text-[color:var(--navy-strong)]">
             Sign in to IntoPrep
           </h2>
           <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">
@@ -146,32 +148,40 @@ export default async function LoginPage({
             <form action={signInAction} className="space-y-4">
               <input type="hidden" name="next" value={next} />
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                <label
+                  className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                  htmlFor="login-email"
+                >
                   Email
                 </label>
                 <input
+                  id="login-email"
                   required
                   name="email"
                   type="email"
-                  className="w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm outline-none ring-0 focus:border-[rgba(187,110,69,0.34)]"
+                  className="focus-ring w-full rounded-lg border border-[color:var(--line)] bg-white px-4 py-3 text-sm"
                   placeholder="name@intoprep.com"
                 />
               </div>
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                <label
+                  className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                  htmlFor="login-password"
+                >
                   Password
                 </label>
                 <input
+                  id="login-password"
                   required
                   name="password"
                   type="password"
-                  className="w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm outline-none ring-0 focus:border-[rgba(187,110,69,0.34)]"
+                  className="focus-ring w-full rounded-lg border border-[color:var(--line)] bg-white px-4 py-3 text-sm"
                   placeholder="Enter your password"
                 />
               </div>
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[color:var(--navy-strong)] px-4 py-3 text-sm font-semibold text-white hover:opacity-90"
+                className="w-full rounded-lg bg-[color:var(--navy-strong)] px-4 py-3 text-sm font-semibold text-white hover:opacity-90"
               >
                 Sign in
               </button>
@@ -185,7 +195,7 @@ export default async function LoginPage({
               </div>
             </form>
 
-            <div className="rounded-[1.75rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] p-5 text-sm text-[color:var(--navy-strong)]">
+            <div className="rounded-lg border border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] p-5 text-sm text-[color:var(--navy-strong)]">
               <div className="font-semibold">Internal access only</div>
               <div className="mt-2">
                 This dashboard is for internal IntoPrep use. If your account is new, you may be

@@ -118,17 +118,17 @@ const roleLabels: Record<UserRole, string> = {
 };
 
 const roleAccent: Record<UserRole, string> = {
-  engineer: "border-[rgba(34,93,120,0.24)] bg-[rgba(34,93,120,0.12)] text-[color:var(--navy-strong)]",
-  admin: "border-[rgba(23,56,75,0.24)] bg-[rgba(23,56,75,0.12)] text-[color:var(--navy-strong)]",
-  staff: "border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] text-[color:var(--copper)]",
-  ta: "border-[rgba(115,138,123,0.24)] bg-[rgba(115,138,123,0.16)] text-[color:var(--sage)]",
-  instructor: "border-[rgba(16,37,51,0.16)] bg-[rgba(255,255,255,0.72)] text-[color:var(--navy-strong)]",
+  engineer: "border-[rgba(17,69,84,0.24)] bg-[rgba(17,69,84,0.1)] text-[color:var(--navy-strong)]",
+  admin: "border-[rgba(49,95,212,0.22)] bg-[rgba(49,95,212,0.1)] text-[color:var(--copper)]",
+  staff: "border-[rgba(45,123,111,0.24)] bg-[rgba(45,123,111,0.1)] text-[color:var(--sage)]",
+  ta: "border-[rgba(35,128,96,0.22)] bg-[rgba(35,128,96,0.1)] text-emerald-800",
+  instructor: "border-[rgba(15,36,48,0.16)] bg-white text-[color:var(--navy-strong)]",
 };
 
 const tonePill: Record<"navy" | "copper" | "sage", string> = {
-  navy: "from-[rgba(23,56,75,0.18)] to-[rgba(23,56,75,0.04)]",
-  copper: "from-[rgba(187,110,69,0.22)] to-[rgba(187,110,69,0.05)]",
-  sage: "from-[rgba(115,138,123,0.22)] to-[rgba(115,138,123,0.05)]",
+  navy: "from-[rgba(17,69,84,0.12)] to-white",
+  copper: "from-[rgba(49,95,212,0.12)] to-white",
+  sage: "from-[rgba(45,123,111,0.12)] to-white",
 };
 
 function SectionPanel({
@@ -141,7 +141,7 @@ function SectionPanel({
   return (
     <section
       className={clsx(
-        "glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]",
+        "glass-panel rounded-lg border border-[color:var(--line)] p-5 shadow-[var(--shadow)]",
         className,
       )}
     >
@@ -162,7 +162,7 @@ function SectionHeading({
   return (
     <div>
       <div className="section-kicker">{eyebrow}</div>
-      <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">{title}</h3>
+      <h3 className="mt-2 text-2xl font-semibold text-[color:var(--navy-strong)]">{title}</h3>
       <p className="mt-3 max-w-3xl text-sm text-[color:var(--muted)]">{description}</p>
     </div>
   );
@@ -421,12 +421,12 @@ export async function PortalShell({
       <PortalLiveSync enabled section={section} />
       <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
-        <aside className="glass-panel thin-scrollbar flex flex-col rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[320px] xl:overflow-y-auto">
-          <div className="rounded-[1.75rem] bg-[linear-gradient(145deg,rgba(14,34,49,0.96),rgba(23,56,75,0.92))] p-5 text-white">
+        <aside className="glass-panel thin-scrollbar flex flex-col rounded-lg border border-[color:var(--line)] p-4 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[300px] xl:overflow-y-auto">
+          <div className="operations-image rounded-lg p-5 text-white">
             <div className="section-kicker text-white/60">IntoPrep internal</div>
             <div className="mt-3 flex items-center justify-between gap-4">
               <div>
-                <h1 className="display-font text-3xl">IntoPrep Dashboard</h1>
+                <h1 className="text-2xl font-semibold">IntoPrep Dashboard</h1>
                 <p className="mt-2 max-w-[16rem] text-sm text-white/72">
                   One place to manage classes, cohorts, staff coordination, and daily operations.
                 </p>
@@ -435,7 +435,7 @@ export async function PortalShell({
                 v1
               </div>
             </div>
-            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/8 p-4">
+            <div className="mt-6 rounded-lg border border-white/10 bg-white/10 p-4">
               <div className="text-xs uppercase tracking-[0.16em] text-white/52">Snapshot date</div>
               <div className="mt-2 text-lg font-semibold">{formatLongDate(snapshotDate)}</div>
               <div className="mt-2 text-sm text-white/60">
@@ -448,7 +448,7 @@ export async function PortalShell({
 
           <div className="mt-6">
             <div className="section-kicker">Navigation</div>
-            <nav className="mt-3 space-y-2">
+            <nav className="mt-3 space-y-1">
               {context.visibleSections.map((item) => {
                 const Icon = sectionIcons[item];
                 const active = item === section;
@@ -458,8 +458,8 @@ export async function PortalShell({
                     href={sectionHref(`/${item}`)}
                     prefetch
                     className={clsx(
-                      "nav-pill flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-semibold",
-                      active ? "nav-pill-active" : "text-[color:var(--muted)] hover:bg-white/75",
+                      "nav-pill flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold",
+                      active ? "nav-pill-active" : "text-[color:var(--muted)] hover:bg-white",
                     )}
                   >
                     <span className="flex items-center gap-3">
@@ -473,7 +473,7 @@ export async function PortalShell({
             </nav>
           </div>
 
-          <div className="mt-6 rounded-[1.75rem] border border-[color:var(--line)] bg-white/65 p-4">
+          <div className="mt-6 rounded-lg border border-[color:var(--line)] bg-white p-4">
             <div className="section-kicker">Current lane</div>
             <div className="mt-2 flex items-center gap-3">
               <div className={clsx("rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em]", roleAccent[role])}>
@@ -496,7 +496,7 @@ export async function PortalShell({
                     "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
                     viewer.mode === "live"
                       ? roleAccent.engineer
-                      : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-stone-50",
+                      : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-slate-50",
                   )}
                 >
                   Engineer live
@@ -509,7 +509,7 @@ export async function PortalShell({
                       "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
                       candidate === role && viewer.mode === "live-role-preview"
                         ? roleAccent[candidate]
-                        : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-stone-50",
+                        : "border-[color:var(--line)] bg-white text-[color:var(--muted)] hover:bg-slate-50",
                     )}
                   >
                     {roleLabels[candidate]}
@@ -523,7 +523,7 @@ export async function PortalShell({
               <form action={signOutAction}>
                 <button
                   type="submit"
-                  className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)] hover:bg-stone-50"
+                  className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)] hover:bg-slate-50"
                 >
                   Sign out
                 </button>
@@ -531,11 +531,11 @@ export async function PortalShell({
             </div>
           </div>
 
-          <div className="mt-6 rounded-[1.75rem] border border-[color:var(--line)] bg-white/65 p-4">
+          <div className="mt-6 rounded-lg border border-[color:var(--line)] bg-white p-4">
             <div className="section-kicker">Systems status</div>
             <div className="mt-3 space-y-3">
               {visibleSyncJobs.slice(0, 3).map((job) => (
-                <div key={job.id} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                <div key={job.id} className="rounded-lg border border-[color:var(--line)] bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-[color:var(--navy-strong)]">{job.label}</div>
                     <SyncStatusPill status={job.status} />
@@ -552,7 +552,7 @@ export async function PortalShell({
 
         <main className="flex-1">
           {viewer.mode === "live-role-preview" ? (
-            <div className="mb-5 rounded-[1.75rem] border border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
+            <div className="mb-5 rounded-lg border border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
               Previewing the {roleLabels[role]} experience
               {viewer.previewSourceName ? ` using ${viewer.previewSourceName}` : ""}. Writes are blocked until you exit preview.
               <Link
@@ -567,12 +567,12 @@ export async function PortalShell({
           {activeMaintenanceBanner ? (
             <div
               className={clsx(
-                "mb-5 rounded-[1.75rem] border px-5 py-4 text-sm shadow-[var(--shadow)]",
+                "mb-5 rounded-lg border px-5 py-4 text-sm shadow-[var(--shadow)]",
                 activeMaintenanceBanner.tone === "error"
                   ? "border-rose-200 bg-rose-100 text-rose-800"
                   : activeMaintenanceBanner.tone === "warning"
                     ? "border-amber-200 bg-amber-100 text-amber-800"
-                    : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)]",
+                    : "border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] text-[color:var(--navy-strong)]",
               )}
             >
               <div className="font-semibold">{activeMaintenanceBanner.message}</div>
@@ -589,10 +589,10 @@ export async function PortalShell({
                 <div
                   key={announcement.id}
                   className={clsx(
-                    "rounded-[1.75rem] border px-5 py-4 text-sm shadow-[var(--shadow)]",
+                    "rounded-lg border px-5 py-4 text-sm shadow-[var(--shadow)]",
                     announcement.tone === "warning"
                       ? "border-amber-200 bg-amber-100 text-amber-800"
-                      : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)]",
+                      : "border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] text-[color:var(--navy-strong)]",
                   )}
                 >
                   <div className="font-semibold">{announcement.title}</div>
@@ -606,7 +606,7 @@ export async function PortalShell({
           viewer.mode === "live" &&
           engineerConsole &&
           engineerConsole.activeSensitiveAccessGrants.length > 0 ? (
-            <div className="mb-5 rounded-[1.75rem] border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
+            <div className="mb-5 rounded-lg border border-[rgba(49,95,212,0.2)] bg-[rgba(49,95,212,0.08)] px-5 py-4 text-sm text-[color:var(--navy-strong)] shadow-[var(--shadow)]">
               <div className="font-semibold">Break-glass access is active.</div>
               <div className="mt-1">
                 {engineerConsole.activeSensitiveAccessGrants.length} scoped support grant
@@ -615,11 +615,11 @@ export async function PortalShell({
             </div>
           ) : null}
 
-          <header className="glass-panel rounded-[2rem] border border-white/45 p-5 shadow-[var(--shadow)] lg:p-6">
+          <header className="glass-panel rounded-lg border border-[color:var(--line)] p-5 shadow-[var(--shadow)] lg:p-6">
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <div className="section-kicker">{meta.eyebrow}</div>
-                <h2 className="display-font mt-2 text-4xl text-[color:var(--navy-strong)] lg:text-5xl">
+                <h2 className="mt-2 text-4xl font-semibold tracking-normal text-[color:var(--navy-strong)] lg:text-5xl">
                   {meta.title}
                 </h2>
                 <p className="mt-4 max-w-4xl text-sm leading-7 text-[color:var(--muted)]">
@@ -627,9 +627,9 @@ export async function PortalShell({
                 </p>
               </div>
 
-              <div className="w-full max-w-xl rounded-[1.75rem] border border-[color:var(--line)] bg-[rgba(255,255,255,0.72)] p-4">
+              <div className="w-full max-w-xl rounded-lg border border-[color:var(--line)] bg-white p-4">
                 <div className="section-kicker">{viewer.mode === "live" ? "Account" : "Preview role"}</div>
-                <div className="mt-3 rounded-[1.25rem] border border-[rgba(45,125,99,0.18)] bg-[rgba(45,125,99,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+                <div className="mt-3 rounded-lg border border-[rgba(45,123,111,0.18)] bg-[rgba(45,123,111,0.08)] px-4 py-3 text-sm text-[color:var(--navy-strong)]">
                   {viewer.mode === "live-role-preview"
                     ? `Signed in as ${currentUser.name}. Preview writes are blocked.`
                     : `Signed in as ${currentUser.name}.`}
@@ -670,13 +670,15 @@ export async function PortalShell({
               <section className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
                 <SectionPanel className="overflow-hidden">
                   <div className="relative">
-                    <div className="absolute inset-x-0 top-0 h-40 rounded-[1.6rem] bg-[radial-gradient(circle_at_top_left,rgba(187,110,69,0.18),transparent_45%),radial-gradient(circle_at_top_right,rgba(115,138,123,0.16),transparent_34%)]" />
-                    <div className="relative">
-                      <SectionHeading
-                        eyebrow="Role brief"
-                        title={roleLabels[role]}
-                        description={getRoleHeadline(role)}
-                      />
+                    <div className="operations-image absolute inset-x-0 top-0 h-40 rounded-lg" />
+                    <div className="relative pt-20">
+                      <div className="rounded-lg border border-[color:var(--line)] bg-white p-5 shadow-[0_14px_30px_rgba(16,31,42,0.08)]">
+                        <SectionHeading
+                          eyebrow="Role brief"
+                          title={roleLabels[role]}
+                          description={getRoleHeadline(role)}
+                        />
+                      </div>
                       <div className="mt-5 flex flex-wrap gap-3">
                         <div
                           className={clsx(
@@ -686,10 +688,10 @@ export async function PortalShell({
                         >
                           {currentUser.title}
                         </div>
-                        <div className="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                           {roleScopedCohortCount} visible cohort{roleScopedCohortCount === 1 ? "" : "s"}
                         </div>
-                        <div className="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                           {todaySessions.length} live session{todaySessions.length === 1 ? "" : "s"} today
                         </div>
                       </div>
@@ -697,13 +699,13 @@ export async function PortalShell({
                         {visibleTaskCards.map((task) => (
                           <div
                             key={task.id}
-                            className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/70 p-4"
+                            className="rounded-lg border border-[color:var(--line)] bg-white p-4"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
                                 {task.title}
                               </div>
-                              <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                              <div className="rounded-full border border-[color:var(--line)] bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                                 {task.dueLabel}
                               </div>
                             </div>
@@ -727,7 +729,7 @@ export async function PortalShell({
                     {alerts.map((alert) => (
                       <div
                         key={alert.label}
-                        className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                        className="rounded-lg border border-[color:var(--line)] bg-white p-4"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3">
@@ -762,7 +764,7 @@ export async function PortalShell({
                   >
                     <div className="p-5">
                       <div className="section-kicker">{metric.label}</div>
-                      <div className="mt-3 text-4xl font-semibold tracking-tight text-[color:var(--navy-strong)]">
+                      <div className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--navy-strong)]">
                         {metric.value}
                       </div>
                       <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">{metric.detail}</p>

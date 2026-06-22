@@ -116,10 +116,14 @@ export default async function ResetPasswordPage({
             <input type="hidden" name="next" value={next} />
             <input type="hidden" name="mode" value={mode} />
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              <label
+                className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                htmlFor="reset-password"
+              >
                 New password
               </label>
               <input
+                id="reset-password"
                 required
                 name="password"
                 type="password"
@@ -128,10 +132,14 @@ export default async function ResetPasswordPage({
               />
             </div>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              <label
+                className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                htmlFor="reset-confirm-password"
+              >
                 Confirm password
               </label>
               <input
+                id="reset-confirm-password"
                 required
                 name="confirmPassword"
                 type="password"
