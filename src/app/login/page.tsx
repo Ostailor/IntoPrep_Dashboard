@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signInAction } from "@/app/login/actions";
+import { PendingSubmitButton } from "@/components/auth/pending-submit-button";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -183,12 +184,11 @@ export default async function LoginPage({
                   placeholder="Enter your password"
                 />
               </div>
-              <button
-                type="submit"
+              <PendingSubmitButton
+                idleLabel="Sign in"
+                pendingLabel="Signing in..."
                 className="w-full rounded-lg bg-[color:var(--navy-strong)] px-4 py-3 text-sm font-semibold text-white hover:opacity-90"
-              >
-                Sign in
-              </button>
+              />
               <div className="text-right text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
                 <Link
                   className="font-semibold text-[color:var(--navy-strong)]"

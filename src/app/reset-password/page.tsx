@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { updatePasswordAction } from "@/app/reset-password/actions";
+import { PendingSubmitButton } from "@/components/auth/pending-submit-button";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -147,12 +148,11 @@ export default async function ResetPasswordPage({
                 placeholder="Enter the same password again"
               />
             </div>
-            <button
-              type="submit"
+            <PendingSubmitButton
+              idleLabel="Save new password"
+              pendingLabel="Saving new password..."
               className="w-full rounded-2xl bg-[color:var(--navy-strong)] px-4 py-3 text-sm font-semibold text-white hover:opacity-90"
-            >
-              Save new password
-            </button>
+            />
           </form>
 
           <div className="mt-8 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">

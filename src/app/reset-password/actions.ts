@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { recordAccountAuditLog } from "@/lib/account-governance";
@@ -93,6 +94,15 @@ export async function updatePasswordAction(formData: FormData) {
         mode,
       },
     });
+  }
+
+  revalidateTag("portal-live", { expire: 0 });
+
+  if (mode === "required") {
+    await supabase.auth.signOut();
+    redirect(
+      `/login?message=${encodeURIComponent("Password updated. Sign in with your new password.")}&next=${encodeURIComponent(next)}`,
+    );
   }
 
   redirect(next);
