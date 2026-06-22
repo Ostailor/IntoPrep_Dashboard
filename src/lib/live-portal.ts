@@ -55,6 +55,7 @@ import {
   type PortalSection,
 } from "@/lib/domain";
 import { unstable_cache } from "next/cache";
+import { serializeLiveCacheViewer } from "@/lib/live-cache-viewer";
 import {
   canViewFamilyContactBasics,
   canRunIntakeImports,
@@ -2610,20 +2611,6 @@ function getLivePortalCacheSection(viewer: User, section?: PortalSection) {
     : "shared";
 }
 
-function getLivePortalCacheViewer(viewer: User) {
-  const scopedViewerId = hasGlobalPortalScope(viewer.role)
-    ? `global:${viewer.role}`
-    : viewer.id;
-
-  return JSON.stringify({
-    id: scopedViewerId,
-    role: viewer.role,
-    assignedCohortIds: hasGlobalPortalScope(viewer.role)
-      ? []
-      : [...viewer.assignedCohortIds].sort(),
-  });
-}
-
 const getCachedLivePortalBundle = unstable_cache(
   async (viewerJson: string, cacheSection: string) => {
     const viewer = JSON.parse(viewerJson) as User;
@@ -2647,7 +2634,7 @@ export async function getLivePortalBundle(
   }
 
   return getCachedLivePortalBundle(
-    getLivePortalCacheViewer(viewer),
+    serializeLiveCacheViewer(viewer),
     getLivePortalCacheSection(viewer, section),
   );
 }

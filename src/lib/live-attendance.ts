@@ -6,6 +6,7 @@ import type {
 } from "@/lib/domain";
 import { unstable_cache } from "next/cache";
 import { canViewFamilyAttendanceContext, viewerCanAccessCohort } from "@/lib/attendance";
+import { serializeLiveCacheViewer } from "@/lib/live-cache-viewer";
 import { formatTimeRange, type SessionRosterRow } from "@/lib/portal";
 import { hasGlobalPortalScope } from "@/lib/permissions";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
@@ -352,20 +353,6 @@ async function loadLiveAttendanceBundle(
   };
 }
 
-function getLiveAttendanceCacheViewer(viewer: User) {
-  const scopedViewerId = hasGlobalPortalScope(viewer.role)
-    ? `global:${viewer.role}`
-    : viewer.id;
-
-  return JSON.stringify({
-    id: scopedViewerId,
-    role: viewer.role,
-    assignedCohortIds: hasGlobalPortalScope(viewer.role)
-      ? []
-      : [...viewer.assignedCohortIds].sort(),
-  });
-}
-
 const getCachedLiveAttendanceBundle = unstable_cache(
   async (viewerJson: string) => {
     const viewer = JSON.parse(viewerJson) as User;
@@ -386,7 +373,7 @@ export async function getLiveAttendanceBundle(
     return null;
   }
 
-  return getCachedLiveAttendanceBundle(getLiveAttendanceCacheViewer(viewer));
+  return getCachedLiveAttendanceBundle(serializeLiveCacheViewer(viewer));
 }
 
 export async function persistAttendanceStatus({
