@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
-import { PwaRegister } from "@/components/pwa-register";
+import { BrowserRuntimeGuard } from "@/components/browser-runtime-guard";
 import "./globals.css";
 
 const sans = Inter({
@@ -19,7 +19,6 @@ export const metadata: Metadata = {
   title: "IntoPrep Admin Portal",
   description:
     "Internal operating dashboard for IntoPrep enrollment, academics, attendance, and finance workflows.",
-  manifest: "/manifest.webmanifest",
   applicationName: "IntoPrep Admin Portal",
   appleWebApp: {
     capable: true,
@@ -40,7 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body className={`${sans.variable} ${mono.variable} antialiased`}>
-        <PwaRegister />
+        <BrowserRuntimeGuard />
         <div className="portal-background" />
         <div className="portal-noise" />
         {children}
