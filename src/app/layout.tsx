@@ -1,16 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { PwaRegister } from "@/components/pwa-register";
 import "./globals.css";
 
-const sans = Space_Grotesk({
-  variable: "--font-space-grotesk",
+const sans = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-});
-
-const display = Fraunces({
-  variable: "--font-fraunces",
-  subsets: ["latin"],
+  display: "swap",
 });
 
 const mono = IBM_Plex_Mono({
@@ -43,7 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="scroll-smooth">
-      <body className={`${sans.variable} ${display.variable} ${mono.variable} antialiased`}>
+      <body className={`${sans.variable} ${mono.variable} antialiased`}>
         <PwaRegister />
         <div className="portal-background" />
         <div className="portal-noise" />
