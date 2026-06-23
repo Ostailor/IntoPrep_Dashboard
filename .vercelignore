@@ -1,0 +1,6 @@
+output/
+.next/
+node_modules/
+.omx/
+coverage/
+src-tauri/target/
