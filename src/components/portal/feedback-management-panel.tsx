@@ -101,7 +101,7 @@ export function FeedbackManagementPanel({
             Requests and bug reports
           </h2>
           <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">
-            Feedback submitted from the portal. Triage status updates are visible to the admin team here.
+            Feedback submitted from the portal. Engineer users triage status updates here.
           </p>
         </div>
         <label className="min-w-40">
