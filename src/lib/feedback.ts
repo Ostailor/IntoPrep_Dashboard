@@ -146,7 +146,7 @@ export async function submitFeedback({
 }
 
 export async function listFeedbackSubmissions(viewer: User) {
-  if (!hasSupabaseServiceRole() || (viewer.role !== "engineer" && viewer.role !== "admin")) {
+  if (!hasSupabaseServiceRole() || viewer.role !== "engineer") {
     return [];
   }
 
@@ -184,8 +184,8 @@ export async function updateFeedbackStatus({
     throw new Error("Feedback storage is not configured.");
   }
 
-  if (viewer.role !== "engineer" && viewer.role !== "admin") {
-    throw new Error("Only admin and engineer users can triage feedback.");
+  if (viewer.role !== "engineer") {
+    throw new Error("Only engineer users can triage feedback.");
   }
 
   const cleanId = cleanSingleLine(feedbackId, 80);

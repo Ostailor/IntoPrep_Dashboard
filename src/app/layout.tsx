@@ -1,19 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { BrowserRuntimeGuard } from "@/components/browser-runtime-guard";
 import "./globals.css";
-
-const sans = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-  display: "swap",
-});
-
-const mono = IBM_Plex_Mono({
-  variable: "--font-ibm-mono",
-  weight: ["400", "500", "600"],
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "IntoPrep Admin Portal",
@@ -38,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="scroll-smooth">
-      <body className={`${sans.variable} ${mono.variable} antialiased`}>
+      <body className="antialiased">
         <BrowserRuntimeGuard />
         <div className="portal-background" />
         <div className="portal-noise" />

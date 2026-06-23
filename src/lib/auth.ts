@@ -1,7 +1,15 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 import type { AccountStatus, User, UserRole } from "@/lib/domain";
+import {
+  getLocalQaEmail,
+  getLocalQaRole,
+  getLocalQaUser,
+  isLocalQaMode,
+  LOCAL_QA_COOKIE,
+} from "@/lib/local-qa";
 import { normalizeRole } from "@/lib/permissions";
 import type { Database } from "@/lib/supabase/database.types";
 import { isSupabaseConfigured, hasSupabaseServiceRole } from "@/lib/supabase/config";
@@ -289,6 +297,23 @@ export async function resolvePortalViewer({
   previewRole?: string | string[];
   path: string;
 }): Promise<PortalViewer> {
+  if (isLocalQaMode()) {
+    const cookieStore = await cookies();
+    const role =
+      getLocalQaRole(previewRole) ??
+      getLocalQaRole(cookieStore.get(LOCAL_QA_COOKIE)?.value) ??
+      "admin";
+    const user = getLocalQaUser(role);
+
+    return {
+      mode: "live",
+      email: getLocalQaEmail(role),
+      accountStatus: "active",
+      mustChangePassword: false,
+      user,
+    };
+  }
+
   if (!isSupabaseConfigured()) {
     redirect("/login?error=Portal%20authentication%20is%20not%20configured.");
   }
@@ -329,6 +354,23 @@ export async function resolvePortalViewer({
 }
 
 export async function getAuthenticatedViewerForRequest() {
+  if (isLocalQaMode()) {
+    const cookieStore = await cookies();
+    const role = getLocalQaRole(cookieStore.get(LOCAL_QA_COOKIE)?.value);
+
+    if (!role) {
+      return null;
+    }
+
+    return {
+      mode: "live" as const,
+      email: getLocalQaEmail(role),
+      accountStatus: "active" as const,
+      mustChangePassword: false,
+      user: getLocalQaUser(role),
+    };
+  }
+
   if (!isSupabaseConfigured()) {
     return null;
   }

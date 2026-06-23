@@ -1,6 +1,13 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  getLocalQaRole,
+  isLocalQaMode,
+  LOCAL_QA_COOKIE,
+  LOCAL_QA_PASSWORD,
+} from "@/lib/local-qa";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -31,6 +38,29 @@ export async function signInAction(formData: FormData) {
 
   if (typeof email !== "string" || typeof password !== "string") {
     redirect(`/login?error=${encodeURIComponent("Email and password are required.")}&next=${encodeURIComponent(next)}`);
+  }
+
+  if (isLocalQaMode()) {
+    const role = getLocalQaRole(email);
+
+    if (!role || password !== LOCAL_QA_PASSWORD) {
+      redirect(
+        `/login?error=${encodeURIComponent("Incorrect email or password.")}&next=${encodeURIComponent(next)}`,
+      );
+    }
+
+    const cookieStore = await cookies();
+    cookieStore.set(LOCAL_QA_COOKIE, role, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+    });
+
+    if (email.toLowerCase().includes("firsttime")) {
+      redirect(`/reset-password?mode=required&next=${encodeURIComponent(next)}`);
+    }
+
+    redirect(next);
   }
 
   const supabase = await createSupabaseServerClient();
@@ -84,6 +114,12 @@ export async function signUpAction(formData: FormData) {
 }
 
 export async function signOutAction() {
+  if (isLocalQaMode()) {
+    const cookieStore = await cookies();
+    cookieStore.delete(LOCAL_QA_COOKIE);
+    redirect("/login?message=Signed%20out");
+  }
+
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
   redirect("/login?message=Signed%20out");

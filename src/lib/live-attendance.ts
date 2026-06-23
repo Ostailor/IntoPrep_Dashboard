@@ -6,6 +6,7 @@ import type {
 } from "@/lib/domain";
 import { unstable_cache } from "next/cache";
 import { canViewFamilyAttendanceContext, viewerCanAccessCohort } from "@/lib/attendance";
+import { isLocalQaMode } from "@/lib/local-qa";
 import { serializeLiveCacheViewer } from "@/lib/live-cache-viewer";
 import { formatTimeRange, type SessionRosterRow } from "@/lib/portal";
 import { hasGlobalPortalScope } from "@/lib/permissions";
@@ -44,6 +45,105 @@ function getNewYorkDate() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   }).format(new Date());
+}
+
+function getLocalQaAttendanceBundle(): LiveAttendanceBundle {
+  const currentDate = getNewYorkDate();
+  const now = `${currentDate}T14:30:00.000-04:00`;
+
+  return {
+    currentDate,
+    sessions: [
+      {
+        id: "qa-session-today",
+        title: "Reading strategy and algebra review",
+        timeLabel: "9:00 AM - 11:00 AM",
+        roomLabel: "Room 204",
+      },
+    ],
+    rosters: {
+      "qa-session-today": [
+        {
+          studentId: "qa-student-anika",
+          studentName: "Anika Patel",
+          gradeLevel: "11",
+          school: "Westfield High",
+          familyEmail: "patel.family@example.com",
+          familyPhone: "(555) 014-2026",
+          attendance: "present",
+          latestAssessment: {
+            title: "SAT baseline diagnostic",
+            totalScore: 1320,
+            deltaFromPrevious: 40,
+            sectionScores: [
+              { label: "Reading", score: 650 },
+              { label: "Math", score: 670 },
+            ],
+          },
+          trend: [
+            { label: "Jun 8", score: 1280 },
+            { label: "Jun 20", score: 1320 },
+          ],
+        },
+        {
+          studentId: "qa-student-leo",
+          studentName: "Leo Patel",
+          gradeLevel: "10",
+          school: "Westfield High",
+          familyEmail: "patel.family@example.com",
+          familyPhone: "(555) 014-2026",
+          attendance: "tardy",
+          latestAssessment: {
+            title: "SAT baseline diagnostic",
+            totalScore: 1210,
+            deltaFromPrevious: 30,
+            sectionScores: [
+              { label: "Reading", score: 590 },
+              { label: "Math", score: 620 },
+            ],
+          },
+          trend: [
+            { label: "Jun 8", score: 1180 },
+            { label: "Jun 20", score: 1210 },
+          ],
+        },
+      ],
+    },
+    handoffNotes: [
+      {
+        id: "qa-handoff-note",
+        sessionId: "qa-session-today",
+        authorId: "local-qa-ta",
+        authorName: "QA TA",
+        body: "Leo may arrive five minutes late; keep the opening drill available.",
+        createdAt: now,
+      },
+    ],
+    exceptionFlags: [
+      {
+        id: "qa-attendance-flag",
+        sessionId: "qa-session-today",
+        studentId: "qa-student-leo",
+        flagType: "late_pattern",
+        note: "Third late arrival in the last month.",
+        createdBy: "local-qa-staff",
+        createdByName: "QA Staff",
+        createdAt: now,
+      },
+    ],
+    coverageFlags: [
+      {
+        id: "qa-coverage-flag",
+        sessionId: "qa-session-today",
+        status: "clear",
+        note: "Room, roster, and materials are confirmed.",
+        updatedBy: "local-qa-ta",
+        updatedByName: "QA TA",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  };
 }
 
 function getNextDate(date: string) {
@@ -369,6 +469,10 @@ const getCachedLiveAttendanceBundle = unstable_cache(
 export async function getLiveAttendanceBundle(
   viewer: User,
 ): Promise<LiveAttendanceBundle | null> {
+  if (isLocalQaMode()) {
+    return getLocalQaAttendanceBundle();
+  }
+
   if (!hasSupabaseServiceRole()) {
     return null;
   }

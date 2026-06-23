@@ -1885,7 +1885,7 @@ function renderSectionContent({
           <div className="space-y-5">
             <AccountAuditLogPanel entries={viewerMode === "live" ? settingsAuditLogs : null} />
 
-            {role === "engineer" || role === "admin" ? (
+            {role === "engineer" ? (
               <FeedbackManagementPanel submissions={feedbackSubmissions} />
             ) : null}
 

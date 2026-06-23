@@ -1,9 +1,11 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { isLocalQaMode, LOCAL_QA_COOKIE } from "@/lib/local-qa";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -56,6 +58,18 @@ export async function updatePasswordAction(formData: FormData) {
         "Your IntoPrep portal account is suspended. Contact an engineer or admin.",
       )}`,
     );
+  }
+
+  if (isLocalQaMode()) {
+    if (mode === "required") {
+      const cookieStore = await cookies();
+      cookieStore.delete(LOCAL_QA_COOKIE);
+      redirect(
+        `/login?message=${encodeURIComponent("Password updated. Sign in with your new password.")}&next=${encodeURIComponent(next)}`,
+      );
+    }
+
+    redirect(next);
   }
 
   const supabase = await createSupabaseServerClient();

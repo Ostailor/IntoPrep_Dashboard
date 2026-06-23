@@ -56,6 +56,7 @@ import {
   type PortalSection,
 } from "@/lib/domain";
 import { unstable_cache } from "next/cache";
+import { isLocalQaMode } from "@/lib/local-qa";
 import { serializeLiveCacheViewer } from "@/lib/live-cache-viewer";
 import {
   canViewFamilyContactBasics,
@@ -286,6 +287,505 @@ function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
     taOps: null,
     instructorOps: null,
     engineerConsole: null,
+  };
+}
+
+function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
+  const currentDate = getNewYorkDate();
+  const now = `${currentDate}T14:30:00.000-04:00`;
+  const adminUser: User = {
+    id: "local-qa-admin",
+    name: "QA Admin",
+    role: "admin",
+    title: "Operations Administrator",
+    assignedCohortIds: [],
+  };
+  const staffUser: User = {
+    id: "local-qa-staff",
+    name: "QA Staff",
+    role: "staff",
+    title: "Campus Operations",
+    assignedCohortIds: [],
+  };
+  const taUser: User = {
+    id: "local-qa-ta",
+    name: "QA TA",
+    role: "ta",
+    title: "Teaching Assistant",
+    assignedCohortIds: ["qa-sat-weekend"],
+  };
+  const instructorUser: User = {
+    id: "local-qa-instructor",
+    name: "QA Instructor",
+    role: "instructor",
+    title: "Lead Instructor",
+    assignedCohortIds: ["qa-sat-weekend"],
+  };
+  const visibleUsers = [adminUser, staffUser, taUser, instructorUser];
+  const visiblePrograms: Program[] = [
+    {
+      id: "qa-sat-program",
+      name: "SAT Weekend Intensive",
+      track: "SAT",
+      format: "Small group",
+      tuition: 1450,
+    },
+  ];
+  const visibleCampuses: Campus[] = [
+    {
+      id: "qa-west-campus",
+      name: "Westfield Learning Center",
+      location: "Westfield, NJ",
+      modality: "Hybrid",
+    },
+  ];
+  const visibleTerms: Term[] = [
+    {
+      id: "qa-summer-term",
+      name: "Summer 2026",
+      startDate: "2026-06-15",
+      endDate: "2026-08-15",
+    },
+  ];
+  const visibleCohorts: Cohort[] = [
+    {
+      id: "qa-sat-weekend",
+      name: "SAT Weekend A",
+      programId: "qa-sat-program",
+      campusId: "qa-west-campus",
+      termId: "qa-summer-term",
+      capacity: 12,
+      enrolled: 2,
+      leadInstructorId: instructorUser.id,
+      taIds: [taUser.id],
+      cadence: "Sat 9:00 AM",
+      roomLabel: "Room 204",
+    },
+  ];
+  const visibleFamilies: Family[] = [
+    {
+      id: "qa-family-patel",
+      familyName: "Patel Family",
+      guardianNames: ["Mina Patel", "Raj Patel"],
+      email: "patel.family@example.com",
+      phone: "(555) 014-2026",
+      preferredCampusId: "qa-west-campus",
+      notes: "Prefers concise weekly progress notes after Saturday sessions.",
+      sensitiveAccessGranted: true,
+    },
+  ];
+  const visibleStudents: Student[] = [
+    {
+      id: "qa-student-anika",
+      familyId: "qa-family-patel",
+      firstName: "Anika",
+      lastName: "Patel",
+      gradeLevel: "11",
+      school: "Westfield High",
+      targetTest: "SAT",
+      focus: "Reading timing and algebra accuracy",
+      sensitiveAccessGranted: true,
+    },
+    {
+      id: "qa-student-leo",
+      familyId: "qa-family-patel",
+      firstName: "Leo",
+      lastName: "Patel",
+      gradeLevel: "10",
+      school: "Westfield High",
+      targetTest: "SAT",
+      focus: "Grammar rules and data analysis",
+      sensitiveAccessGranted: true,
+    },
+  ];
+  const visibleEnrollments: Enrollment[] = [
+    {
+      id: "qa-enrollment-anika",
+      studentId: "qa-student-anika",
+      cohortId: "qa-sat-weekend",
+      status: "active",
+      registeredAt: "2026-06-01T13:00:00.000-04:00",
+    },
+    {
+      id: "qa-enrollment-leo",
+      studentId: "qa-student-leo",
+      cohortId: "qa-sat-weekend",
+      status: "active",
+      registeredAt: "2026-06-01T13:15:00.000-04:00",
+    },
+  ];
+  const visibleSessions: Session[] = [
+    {
+      id: "qa-session-today",
+      cohortId: "qa-sat-weekend",
+      title: "Reading strategy and algebra review",
+      startAt: `${currentDate}T09:00:00.000-04:00`,
+      endAt: `${currentDate}T11:00:00.000-04:00`,
+      mode: "Hybrid",
+      roomLabel: "Room 204",
+    },
+  ];
+  const visibleAssessments: Assessment[] = [
+    {
+      id: "qa-assessment-baseline",
+      cohortId: "qa-sat-weekend",
+      title: "SAT baseline diagnostic",
+      date: "2026-06-20",
+      sections: [
+        { label: "Reading", score: 800 },
+        { label: "Math", score: 800 },
+      ],
+    },
+  ];
+  const visibleResults: AssessmentResult[] = [
+    {
+      id: "qa-result-anika",
+      assessmentId: "qa-assessment-baseline",
+      studentId: "qa-student-anika",
+      totalScore: 1320,
+      sectionScores: [
+        { label: "Reading", score: 650 },
+        { label: "Math", score: 670 },
+      ],
+      deltaFromPrevious: 40,
+    },
+    {
+      id: "qa-result-leo",
+      assessmentId: "qa-assessment-baseline",
+      studentId: "qa-student-leo",
+      totalScore: 1210,
+      sectionScores: [
+        { label: "Reading", score: 590 },
+        { label: "Math", score: 620 },
+      ],
+      deltaFromPrevious: 30,
+    },
+  ];
+  const visibleInvoices: Invoice[] = [
+    {
+      id: "qa-invoice-open",
+      familyId: "qa-family-patel",
+      amountDue: 725,
+      dueDate: "2026-06-30",
+      status: "pending",
+      source: "Manual",
+      followUpState: "open",
+      sensitiveAccessGranted: true,
+    },
+  ];
+  const visibleAdminTasks: AdminTask[] = [
+    {
+      id: "qa-task-family-followup",
+      taskType: "family_communication",
+      targetType: "family",
+      targetId: "qa-family-patel",
+      title: "Send Saturday progress note",
+      details: "Include score trend, next homework, and next session reminder.",
+      assignedTo: staffUser.id,
+      assignedToName: staffUser.name,
+      dueAt: `${currentDate}T16:00:00.000-04:00`,
+      status: "open",
+      createdBy: adminUser.id,
+      createdByName: adminUser.name,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  const visibleThreads: MessageThread[] = [
+    {
+      id: "qa-thread-progress",
+      cohortId: "qa-sat-weekend",
+      familyId: "qa-family-patel",
+      category: "academic_follow_up",
+      subject: "Saturday progress follow-up",
+      participants: ["QA Staff", "Patel Family"],
+      lastMessagePreview: "We will send the reading timing drill after class.",
+      lastMessageAt: now,
+      unreadCount: viewer.role === "staff" ? 1 : 0,
+    },
+  ];
+  const visibleThreadPosts: Record<string, MessagePost[]> = {
+    "qa-thread-progress": [
+      {
+        id: "qa-post-progress",
+        threadId: "qa-thread-progress",
+        authorId: staffUser.id,
+        authorName: staffUser.name,
+        body: "We will send the reading timing drill after class.",
+        createdAt: now,
+      },
+    ],
+  };
+  const visibleLeads: Lead[] = [
+    {
+      id: "qa-lead-admissions",
+      studentName: "Maya Chen",
+      guardianName: "Lena Chen",
+      targetProgram: "SAT Weekend Intensive",
+      stage: "assessment",
+      submittedAt: now,
+      ownerId: staffUser.id,
+      ownerName: staffUser.name,
+      followUpDueAt: `${currentDate}T17:00:00.000-04:00`,
+      notes: "Needs placement call before enrollment.",
+    },
+  ];
+  const visibleSyncJobs: SyncJob[] = [
+    {
+      id: "qa-sync-intake",
+      label: "Google Forms intake",
+      cadence: "Every 15 minutes",
+      status: "healthy",
+      lastRunAt: now,
+      summary: "No errors in the latest sync.",
+      ownerId: adminUser.id,
+      ownerName: adminUser.name,
+    },
+    {
+      id: "qa-sync-billing",
+      label: "QuickBooks invoices",
+      cadence: "Hourly",
+      status: "warning",
+      lastRunAt: now,
+      summary: "One invoice needs manual family matching.",
+      ownerId: staffUser.id,
+      ownerName: staffUser.name,
+    },
+  ];
+  const settingsRoleStats: LiveSettingsRoleStats = {
+    activeUsers: { engineer: 0, admin: 1, staff: 1, ta: 1, instructor: 1 },
+    suspendedUsers: { engineer: 0, admin: 0, staff: 0, ta: 0, instructor: 0 },
+    templateUsers: { engineer: 0, admin: 1, staff: 1, ta: 1, instructor: 1 },
+    assignmentLinks: { engineer: 0, admin: 0, staff: 0, ta: 1, instructor: 1 },
+  };
+  const settingsUsers: LiveSettingsUserRow[] = visibleUsers.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: `${user.id.replace("local-qa-", "qa-")}@intoprep.local`,
+    role: user.role,
+    title: user.title,
+    assignedCohortIds: user.assignedCohortIds,
+    templateRole: user.role,
+    accountStatus: "active",
+    mustChangePassword: user.role === "staff",
+    lastSignedInAt: now,
+  }));
+  const feedbackSubmissions: FeedbackSubmission[] = [
+    {
+      id: "qa-feedback-new",
+      reporterId: staffUser.id,
+      reporterEmail: "qa-staff@intoprep.local",
+      reporterName: staffUser.name,
+      reporterRole: "staff",
+      category: "addition",
+      priority: "normal",
+      status: "new",
+      subject: "Add a saved view for late invoices",
+      body: "Staff would like a one-click view of pending and overdue invoices.",
+      pagePath: "/billing",
+      reviewedBy: null,
+      reviewedByName: null,
+      reviewedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "qa-feedback-reviewed",
+      reporterId: taUser.id,
+      reporterEmail: "qa-ta@intoprep.local",
+      reporterName: taUser.name,
+      reporterRole: "ta",
+      category: "confusing",
+      priority: "urgent",
+      status: "reviewed",
+      subject: "Attendance checklist wording",
+      body: "The attendance checklist should call out remote students more clearly.",
+      pagePath: "/attendance",
+      reviewedBy: adminUser.id,
+      reviewedByName: adminUser.name,
+      reviewedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+
+  return {
+    ...createEmptyLivePortalBundle(currentDate),
+    visiblePrograms,
+    visibleCampuses,
+    visibleTerms,
+    visibleUsers,
+    visibleCohorts,
+    visibleSessions,
+    visibleEnrollments,
+    visibleStudents,
+    visibleFamilies,
+    visibleAssessments,
+    visibleResults,
+    visibleNotes: [
+      {
+        id: "qa-note-anika",
+        studentId: "qa-student-anika",
+        authorId: taUser.id,
+        authorName: taUser.name,
+        visibility: "internal",
+        summary: "Anika is ready for a timed reading section next session.",
+        createdAt: now,
+      },
+    ],
+    visibleResources: [
+      {
+        id: "qa-resource-drill",
+        cohortId: "qa-sat-weekend",
+        title: "Reading timing drill",
+        kind: "Worksheet",
+        publishedAt: now,
+        linkUrl: "https://example.com/reading-drill",
+      },
+    ],
+    visibleInvoices,
+    visibleAdminTasks,
+    visibleAdminAnnouncements: [
+      {
+        id: "qa-announcement-week",
+        title: "Saturday classroom update",
+        body: "Room 204 is ready for the weekend SAT cohort.",
+        tone: "info",
+        visibleRoles: ["admin", "staff", "ta", "instructor"],
+        isActive: true,
+        createdBy: adminUser.id,
+        createdByName: adminUser.name,
+        createdAt: now,
+        updatedAt: now,
+        startsAt: now,
+        expiresAt: null,
+      },
+    ],
+    visibleThreads,
+    visibleThreadPosts,
+    visibleLeads,
+    visibleSyncJobs,
+    visibleImportRuns: [
+      {
+        id: "qa-import-latest",
+        source: "Manual CSV",
+        filename: "qa-intake.csv",
+        status: "completed",
+        startedAt: now,
+        finishedAt: now,
+        importedCount: 2,
+        leadCount: 1,
+        familyCount: 1,
+        studentCount: 2,
+        enrollmentCount: 2,
+        errorCount: 0,
+        summary: "QA import completed successfully.",
+        errorSamples: [],
+      },
+    ],
+    intakeSyncSource: {
+      id: "qa-intake-source",
+      label: "Google Forms intake",
+      sourceUrl: "https://forms.example.com/intake",
+      cadence: "Every 15 minutes",
+      isActive: true,
+      lastSyncedAt: now,
+      lastSyncStatus: "healthy",
+      lastSyncSummary: "QA source is healthy.",
+      controlState: "active",
+      ownerId: adminUser.id,
+      ownerName: adminUser.name,
+    },
+    billingSyncSource: {
+      id: "qa-billing-source",
+      label: "QuickBooks invoices",
+      sourceUrl: "https://quickbooks.example.com",
+      cadence: "Hourly",
+      isActive: true,
+      lastSyncedAt: now,
+      lastSyncStatus: "warning",
+      lastSyncSummary: "One invoice needs manual family matching.",
+      controlState: "active",
+      ownerId: staffUser.id,
+      ownerName: staffUser.name,
+    },
+    settingsRoleStats,
+    settingsUsers,
+    settingsAuditLogs: [
+      {
+        id: "qa-audit-password",
+        actorName: adminUser.name,
+        targetLabel: "qa-staff@intoprep.local",
+        action: "password_reset_requested",
+        summary: "QA Admin sent a password reset link to QA Staff.",
+        createdAt: now,
+        targetType: "user",
+        issueReference: null,
+      },
+    ],
+    feedbackSubmissions,
+    adminOps: {
+      billingFollowUpNotes: [],
+      savedViews: [],
+      familyContactEvents: [],
+      capacityForecastRows: [
+        {
+          cohortId: "qa-sat-weekend",
+          cohortName: "SAT Weekend A",
+          enrolled: 2,
+          capacity: 12,
+          fillRate: 17,
+          state: "underfilled",
+          detail: "Needs additional enrollment outreach.",
+        },
+      ],
+      archivedCohorts: [],
+      archivedPrograms: [],
+      approvalRequests: [],
+      escalations: [],
+    },
+    staffOps: {
+      taskActivities: [],
+      savedViews: [],
+      billingFollowUpNotes: [],
+      familyContactEvents: [],
+      sessionChecklists: [],
+      approvalRequests: [],
+      escalations: [],
+      outreachTemplates: [],
+    },
+    taOps: {
+      taskActivities: [],
+      sessionChecklists: [],
+      handoffNotes: [],
+      attendanceExceptionFlags: [],
+      coverageFlags: [],
+    },
+    instructorOps: {
+      taskActivities: [],
+      sessionInstructionNotes: [
+        {
+          id: "qa-instruction-note",
+          sessionId: "qa-session-today",
+          authorId: instructorUser.id,
+          authorName: instructorUser.name,
+          body: "Open with a five-minute pacing check before reading drills.",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      instructionalAccommodations: [
+        {
+          id: "qa-accommodation-anika",
+          studentId: "qa-student-anika",
+          title: "Timing reminders",
+          detail: "Use two visible time checkpoints during reading passages.",
+          createdBy: instructorUser.id,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    },
   };
 }
 
@@ -2635,6 +3135,10 @@ export async function getLivePortalBundle(
   viewer: User,
   section?: PortalSection,
 ): Promise<LivePortalBundle | null> {
+  if (isLocalQaMode()) {
+    return getLocalQaLivePortalBundle(viewer);
+  }
+
   if (!hasSupabaseServiceRole()) {
     return null;
   }

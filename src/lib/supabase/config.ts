@@ -1,8 +1,9 @@
 const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publicAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const localQaMode = process.env.INTO_PREP_LOCAL_QA === "1";
 
-export const isSupabaseConfigured = () => Boolean(publicUrl && publicAnonKey);
+export const isSupabaseConfigured = () => localQaMode || Boolean(publicUrl && publicAnonKey);
 
 export const hasSupabaseServiceRole = () =>
   Boolean(publicUrl && publicAnonKey && serviceRoleKey);

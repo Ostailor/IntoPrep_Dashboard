@@ -85,7 +85,7 @@ export function PortalFeedbackButton({
         throw new Error(result.error ?? "Feedback could not be sent.");
       }
 
-      setMessage("Feedback sent. Admin and engineer users can review it in Settings.");
+      setMessage("Feedback sent. Engineer users can review it in Settings.");
       resetForm();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Feedback could not be sent.");
