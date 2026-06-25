@@ -102,6 +102,10 @@ async function loadLiveProfile(
   const accountStatus = template?.account_status ?? existingProfile?.account_status ?? "active";
   const mustChangePassword =
     template?.must_change_password ?? existingProfile?.must_change_password ?? false;
+  const demo =
+    template?.demo ??
+    existingProfile?.demo ??
+    authUser.user_metadata.demo === true;
   const needsProfileUpsert =
     !existingProfile ||
     existingProfile.email !== email ||
@@ -109,7 +113,8 @@ async function loadLiveProfile(
     existingProfile.role !== role ||
     existingProfile.title !== title ||
     existingProfile.account_status !== accountStatus ||
-    existingProfile.must_change_password !== mustChangePassword;
+    existingProfile.must_change_password !== mustChangePassword ||
+    existingProfile.demo !== demo;
   const lastSignedInAt = new Date().toISOString();
   const needsLastSignedInRefresh = shouldRefreshLastSignedInAt(
     existingProfile?.last_signed_in_at ?? null,
@@ -124,6 +129,7 @@ async function loadLiveProfile(
       title,
       account_status: accountStatus,
       must_change_password: mustChangePassword,
+      demo,
       last_signed_in_at: lastSignedInAt,
     });
   } else if (needsLastSignedInRefresh) {
@@ -185,6 +191,7 @@ async function loadLiveProfile(
           title,
           account_status: accountStatus,
           must_change_password: mustChangePassword,
+          demo,
           last_signed_in_at: lastSignedInAt,
         } as ProfileRow)
       : existingProfile;
@@ -280,13 +287,14 @@ async function resolveLiveRolePreview(
     previewRole: normalizedPreviewRole,
     previewSourceUserId: previewProfile?.id ?? null,
     previewSourceName: previewProfile?.full_name ?? null,
-    user: {
-      id: viewer.user.id,
-      name: viewer.user.name,
-      role: normalizedPreviewRole,
-      title: previewProfile?.title ?? formatPreviewTitle(normalizedPreviewRole),
-      assignedCohortIds,
-    },
+      user: {
+        id: viewer.user.id,
+        name: viewer.user.name,
+        role: normalizedPreviewRole,
+        title: previewProfile?.title ?? formatPreviewTitle(normalizedPreviewRole),
+        assignedCohortIds,
+        demo: previewProfile?.demo ?? viewer.user.demo,
+      },
   };
 }
 
@@ -348,6 +356,7 @@ export async function resolvePortalViewer({
         role,
         title,
         assignedCohortIds: liveProfile?.assignedCohortIds ?? [],
+        demo: liveProfile?.profile?.demo ?? false,
       },
     })),
   };
@@ -401,6 +410,7 @@ export async function getAuthenticatedViewerForRequest() {
       role: liveProfile?.profile?.role ?? "instructor",
       title: liveProfile?.profile?.title ?? "Portal User",
       assignedCohortIds: liveProfile?.assignedCohortIds ?? [],
+      demo: liveProfile?.profile?.demo ?? false,
     },
   };
 }

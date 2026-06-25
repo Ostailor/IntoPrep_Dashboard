@@ -89,6 +89,7 @@ export interface User {
   role: UserRole;
   title: string;
   assignedCohortIds: string[];
+  demo?: boolean;
 }
 
 export interface FeedbackSubmission {

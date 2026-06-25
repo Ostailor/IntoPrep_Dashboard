@@ -86,6 +86,12 @@ import {
 } from "@/lib/instructor-fallbacks";
 import { listFeedbackSubmissions } from "@/lib/feedback";
 import { RESOURCE_BUCKET_NAME } from "@/lib/live-writes";
+import {
+  applyDemoScope,
+  canSeeAllDemoPartitions,
+  isSameDemoPartition,
+  type DemoScopedRow,
+} from "@/lib/demo-partition";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -152,6 +158,7 @@ export interface LiveSettingsUserRow {
   accountStatus: AccountStatus;
   mustChangePassword: boolean;
   lastSignedInAt: string | null;
+  demo: boolean;
 }
 
 export interface LiveSettingsAuditRow {
@@ -299,6 +306,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     role: "admin",
     title: "Operations Administrator",
     assignedCohortIds: [],
+    demo: true,
   };
   const staffUser: User = {
     id: "local-qa-staff",
@@ -306,6 +314,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     role: "staff",
     title: "Campus Operations",
     assignedCohortIds: [],
+    demo: true,
   };
   const taUser: User = {
     id: "local-qa-ta",
@@ -313,6 +322,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     role: "ta",
     title: "Teaching Assistant",
     assignedCohortIds: ["qa-sat-weekend"],
+    demo: true,
   };
   const instructorUser: User = {
     id: "local-qa-instructor",
@@ -320,6 +330,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     role: "instructor",
     title: "Lead Instructor",
     assignedCohortIds: ["qa-sat-weekend"],
+    demo: true,
   };
   const visibleUsers = [adminUser, staffUser, taUser, instructorUser];
   const visiblePrograms: Program[] = [
@@ -569,6 +580,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     accountStatus: "active",
     mustChangePassword: user.role === "staff",
     lastSignedInAt: now,
+    demo: true,
   }));
   const feedbackSubmissions: FeedbackSubmission[] = [
     {
@@ -797,6 +809,15 @@ function getNewYorkDate() {
 
 function unique<T>(items: T[]) {
   return Array.from(new Set(items));
+}
+
+function filterDemoScopedRows<T extends DemoScopedRow>(
+  rows: T[],
+  viewer: Pick<User, "role" | "demo">,
+) {
+  return canSeeAllDemoPartitions(viewer.role)
+    ? rows
+    : rows.filter((row) => isSameDemoPartition(viewer, row));
 }
 
 function mapFallbackInstructorFollowUpFlags({
@@ -1256,10 +1277,11 @@ async function getAccessibleCohortIds(viewer: User) {
   }
 
   const serviceClient = createSupabaseServiceClient();
-  const { data } = await serviceClient
+  const assignmentQuery = serviceClient
     .from("cohort_assignments")
     .select("cohort_id")
     .eq("user_id", viewer.id);
+  const { data } = await applyDemoScope(assignmentQuery, viewer);
 
   return ((data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[]).map(
     (assignment) => assignment.cohort_id,
@@ -1295,7 +1317,7 @@ async function loadLivePortalBundle(
           ? null
           : cohortQuery;
     const cohortsResult = scopedCohortQuery ? await scopedCohortQuery : { data: [] };
-    const cohortRows = (cohortsResult.data ?? []) as CohortRow[];
+    const cohortRows = filterDemoScopedRows((cohortsResult.data ?? []) as CohortRow[], viewer);
     const cohortIds = cohortRows.map((cohort) => cohort.id);
     const [sessionsResult, assignmentsResult, syncJobsResult] =
       await Promise.all([
@@ -1315,8 +1337,11 @@ async function loadLivePortalBundle(
         serviceClient.from("sync_jobs").select("*").order("label", { ascending: true }),
       ]);
 
-    const sessionRows = (sessionsResult.data ?? []) as SessionRow[];
-    const assignmentRows = (assignmentsResult.data ?? []) as CohortAssignmentRow[];
+    const sessionRows = filterDemoScopedRows((sessionsResult.data ?? []) as SessionRow[], viewer);
+    const assignmentRows = filterDemoScopedRows(
+      (assignmentsResult.data ?? []) as CohortAssignmentRow[],
+      viewer,
+    );
     const syncJobRows = (syncJobsResult.data ?? []) as SyncJobRow[];
     const [enrollmentsResult, assessmentsResult, adminTasksResult, adminAnnouncementsResult, followUpFlagsResult, fallbackEscalationsResult] = await Promise.all([
       cohortIds.length > 0
@@ -1359,12 +1384,27 @@ async function loadLivePortalBundle(
         : Promise.resolve({ data: [] }),
     ]);
 
-    const enrollmentRows = (enrollmentsResult.data ?? []) as EnrollmentRow[];
-    const assessmentRows = (assessmentsResult.data ?? []) as AssessmentRow[];
-    const adminTaskRows = (adminTasksResult.data ?? []) as AdminTaskRow[];
-    const adminAnnouncementRows = (adminAnnouncementsResult.data ?? []) as AdminAnnouncementRow[];
-    const followUpFlagRows = (followUpFlagsResult.data ?? []) as InstructorFollowUpFlagRow[];
-    const fallbackEscalationRows = (fallbackEscalationsResult.data ?? []) as AdminEscalationRow[];
+    const enrollmentRows = filterDemoScopedRows(
+      (enrollmentsResult.data ?? []) as EnrollmentRow[],
+      viewer,
+    );
+    const assessmentRows = filterDemoScopedRows(
+      (assessmentsResult.data ?? []) as AssessmentRow[],
+      viewer,
+    );
+    const adminTaskRows = filterDemoScopedRows((adminTasksResult.data ?? []) as AdminTaskRow[], viewer);
+    const adminAnnouncementRows = filterDemoScopedRows(
+      (adminAnnouncementsResult.data ?? []) as AdminAnnouncementRow[],
+      viewer,
+    );
+    const followUpFlagRows = filterDemoScopedRows(
+      (followUpFlagsResult.data ?? []) as InstructorFollowUpFlagRow[],
+      viewer,
+    );
+    const fallbackEscalationRows = filterDemoScopedRows(
+      (fallbackEscalationsResult.data ?? []) as AdminEscalationRow[],
+      viewer,
+    );
     const studentIds = unique(enrollmentRows.map((enrollment) => enrollment.student_id));
     const assessmentIds = assessmentRows.map((assessment) => assessment.id);
     const taskIds = adminTaskRows.map((task) => task.id);
@@ -1387,9 +1427,15 @@ async function loadLivePortalBundle(
         : Promise.resolve({ data: [] }),
     ]);
 
-    const studentRows = (studentsResult.data ?? []) as StudentRow[];
-    const resultRows = (resultsResult.data ?? []) as AssessmentResultRow[];
-    const taskActivityRows = (taskActivitiesResult.data ?? []) as TaskActivityRow[];
+    const studentRows = filterDemoScopedRows((studentsResult.data ?? []) as StudentRow[], viewer);
+    const resultRows = filterDemoScopedRows(
+      (resultsResult.data ?? []) as AssessmentResultRow[],
+      viewer,
+    );
+    const taskActivityRows = filterDemoScopedRows(
+      (taskActivitiesResult.data ?? []) as TaskActivityRow[],
+      viewer,
+    );
     const compactExtraProfileIds = unique([
       ...adminTaskRows
         .flatMap((task) => [task.assigned_to, task.created_by])
@@ -1660,7 +1706,7 @@ async function loadLivePortalBundle(
         ? null
         : cohortQuery;
   const cohortsResult = scopedCohortQuery ? await scopedCohortQuery : { data: [] };
-  const cohortRows = (cohortsResult.data ?? []) as CohortRow[];
+  const cohortRows = filterDemoScopedRows((cohortsResult.data ?? []) as CohortRow[], viewer);
   const cohortIds = cohortRows.map((cohort) => cohort.id);
   const programIds = unique(cohortRows.map((cohort) => cohort.program_id));
   const campusIds = unique(cohortRows.map((cohort) => cohort.campus_id));
@@ -1719,14 +1765,26 @@ async function loadLivePortalBundle(
         : Promise.resolve({ data: [] }),
     ]);
 
-  const sessionRows = (sessionsResult.data ?? []) as SessionRow[];
-  const enrollmentRows = (enrollmentsResult.data ?? []) as EnrollmentRow[];
-  const assessmentRows = (assessmentsResult.data ?? []) as AssessmentRow[];
-  const assignmentRows = (assignmentsResult.data ?? []) as CohortAssignmentRow[];
+  const sessionRows = filterDemoScopedRows((sessionsResult.data ?? []) as SessionRow[], viewer);
+  const enrollmentRows = filterDemoScopedRows(
+    (enrollmentsResult.data ?? []) as EnrollmentRow[],
+    viewer,
+  );
+  const assessmentRows = filterDemoScopedRows(
+    (assessmentsResult.data ?? []) as AssessmentRow[],
+    viewer,
+  );
+  const assignmentRows = filterDemoScopedRows(
+    (assignmentsResult.data ?? []) as CohortAssignmentRow[],
+    viewer,
+  );
   const programRows = (programsResult.data ?? []) as ProgramRow[];
   const campusRows = (campusesResult.data ?? []) as CampusRow[];
   const termRows = (termsResult.data ?? []) as TermRow[];
-  const archivedCohortRows = (archivedCohortsResult.data ?? []) as CohortRow[];
+  const archivedCohortRows = filterDemoScopedRows(
+    (archivedCohortsResult.data ?? []) as CohortRow[],
+    viewer,
+  );
   const archivedProgramRows = (archivedProgramsResult.data ?? []) as ProgramRow[];
 
   const studentIds = unique(enrollmentRows.map((enrollment) => enrollment.student_id));
@@ -1741,7 +1799,7 @@ async function loadLivePortalBundle(
           .select("*")
           .in("id", studentIds)
       : { data: [] };
-  const studentRows = (studentsResult.data ?? []) as StudentRow[];
+  const studentRows = filterDemoScopedRows((studentsResult.data ?? []) as StudentRow[], viewer);
   const familyIds =
     viewer.role === "engineer" ||
     getPermissionProfile(viewer.role).canViewFamilyProfiles ||
@@ -1960,35 +2018,86 @@ async function loadLivePortalBundle(
       : Promise.resolve({ data: [] }),
   ]);
 
-  const familyRows = (familiesResult.data ?? []) as FamilyRow[];
-  const resultRows = (resultsResult.data ?? []) as AssessmentResultRow[];
-  const noteRows = (notesResult.data ?? []) as AcademicNoteRow[];
-  const sessionInstructionNoteRows = (sessionNotesResult.data ?? []) as SessionInstructionNoteRow[];
-  const accommodationRows = (accommodationsResult.data ?? []) as InstructionalAccommodationRow[];
-  const followUpFlagRows = (followUpFlagsResult.data ?? []) as InstructorFollowUpFlagRow[];
-  const resourceRows = (resourcesResult.data ?? []) as ResourceRow[];
-  const invoiceRows = (invoicesResult.data ?? []) as InvoiceRow[];
-  const threadRows = (threadsResult.data ?? []) as MessageThreadRow[];
-  const leadRows = (leadsResult.data ?? []) as LeadRow[];
+  const familyRows = filterDemoScopedRows((familiesResult.data ?? []) as FamilyRow[], viewer);
+  const resultRows = filterDemoScopedRows(
+    (resultsResult.data ?? []) as AssessmentResultRow[],
+    viewer,
+  );
+  const noteRows = filterDemoScopedRows((notesResult.data ?? []) as AcademicNoteRow[], viewer);
+  const sessionInstructionNoteRows = filterDemoScopedRows(
+    (sessionNotesResult.data ?? []) as SessionInstructionNoteRow[],
+    viewer,
+  );
+  const accommodationRows = filterDemoScopedRows(
+    (accommodationsResult.data ?? []) as InstructionalAccommodationRow[],
+    viewer,
+  );
+  const followUpFlagRows = filterDemoScopedRows(
+    (followUpFlagsResult.data ?? []) as InstructorFollowUpFlagRow[],
+    viewer,
+  );
+  const resourceRows = filterDemoScopedRows((resourcesResult.data ?? []) as ResourceRow[], viewer);
+  const invoiceRows = filterDemoScopedRows((invoicesResult.data ?? []) as InvoiceRow[], viewer);
+  const threadRows = filterDemoScopedRows((threadsResult.data ?? []) as MessageThreadRow[], viewer);
+  const leadRows = filterDemoScopedRows((leadsResult.data ?? []) as LeadRow[], viewer);
   const syncJobRows = (syncJobsResult.data ?? []) as SyncJobRow[];
   const importRunRows = (importRunsResult.data ?? []) as IntakeImportRunRow[];
   const syncSourceRow = (syncSourceResult.data ?? null) as IntakeSyncSourceRow | null;
   const billingSyncSourceRow = (billingSyncSourceResult.data ?? null) as BillingSyncSourceRow | null;
-  const profileRows = (profilesResult.data ?? []) as ProfileRow[];
-  const templateRows = (templatesResult.data ?? []) as UserTemplateRow[];
-  const auditLogRows = (auditLogsResult.data ?? []) as AccountAuditLogRow[];
-  const billingFollowUpNoteRows = (billingFollowUpNotesResult.data ?? []) as BillingFollowUpNoteRow[];
-  const adminTaskRows = (adminTasksResult.data ?? []) as AdminTaskRow[];
-  const savedViewRows = (savedViewsResult.data ?? []) as AdminSavedViewRow[];
-  const contactEventRows = (contactEventsResult.data ?? []) as FamilyContactEventRow[];
-  const adminAnnouncementRows = (adminAnnouncementsResult.data ?? []) as AdminAnnouncementRow[];
-  const sessionChecklistRows = (sessionChecklistsResult.data ?? []) as SessionChecklistRow[];
-  const handoffNoteRows = (handoffNotesResult.data ?? []) as SessionHandoffNoteRow[];
-  const attendanceFlagRows = (attendanceFlagsResult.data ?? []) as AttendanceExceptionFlagRow[];
-  const coverageFlagRows = (coverageFlagsResult.data ?? []) as SessionCoverageFlagRow[];
-  const approvalRequestRows = (approvalRequestsResult.data ?? []) as ApprovalRequestRow[];
-  const escalationRows = (escalationsResult.data ?? []) as AdminEscalationRow[];
-  const outreachTemplateRows = (outreachTemplatesResult.data ?? []) as OutreachTemplateRow[];
+  const profileRows = filterDemoScopedRows((profilesResult.data ?? []) as ProfileRow[], viewer);
+  const templateRows = filterDemoScopedRows(
+    (templatesResult.data ?? []) as UserTemplateRow[],
+    viewer,
+  );
+  const auditLogRows = filterDemoScopedRows(
+    (auditLogsResult.data ?? []) as AccountAuditLogRow[],
+    viewer,
+  );
+  const billingFollowUpNoteRows = filterDemoScopedRows(
+    (billingFollowUpNotesResult.data ?? []) as BillingFollowUpNoteRow[],
+    viewer,
+  );
+  const adminTaskRows = filterDemoScopedRows((adminTasksResult.data ?? []) as AdminTaskRow[], viewer);
+  const savedViewRows = filterDemoScopedRows(
+    (savedViewsResult.data ?? []) as AdminSavedViewRow[],
+    viewer,
+  );
+  const contactEventRows = filterDemoScopedRows(
+    (contactEventsResult.data ?? []) as FamilyContactEventRow[],
+    viewer,
+  );
+  const adminAnnouncementRows = filterDemoScopedRows(
+    (adminAnnouncementsResult.data ?? []) as AdminAnnouncementRow[],
+    viewer,
+  );
+  const sessionChecklistRows = filterDemoScopedRows(
+    (sessionChecklistsResult.data ?? []) as SessionChecklistRow[],
+    viewer,
+  );
+  const handoffNoteRows = filterDemoScopedRows(
+    (handoffNotesResult.data ?? []) as SessionHandoffNoteRow[],
+    viewer,
+  );
+  const attendanceFlagRows = filterDemoScopedRows(
+    (attendanceFlagsResult.data ?? []) as AttendanceExceptionFlagRow[],
+    viewer,
+  );
+  const coverageFlagRows = filterDemoScopedRows(
+    (coverageFlagsResult.data ?? []) as SessionCoverageFlagRow[],
+    viewer,
+  );
+  const approvalRequestRows = filterDemoScopedRows(
+    (approvalRequestsResult.data ?? []) as ApprovalRequestRow[],
+    viewer,
+  );
+  const escalationRows = filterDemoScopedRows(
+    (escalationsResult.data ?? []) as AdminEscalationRow[],
+    viewer,
+  );
+  const outreachTemplateRows = filterDemoScopedRows(
+    (outreachTemplatesResult.data ?? []) as OutreachTemplateRow[],
+    viewer,
+  );
   const threadIds = threadRows.map((thread) => thread.id);
   const taskIds = adminTaskRows.map((task) => task.id);
 
@@ -2025,8 +2134,14 @@ async function loadLivePortalBundle(
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] }),
   ]);
-  const threadPostRows = (threadPostsResult.data ?? []) as MessagePostRow[];
-  const taskActivityRows = (taskActivitiesResult.data ?? []) as TaskActivityRow[];
+  const threadPostRows = filterDemoScopedRows(
+    (threadPostsResult.data ?? []) as MessagePostRow[],
+    viewer,
+  );
+  const taskActivityRows = filterDemoScopedRows(
+    (taskActivitiesResult.data ?? []) as TaskActivityRow[],
+    viewer,
+  );
   const resourceUrlById = new Map(resourceSignedUrlsResult);
   const threadPostAuthorIds = unique(
     threadPostRows
@@ -2094,7 +2209,10 @@ async function loadLivePortalBundle(
     missingAuthorIds.length > 0
       ? await serviceClient.from("profiles").select("*").in("id", missingAuthorIds)
       : { data: [] };
-  const messageAuthorProfiles = (messageAuthorProfilesResult.data ?? []) as ProfileRow[];
+  const messageAuthorProfiles = filterDemoScopedRows(
+    (messageAuthorProfilesResult.data ?? []) as ProfileRow[],
+    viewer,
+  );
   const allProfileRows = [...profileRows, ...messageAuthorProfiles];
   const activeProfileRows = allProfileRows.filter((profile) => !profile.deleted_at);
 
@@ -2186,6 +2304,7 @@ async function loadLivePortalBundle(
           accountStatus: profile.account_status,
           mustChangePassword: profile.must_change_password,
           lastSignedInAt: profile.last_signed_in_at,
+          demo: profile.demo,
         }))
       : null;
   const threadPostsById = threadPostRows.reduce<Record<string, MessagePost[]>>((accumulator, post) => {
@@ -2840,6 +2959,7 @@ async function loadLivePortalBundle(
       role: profile.role,
       title: profile.title ?? "Portal User",
       assignedCohortIds: assignmentIdsByUser.get(profile.id) ?? [],
+      demo: profile.demo,
     })),
     visibleCohorts: mappedCohorts,
     visibleSessions: sessionRows.map((session) => ({

@@ -38,5 +38,6 @@ export function getLocalQaUser(role: UserRole): User {
     title: labels[role].title,
     assignedCohortIds:
       role === "ta" || role === "instructor" ? ["qa-sat-weekend"] : [],
+    demo: true,
   };
 }

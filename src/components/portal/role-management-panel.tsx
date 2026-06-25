@@ -68,6 +68,7 @@ export function RoleManagementPanel({
     title: "",
     role: getDefaultProvisionRole(provisionableRoles),
     password: "",
+    demo: false,
   });
 
   useEffect(() => {
@@ -145,6 +146,7 @@ export function RoleManagementPanel({
             title: createForm.title.trim(),
             role: createForm.role,
             password: createForm.password,
+            demo: viewerRole === "engineer" ? createForm.demo : undefined,
           }),
         });
         const payload = (await response.json()) as { error?: string };
@@ -162,6 +164,7 @@ export function RoleManagementPanel({
           title: "",
           role: getDefaultProvisionRole(provisionableRoles),
           password: "",
+          demo: false,
         });
         router.refresh();
       } catch (nextError) {
@@ -603,6 +606,21 @@ export function RoleManagementPanel({
                 disabled={readOnly}
               />
             </label>
+            {viewerRole === "engineer" ? (
+              <label className="mt-3 flex items-center gap-3 rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm text-[color:var(--navy-strong)]">
+                <input
+                  checked={createForm.demo}
+                  className="h-4 w-4"
+                  disabled={readOnly}
+                  onChange={(event) => {
+                    const demo = event.currentTarget.checked;
+                    setCreateForm((current) => ({ ...current, demo }));
+                  }}
+                  type="checkbox"
+                />
+                <span>Create as demo account</span>
+              </label>
+            ) : null}
             <button
               type="button"
               onClick={handleCreate}
@@ -662,6 +680,16 @@ export function RoleManagementPanel({
                       ) : null}
                       <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                         {user.title}
+                      </span>
+                      <span
+                        className={clsx(
+                          "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                          user.demo
+                            ? "border border-sky-200 bg-sky-100 text-sky-700"
+                            : "border border-slate-200 bg-slate-100 text-slate-700",
+                        )}
+                      >
+                        {user.demo ? "Demo" : "Main"}
                       </span>
                     </div>
                     <div className="mt-1 text-sm text-[color:var(--muted)]">

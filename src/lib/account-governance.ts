@@ -58,6 +58,7 @@ export async function recordAccountAuditLog(
     action,
     summary,
     details,
+    demo,
   }: {
     actorId?: string | null;
     targetUserId?: string | null;
@@ -67,8 +68,33 @@ export async function recordAccountAuditLog(
     action: AccountGovernanceAction;
     summary: string;
     details?: Json;
+    demo?: boolean;
   },
 ) {
+  let auditDemo = demo ?? false;
+
+  if (demo === undefined) {
+    const profileIds = [actorId, targetUserId].filter(
+      (profileId): profileId is string => typeof profileId === "string" && profileId.length > 0,
+    );
+
+    if (profileIds.length > 0) {
+      const { data } = await serviceClient
+        .from("profiles")
+        .select("demo")
+        .in("id", Array.from(new Set(profileIds)));
+      auditDemo = (data ?? []).some((profile) => profile.demo);
+    } else if (targetEmail) {
+      const normalizedEmail = targetEmail.toLowerCase();
+      auditDemo =
+        normalizedEmail.startsWith("demo.") ||
+        normalizedEmail.startsWith("qa-") ||
+        normalizedEmail.startsWith("qa+") ||
+        normalizedEmail.startsWith("qa.") ||
+        normalizedEmail.endsWith("@intoprep.test");
+    }
+  }
+
   const { error } = await serviceClient.from("account_audit_logs").insert({
     actor_id: actorId ?? null,
     target_user_id: targetUserId ?? null,
@@ -78,6 +104,7 @@ export async function recordAccountAuditLog(
     action,
     summary,
     details: details ?? {},
+    demo: auditDemo,
   });
 
   return error;

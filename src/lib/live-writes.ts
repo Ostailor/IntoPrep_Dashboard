@@ -12,6 +12,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 
 type AssessmentRow = Database["public"]["Tables"]["assessments"]["Row"];
 type AssessmentResultRow = Database["public"]["Tables"]["assessment_results"]["Row"];
@@ -184,6 +185,7 @@ export async function persistAcademicNote({
     author_id: viewer.id,
     visibility: "internal",
     summary: normalizedSummary,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -260,6 +262,7 @@ export async function persistResource({
     link_url: normalizedLinkUrl,
     file_name: fileName,
     storage_path: storagePath,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -323,7 +326,7 @@ export async function persistAssessmentResult({
     throw new Error(assessmentError.message);
   }
 
-  if (!assessment || !viewerCanAccessCohort(viewer, assessment.cohort_id)) {
+  if (!assessment || !viewerCanAccessCohort(viewer, assessment.cohort_id) || !isSameDemoPartition(viewer, assessment)) {
     throw new Error("You do not have access to that assessment.");
   }
 
@@ -411,6 +414,7 @@ export async function persistAssessmentResult({
       total_score: Math.round(totalScore),
       section_scores: normalizedSectionScores,
       delta_from_previous: deltaFromPrevious,
+      demo: getDemoPartition(viewer),
     },
     { onConflict: "assessment_id,student_id" },
   );
@@ -462,7 +466,7 @@ export async function persistMessageReply({
     throw new Error(threadError.message);
   }
 
-  if (!thread || !viewerCanAccessCohort(viewer, thread.cohort_id)) {
+  if (!thread || !viewerCanAccessCohort(viewer, thread.cohort_id) || !isSameDemoPartition(viewer, thread)) {
     throw new Error("You do not have access to that thread.");
   }
 
@@ -477,6 +481,7 @@ export async function persistMessageReply({
       thread_id: threadId,
       author_id: viewer.id,
       body: normalizedBody,
+      demo: getDemoPartition(viewer),
     }),
     serviceClient
       .from("message_threads")
@@ -545,6 +550,10 @@ export async function persistCohortAssignments({
     throw new Error("That user profile could not be found.");
   }
 
+  if (!isSameDemoPartition(viewer, targetProfile)) {
+    throw new Error("You cannot manage assignments outside your demo partition.");
+  }
+
   if (!canManageCohortAssignments(viewer.role, targetProfile.role)) {
     throw new Error("You cannot manage assignments for that role.");
   }
@@ -552,9 +561,9 @@ export async function persistCohortAssignments({
   const normalizedCohortIds = unique(cohortIds.filter((item) => item.trim().length > 0));
   const { data: cohortData, error: cohortError } = await serviceClient
     .from("cohorts")
-    .select("id, name")
+    .select("id, name, demo")
     .in("id", normalizedCohortIds.length > 0 ? normalizedCohortIds : ["__none__"]);
-  const matchedCohorts = (cohortData ?? []) as Pick<CohortRow, "id" | "name">[];
+  const matchedCohorts = (cohortData ?? []) as Pick<CohortRow, "id" | "name" | "demo">[];
 
   if (cohortError) {
     throw new Error(cohortError.message);
@@ -562,6 +571,10 @@ export async function persistCohortAssignments({
 
   if (normalizedCohortIds.length !== matchedCohorts.length) {
     throw new Error("One or more selected cohorts are invalid.");
+  }
+
+  if (matchedCohorts.some((cohort) => !isSameDemoPartition(viewer, cohort))) {
+    throw new Error("You cannot assign cohorts outside your demo partition.");
   }
 
   const { error: deleteError } = await serviceClient
@@ -579,6 +592,7 @@ export async function persistCohortAssignments({
         cohort_id: cohortId,
         user_id: targetUserId,
         role: targetProfile.role,
+        demo: getDemoPartition(viewer),
       })),
     );
 

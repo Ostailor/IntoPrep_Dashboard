@@ -8,6 +8,7 @@ import type {
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import type { Database } from "@/lib/supabase/database.types";
+import { applyDemoScope, getDemoPartition } from "@/lib/demo-partition";
 
 type FeedbackSubmissionRow = Database["public"]["Tables"]["feedback_submissions"]["Row"];
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
@@ -134,6 +135,7 @@ export async function submitFeedback({
       body: cleanMessage,
       page_path: cleanPath.length > 0 ? cleanPath : null,
       user_agent: userAgent?.slice(0, 500) ?? null,
+      demo: getDemoPartition(viewer),
     })
     .select("id")
     .single();
@@ -151,11 +153,12 @@ export async function listFeedbackSubmissions(viewer: User) {
   }
 
   const serviceClient = createSupabaseServiceClient();
-  const { data, error } = await serviceClient
+  const feedbackQuery = serviceClient
     .from("feedback_submissions")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(50);
+  const { data, error } = await applyDemoScope(feedbackQuery, viewer);
 
   if (error) {
     throw new Error(error.message);

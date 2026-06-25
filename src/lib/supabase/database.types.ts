@@ -29,6 +29,7 @@ export interface Database {
           session_revoked_at: string | null;
           deleted_at: string | null;
           deleted_by: string | null;
+          demo: boolean;
           created_at: string;
           updated_at: string;
         },
@@ -44,6 +45,7 @@ export interface Database {
           session_revoked_at?: string | null;
           deleted_at?: string | null;
           deleted_by?: string | null;
+          demo?: boolean;
           created_at?: string;
           updated_at?: string;
         }
@@ -59,6 +61,7 @@ export interface Database {
           must_change_password: boolean;
           deleted_at: string | null;
           deleted_by: string | null;
+          demo: boolean;
         },
         {
           email: string;
@@ -70,6 +73,7 @@ export interface Database {
           must_change_password: boolean;
           deleted_at?: string | null;
           deleted_by?: string | null;
+          demo?: boolean;
         }
       >;
       account_audit_logs: Table<
@@ -84,6 +88,7 @@ export interface Database {
           summary: string;
           details: Json;
           created_at: string;
+          demo: boolean;
         },
         {
           id?: string;
@@ -96,6 +101,7 @@ export interface Database {
           summary: string;
           details?: Json;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       cohort_assignments: Table<
@@ -105,6 +111,7 @@ export interface Database {
           user_id: string;
           role: "engineer" | "admin" | "staff" | "ta" | "instructor";
           created_at: string;
+          demo: boolean;
         },
         {
           id?: string;
@@ -112,6 +119,7 @@ export interface Database {
           user_id: string;
           role: "engineer" | "admin" | "staff" | "ta" | "instructor";
           created_at?: string;
+          demo?: boolean;
         }
       >;
       campuses: Table<{
@@ -162,6 +170,7 @@ export interface Database {
         phone: string;
         preferred_campus_id: string;
         notes: string;
+        demo?: boolean;
       }>;
       students: Table<{
         id: string;
@@ -172,6 +181,7 @@ export interface Database {
         school: string;
         target_test: string;
         focus: string;
+        demo?: boolean;
       }>;
       cohorts: Table<
         {
@@ -187,6 +197,7 @@ export interface Database {
           room_label: string;
           is_archived: boolean;
           archived_at: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -201,6 +212,7 @@ export interface Database {
           room_label: string;
           is_archived?: boolean;
           archived_at?: string | null;
+          demo?: boolean;
         }
       >;
       enrollments: Table<
@@ -210,6 +222,7 @@ export interface Database {
           cohort_id: string;
           status: string;
           registered_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -217,6 +230,7 @@ export interface Database {
           cohort_id: string;
           status: string;
           registered_at: string;
+          demo?: boolean;
         }
       >;
       sessions: Table<
@@ -228,6 +242,7 @@ export interface Database {
           end_at: string;
           mode: string;
           room_label: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -237,6 +252,7 @@ export interface Database {
           end_at: string;
           mode: string;
           room_label: string;
+          demo?: boolean;
         }
       >;
       attendance_records: Table<
@@ -248,6 +264,7 @@ export interface Database {
           updated_by: string | null;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id?: string;
@@ -257,6 +274,7 @@ export interface Database {
           updated_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       assessments: Table<
@@ -266,6 +284,7 @@ export interface Database {
           title: string;
           date: string;
           sections: Json;
+          demo: boolean;
         },
         {
           id: string;
@@ -273,6 +292,7 @@ export interface Database {
           title: string;
           date: string;
           sections: Json;
+          demo?: boolean;
         }
       >;
       assessment_results: Table<
@@ -283,6 +303,7 @@ export interface Database {
           total_score: number;
           section_scores: Json;
           delta_from_previous: number;
+          demo: boolean;
         },
         {
           id: string;
@@ -291,6 +312,7 @@ export interface Database {
           total_score: number;
           section_scores: Json;
           delta_from_previous: number;
+          demo?: boolean;
         }
       >;
       academic_notes: Table<
@@ -301,6 +323,7 @@ export interface Database {
           visibility: string;
           summary: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -309,6 +332,7 @@ export interface Database {
           visibility?: string;
           summary: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       session_instruction_notes: Table<
@@ -319,6 +343,7 @@ export interface Database {
           body: string;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -327,6 +352,7 @@ export interface Database {
           body: string;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       instructional_accommodations: Table<
@@ -338,6 +364,7 @@ export interface Database {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -347,6 +374,7 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       instructor_follow_up_flags: Table<
@@ -360,6 +388,7 @@ export interface Database {
           created_by: string;
           created_at: string;
           status: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -371,6 +400,7 @@ export interface Database {
           created_by: string;
           created_at?: string;
           status?: string;
+          demo?: boolean;
         }
       >;
       resources: Table<
@@ -383,6 +413,7 @@ export interface Database {
           link_url: string | null;
           file_name: string | null;
           storage_path: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -393,6 +424,7 @@ export interface Database {
           link_url?: string | null;
           file_name?: string | null;
           storage_path?: string | null;
+          demo?: boolean;
         }
       >;
       invoices: Table<
@@ -406,6 +438,7 @@ export interface Database {
           follow_up_state: string;
           last_follow_up_at: string | null;
           last_follow_up_by: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -417,6 +450,7 @@ export interface Database {
           follow_up_state?: string;
           last_follow_up_at?: string | null;
           last_follow_up_by?: string | null;
+          demo?: boolean;
         }
       >;
       billing_follow_up_notes: Table<
@@ -427,6 +461,7 @@ export interface Database {
           author_id: string | null;
           body: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -435,6 +470,7 @@ export interface Database {
           author_id?: string | null;
           body: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       admin_tasks: Table<
@@ -451,6 +487,7 @@ export interface Database {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -465,6 +502,7 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       admin_saved_views: Table<
@@ -476,6 +514,7 @@ export interface Database {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -485,6 +524,7 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       family_contact_events: Table<
@@ -497,6 +537,7 @@ export interface Database {
           actor_id: string | null;
           contact_at: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -507,6 +548,7 @@ export interface Database {
           actor_id?: string | null;
           contact_at?: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       admin_announcements: Table<
@@ -522,6 +564,7 @@ export interface Database {
           updated_at: string;
           starts_at: string;
           expires_at: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -535,6 +578,7 @@ export interface Database {
           updated_at?: string;
           starts_at?: string;
           expires_at?: string | null;
+          demo?: boolean;
         }
       >;
       feedback_submissions: Table<
@@ -555,6 +599,7 @@ export interface Database {
           reviewed_at: string | null;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id?: string;
@@ -573,6 +618,7 @@ export interface Database {
           reviewed_at?: string | null;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       message_threads: Table<
@@ -586,6 +632,7 @@ export interface Database {
           last_message_preview: string;
           last_message_at: string;
           unread_count: number;
+          demo: boolean;
         },
         {
           id: string;
@@ -597,6 +644,7 @@ export interface Database {
           last_message_preview: string;
           last_message_at?: string;
           unread_count?: number;
+          demo?: boolean;
         }
       >;
       message_posts: Table<
@@ -606,6 +654,7 @@ export interface Database {
           author_id: string | null;
           body: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id?: string;
@@ -613,6 +662,7 @@ export interface Database {
           author_id?: string | null;
           body: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       leads: Table<
@@ -626,6 +676,7 @@ export interface Database {
           owner_id: string | null;
           follow_up_due_at: string | null;
           notes: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -637,6 +688,7 @@ export interface Database {
           owner_id?: string | null;
           follow_up_due_at?: string | null;
           notes?: string | null;
+          demo?: boolean;
         }
       >;
       task_activities: Table<
@@ -649,6 +701,7 @@ export interface Database {
           status_from: string | null;
           status_to: string | null;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -659,6 +712,7 @@ export interface Database {
           status_from?: string | null;
           status_to?: string | null;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       session_checklists: Table<
@@ -675,6 +729,7 @@ export interface Database {
           notes_closed_out: boolean;
           updated_by: string | null;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -689,6 +744,7 @@ export interface Database {
           notes_closed_out?: boolean;
           updated_by?: string | null;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       session_handoff_notes: Table<
@@ -698,6 +754,7 @@ export interface Database {
           author_id: string;
           body: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -705,6 +762,7 @@ export interface Database {
           author_id: string;
           body: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       attendance_exception_flags: Table<
@@ -716,6 +774,7 @@ export interface Database {
           note: string;
           created_by: string;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -725,6 +784,7 @@ export interface Database {
           note: string;
           created_by: string;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       session_coverage_flags: Table<
@@ -736,6 +796,7 @@ export interface Database {
           updated_by: string;
           created_at: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -745,6 +806,7 @@ export interface Database {
           updated_by: string;
           created_at?: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       approval_requests: Table<
@@ -760,6 +822,7 @@ export interface Database {
           reviewed_by: string | null;
           reviewed_at: string | null;
           created_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -773,6 +836,7 @@ export interface Database {
           reviewed_by?: string | null;
           reviewed_at?: string | null;
           created_at?: string;
+          demo?: boolean;
         }
       >;
       admin_escalations: Table<
@@ -785,6 +849,7 @@ export interface Database {
           created_by: string;
           created_at: string;
           status: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -795,6 +860,7 @@ export interface Database {
           created_by: string;
           created_at?: string;
           status?: string;
+          demo?: boolean;
         }
       >;
       outreach_templates: Table<
@@ -806,6 +872,7 @@ export interface Database {
           subject: string;
           body: string;
           updated_at: string;
+          demo: boolean;
         },
         {
           id: string;
@@ -815,6 +882,7 @@ export interface Database {
           subject: string;
           body: string;
           updated_at?: string;
+          demo?: boolean;
         }
       >;
       sync_jobs: Table<

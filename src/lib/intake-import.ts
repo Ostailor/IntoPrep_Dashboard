@@ -599,6 +599,7 @@ export async function importIntakeCsv({
         phone: row.guardianPhone || existingFamily?.phone || "Not provided",
         preferred_campus_id: preferredCampusId,
         notes: familyNotes,
+        demo: false,
       });
       familyByEmail.set(row.guardianEmail, {
         id: familyId,
@@ -608,6 +609,7 @@ export async function importIntakeCsv({
         phone: row.guardianPhone || "Not provided",
         preferred_campus_id: preferredCampusId,
         notes: familyNotes,
+        demo: false,
       });
 
       const normalizedStudentName = normalizeFingerprint(studentName);
@@ -625,6 +627,7 @@ export async function importIntakeCsv({
         school: row.school || existingStudent?.school || "Not provided",
         target_test: track,
         focus: row.focus || existingStudent?.focus || "Needs placement review",
+        demo: false,
       });
       studentByFamilyAndName.set(`${familyId}|${normalizedStudentName}`, {
         id: studentId,
@@ -635,6 +638,7 @@ export async function importIntakeCsv({
         school: row.school || existingStudent?.school || "Not provided",
         target_test: track,
         focus: row.focus || existingStudent?.focus || "Needs placement review",
+        demo: false,
       });
 
       const leadFingerprint = normalizeFingerprint(`${studentName}|${row.guardianName}|${targetProgram}`);
@@ -652,6 +656,7 @@ export async function importIntakeCsv({
         owner_id: existingLead?.owner_id ?? null,
         follow_up_due_at: existingLead?.follow_up_due_at ?? null,
         notes: existingLead?.notes ?? null,
+        demo: false,
       });
       leadByFingerprint.set(leadFingerprint, {
         id: leadId,
@@ -663,6 +668,7 @@ export async function importIntakeCsv({
         owner_id: existingLead?.owner_id ?? null,
         follow_up_due_at: existingLead?.follow_up_due_at ?? null,
         notes: existingLead?.notes ?? null,
+        demo: false,
       });
 
       if (row.stage === "registered" || row.stage === "waitlist") {
@@ -685,6 +691,7 @@ export async function importIntakeCsv({
           cohort_id: cohortId,
           status: nextEnrollmentStatus,
           registered_at: submittedAt.slice(0, 10),
+          demo: false,
         });
         enrollmentByStudentAndCohort.set(enrollmentKey, {
           id: enrollmentId,
@@ -692,6 +699,7 @@ export async function importIntakeCsv({
           cohort_id: cohortId,
           status: nextEnrollmentStatus,
           registered_at: submittedAt.slice(0, 10),
+          demo: false,
         });
 
         const previousStatus = existingEnrollment?.status ?? null;

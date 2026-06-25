@@ -17,6 +17,7 @@ import type {
 } from "@/lib/domain";
 import { viewerCanAccessCohort } from "@/lib/attendance";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   canClaimLeads,
@@ -45,6 +46,12 @@ type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 type AdminTaskRow = Database["public"]["Tables"]["admin_tasks"]["Row"];
 type AdminSavedViewRow = Database["public"]["Tables"]["admin_saved_views"]["Row"];
+
+function assertSameDemoPartition(viewer: User, row: { demo?: boolean | null }, message: string) {
+  if (!isSameDemoPartition(viewer, row)) {
+    throw new Error(message);
+  }
+}
 
 function createId(prefix: string) {
   return `${prefix}-${randomBytes(6).toString("hex")}`;
@@ -278,6 +285,8 @@ async function getAssignedTaskForViewer({
     throw new Error("That task could not be found.");
   }
 
+  assertSameDemoPartition(viewer, task, "That task could not be found.");
+
   const isPrivileged = viewer.role === "admin" || viewer.role === "engineer";
 
   if (!isPrivileged && task.assigned_to !== viewer.id) {
@@ -297,12 +306,17 @@ async function assertAssignedBillingTask({
   familyId: string;
 }) {
   const serviceClient = createSupabaseServiceClient();
-  const { data, error } = await serviceClient
+  let query = serviceClient
     .from("admin_tasks")
     .select("*")
     .eq("assigned_to", viewer.id)
     .eq("task_type", "billing_follow_up")
     .neq("status", "done");
+  if (viewer.role !== "engineer") {
+    query = query.eq("demo", getDemoPartition(viewer));
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
@@ -353,7 +367,12 @@ async function getSessionConflictWarnings({
   const warnings = new Set<string>();
 
   sessions
-    .filter((session) => session.id !== sessionId && overlaps(startAt, endAt, session.start_at, session.end_at))
+    .filter(
+      (session) =>
+        Boolean(session.demo) === Boolean(cohort.demo) &&
+        session.id !== sessionId &&
+        overlaps(startAt, endAt, session.start_at, session.end_at),
+    )
     .forEach((session) => {
       const relatedCohort = cohortsById.get(session.cohort_id);
 
@@ -428,6 +447,7 @@ export async function persistStaffTaskUpdate({
     status_from: task.status,
     status_to: nextStatus,
     created_at: now,
+    demo: getDemoPartition(viewer),
   });
 
   if (activityError) {
@@ -485,6 +505,7 @@ export async function persistStaffBillingFollowUp({
   if (!invoice) {
     throw new Error("That invoice could not be found.");
   }
+  assertSameDemoPartition(viewer, invoice, "That invoice could not be found.");
 
   await assertAssignedBillingTask({
     viewer,
@@ -517,6 +538,7 @@ export async function persistStaffBillingFollowUp({
       author_id: viewer.id,
       body: noteBody,
       created_at: now,
+      demo: getDemoPartition(viewer),
     });
 
     if (noteError) {
@@ -570,6 +592,7 @@ export async function persistOperationalSavedView({
     filter_state: ensureJsonObject(filterState) as Json,
     created_by: viewer.id,
     updated_at: new Date().toISOString(),
+    demo: getDemoPartition(viewer),
   };
 
   const serviceClient = createSupabaseServiceClient();
@@ -587,7 +610,11 @@ export async function persistOperationalSavedView({
 
     const existing = (data ?? null) as AdminSavedViewRow | null;
 
-    if (!existing || (viewer.role === "staff" && existing.created_by !== viewer.id)) {
+    if (
+      !existing ||
+      !isSameDemoPartition(viewer, existing) ||
+      (viewer.role === "staff" && existing.created_by !== viewer.id)
+    ) {
       throw new Error("That saved view cannot be updated.");
     }
   }
@@ -643,7 +670,11 @@ export async function deleteOperationalSavedView({
 
   const existing = (data ?? null) as AdminSavedViewRow | null;
 
-  if (!existing || (viewer.role === "staff" && existing.created_by !== viewer.id)) {
+  if (
+    !existing ||
+    !isSameDemoPartition(viewer, existing) ||
+    (viewer.role === "staff" && existing.created_by !== viewer.id)
+  ) {
     throw new Error("That saved view could not be found.");
   }
 
@@ -697,6 +728,22 @@ export async function persistStaffFamilyContactEvent({
   }
 
   const serviceClient = createSupabaseServiceClient();
+  const { data: familyData, error: familyError } = await serviceClient
+    .from("families")
+    .select("*")
+    .eq("id", familyId)
+    .maybeSingle();
+  const family = (familyData ?? null) as FamilyRow | null;
+
+  if (familyError) {
+    throw new Error(familyError.message);
+  }
+
+  if (!family) {
+    throw new Error("That family could not be found.");
+  }
+  assertSameDemoPartition(viewer, family, "That family could not be found.");
+
   const { error } = await serviceClient.from("family_contact_events").insert({
     id: createId("contact"),
     family_id: familyId,
@@ -705,6 +752,7 @@ export async function persistStaffFamilyContactEvent({
     outcome: normalizedOutcome,
     actor_id: viewer.id,
     contact_at: contactAt?.trim() ? new Date(contactAt).toISOString() : new Date().toISOString(),
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -758,6 +806,7 @@ export async function updateLeadOwnership({
   if (!lead) {
     throw new Error("That lead could not be found.");
   }
+  assertSameDemoPartition(viewer, lead, "That lead could not be found.");
 
   const updatePayload: Partial<LeadRow> = {};
 
@@ -841,7 +890,7 @@ export async function persistSessionChecklist({
     throw new Error(error.message);
   }
 
-  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id)) {
+  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
     throw new Error("You do not have access to that session.");
   }
 
@@ -860,6 +909,7 @@ export async function persistSessionChecklist({
       notes_closed_out: checklist.notesClosedOut,
       updated_by: viewer.id,
       updated_at: now,
+      demo: getDemoPartition(viewer),
     },
     { onConflict: "session_id" },
   );
@@ -919,7 +969,7 @@ export async function updateStaffSession({
     throw new Error(error.message);
   }
 
-  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id)) {
+  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
     throw new Error("You do not have access to that session.");
   }
 
@@ -1022,7 +1072,11 @@ export async function moveSingleEnrollment({
     throw new Error(enrollmentError.message);
   }
 
-  if (!enrollment || !viewerCanAccessCohort(viewer, enrollment.cohort_id)) {
+  if (
+    !enrollment ||
+    !viewerCanAccessCohort(viewer, enrollment.cohort_id) ||
+    !isSameDemoPartition(viewer, enrollment)
+  ) {
     throw new Error("That enrollment could not be found.");
   }
 
@@ -1048,6 +1102,7 @@ export async function moveSingleEnrollment({
   if (!targetCohort) {
     throw new Error("The target cohort could not be found.");
   }
+  assertSameDemoPartition(viewer, targetCohort, "The target cohort could not be found.");
 
   if (targetCohort.enrolled >= targetCohort.capacity) {
     throw new Error("That cohort is already full.");
@@ -1174,6 +1229,7 @@ export async function createAdminEscalation({
     reason: normalizedReason,
     handoff_note: handoffNote?.trim() ? handoffNote.trim() : null,
     created_by: viewer.id,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -1237,6 +1293,7 @@ export async function persistApprovalRequest({
     handoff_note: handoffNote?.trim() ? handoffNote.trim() : null,
     requested_by: viewer.id,
     status: normalizeApprovalStatus(status ?? "pending"),
+    demo: getDemoPartition(viewer),
   };
 
   if (requestId) {
@@ -1251,7 +1308,7 @@ export async function persistApprovalRequest({
     }
 
     const existing = (data ?? null) as Database["public"]["Tables"]["approval_requests"]["Row"] | null;
-    if (!existing || existing.requested_by !== viewer.id) {
+    if (!existing || existing.requested_by !== viewer.id || !isSameDemoPartition(viewer, existing)) {
       throw new Error("That approval request could not be updated.");
     }
   }
@@ -1330,7 +1387,7 @@ export async function persistOutreachTemplate({
 
     const existing = (data ?? null) as Database["public"]["Tables"]["outreach_templates"]["Row"] | null;
 
-    if (!existing || existing.owner_id !== viewer.id) {
+    if (!existing || existing.owner_id !== viewer.id || !isSameDemoPartition(viewer, existing)) {
       throw new Error("That template could not be updated.");
     }
   }
@@ -1355,6 +1412,7 @@ export async function persistOutreachTemplate({
         subject: normalizedSubject,
         body: normalizedBody,
         updated_at: new Date().toISOString(),
+        demo: getDemoPartition(viewer),
       });
 
   if (error) {
@@ -1401,7 +1459,7 @@ export async function deleteOutreachTemplate({
 
   const existing = (data ?? null) as Database["public"]["Tables"]["outreach_templates"]["Row"] | null;
 
-  if (!existing || existing.owner_id !== viewer.id) {
+  if (!existing || existing.owner_id !== viewer.id || !isSameDemoPartition(viewer, existing)) {
     throw new Error("That template could not be found.");
   }
 
@@ -1473,6 +1531,7 @@ export async function createFamilyThread({
   if (!family) {
     throw new Error("That family could not be found.");
   }
+  assertSameDemoPartition(viewer, family, "That family could not be found.");
 
   const { data: familyStudentData, error: familyStudentError } = await serviceClient
     .from("students")
@@ -1491,7 +1550,7 @@ export async function createFamilyThread({
 
   const { data: enrollmentData, error: enrollmentError } = await serviceClient
     .from("enrollments")
-    .select("id")
+    .select("id, demo")
     .eq("cohort_id", cohortId)
     .eq("status", "active")
     .in("student_id", familyStudentIds)
@@ -1502,6 +1561,9 @@ export async function createFamilyThread({
   }
 
   if (!enrollmentData || enrollmentData.length === 0) {
+    throw new Error("That family is not active inside the selected cohort.");
+  }
+  if (!enrollmentData.some((enrollment) => isSameDemoPartition(viewer, enrollment))) {
     throw new Error("That family is not active inside the selected cohort.");
   }
 
@@ -1515,6 +1577,7 @@ export async function createFamilyThread({
     participants: family.guardian_names,
     last_message_preview: normalizedBody.slice(0, 160),
     unread_count: 0,
+    demo: getDemoPartition(viewer),
   });
 
   if (threadError) {
@@ -1525,6 +1588,7 @@ export async function createFamilyThread({
     thread_id: threadId,
     author_id: viewer.id,
     body: normalizedBody,
+    demo: getDemoPartition(viewer),
   });
 
   if (postError) {

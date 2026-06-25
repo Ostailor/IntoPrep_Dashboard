@@ -17,6 +17,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { countActiveAdmins } from "@/lib/engineer-controls";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
   }
 
   const normalizedEmail = normalizeManagedEmail(email);
+  const accountDemo =
+    viewer.user.role === "engineer" ? body?.demo === true : getDemoPartition(viewer.user);
 
   if (
     normalizedEmail.length === 0 ||
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
       title: title.trim(),
       role,
       must_change_password: true,
+      demo: accountDemo,
     },
   });
 
@@ -97,6 +101,7 @@ export async function POST(request: NextRequest) {
       title: title.trim(),
       account_status: "active",
       must_change_password: true,
+      demo: accountDemo,
     }),
     serviceClient.from("user_templates").upsert(
       {
@@ -107,6 +112,7 @@ export async function POST(request: NextRequest) {
         assigned_cohort_ids: [],
         account_status: "active",
         must_change_password: true,
+        demo: accountDemo,
       },
       { onConflict: "email" },
     ),
@@ -135,6 +141,7 @@ export async function POST(request: NextRequest) {
     details: {
       role,
       title: title.trim(),
+      demo: accountDemo,
     },
   });
 
@@ -182,6 +189,10 @@ export async function PATCH(request: NextRequest) {
 
   if (targetProfile.deleted_at) {
     return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
+  }
+
+  if (!isSameDemoPartition(viewer.user, targetProfile)) {
+    return NextResponse.json({ error: "You cannot manage accounts outside your demo partition." }, { status: 403 });
   }
 
   if (targetProfile.id === viewer.user.id) {
@@ -296,6 +307,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
   }
 
+  if (!isSameDemoPartition(viewer.user, targetProfile)) {
+    return NextResponse.json({ error: "You cannot manage accounts outside your demo partition." }, { status: 403 });
+  }
+
   if (!canSuspendRole(viewer.user.role, targetProfile.role)) {
     return NextResponse.json(
       { error: "Your role cannot change that account status." },
@@ -403,6 +418,10 @@ export async function DELETE(request: NextRequest) {
 
   if (targetProfile.deleted_at) {
     return NextResponse.json({ error: "That account is no longer active." }, { status: 404 });
+  }
+
+  if (!isSameDemoPartition(viewer.user, targetProfile)) {
+    return NextResponse.json({ error: "You cannot manage accounts outside your demo partition." }, { status: 403 });
   }
 
   if (!canDeleteRole(viewer.user.role, targetProfile.role)) {

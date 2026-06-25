@@ -14,6 +14,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
@@ -61,7 +62,7 @@ async function getAccessibleSession(sessionId: string, viewer: User) {
     throw new Error(error.message);
   }
 
-  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id)) {
+  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
     throw new Error("You do not have access to that session.");
   }
 
@@ -82,7 +83,7 @@ async function getAccessibleStudentCohortId(studentId: string, viewer: User) {
   }
 
   const accessibleEnrollment = enrollments.find((enrollment) =>
-    viewerCanAccessCohort(viewer, enrollment.cohort_id),
+    viewerCanAccessCohort(viewer, enrollment.cohort_id) && isSameDemoPartition(viewer, enrollment),
   );
 
   if (!accessibleEnrollment) {
@@ -203,6 +204,7 @@ export async function persistSessionInstructionNote({
     body: normalizedBody,
     created_at: now,
     updated_at: now,
+    demo: getDemoPartition(viewer),
   });
 
   if (error && !isMissingSupabaseTableError(error)) {
@@ -216,6 +218,7 @@ export async function persistSessionInstructionNote({
       author_id: viewer.id,
       body: buildFallbackSessionNoteBody(normalizedBody),
       created_at: now,
+      demo: getDemoPartition(viewer),
     });
 
     if (fallbackError) {
@@ -281,6 +284,7 @@ export async function persistInstructorFollowUpFlag({
     created_by: viewer.id,
     created_at: createdAt,
     status: "open",
+    demo: getDemoPartition(viewer),
   });
 
   if (error && !isMissingSupabaseTableError(error)) {
@@ -298,6 +302,7 @@ export async function persistInstructorFollowUpFlag({
       created_by: viewer.id,
       created_at: createdAt,
       status: "open",
+      demo: getDemoPartition(viewer),
     });
 
     if (fallbackError) {

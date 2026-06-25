@@ -9,6 +9,7 @@ import type {
 } from "@/lib/domain";
 import { viewerCanAccessCohort } from "@/lib/attendance";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
@@ -80,7 +81,7 @@ async function getAccessibleSession(sessionId: string, viewer: User) {
     throw new Error(error.message);
   }
 
-  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id)) {
+  if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
     throw new Error("You do not have access to that session.");
   }
 
@@ -109,6 +110,10 @@ async function assertStudentIsInSessionCohort({
   }
 
   if (!enrollment) {
+    throw new Error("That student is not active in the selected session cohort.");
+  }
+
+  if (!isSameDemoPartition({ role: "ta", demo: session.demo }, enrollment)) {
     throw new Error("That student is not active in the selected session cohort.");
   }
 }
@@ -170,6 +175,7 @@ export async function persistSessionHandoffNote({
     author_id: viewer.id,
     body: normalizedBody,
     created_at: createdAt,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -226,6 +232,7 @@ export async function persistAttendanceExceptionFlag({
     note: normalizedNote,
     created_by: viewer.id,
     created_at: createdAt,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -281,6 +288,7 @@ export async function persistSessionCoverageFlag({
       updated_by: viewer.id,
       created_at: now,
       updated_at: now,
+      demo: getDemoPartition(viewer),
     },
     { onConflict: "session_id" },
   );

@@ -14,6 +14,7 @@ import { assertWritesAllowed } from "@/lib/engineer-controls";
 import type { Database } from "@/lib/supabase/database.types";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 
 interface AttendanceSessionCard {
   id: string;
@@ -236,7 +237,9 @@ async function loadLiveAttendanceBundle(
         : sessionsQuery;
 
   const sessionsResult = scopedSessionsQuery ? await scopedSessionsQuery : { data: [] };
-  const sessions = (sessionsResult.data ?? []) as SessionRow[];
+  const sessions = ((sessionsResult.data ?? []) as SessionRow[]).filter((session) =>
+    isSameDemoPartition(viewer, session),
+  );
 
   if (sessions.length === 0) {
     return {
@@ -278,13 +281,27 @@ async function loadLiveAttendanceBundle(
       .in("session_id", sessionIds)
       .order("updated_at", { ascending: false }),
   ]);
-  const enrollments = (enrollmentsResult.data ?? []) as EnrollmentRow[];
-  const attendanceRecords = (attendanceRecordsResult.data ?? []) as AttendanceRecordRow[];
-  const assessments = (assessmentsResult.data ?? []) as AssessmentRow[];
-  const allAssessments = (allAssessmentsResult.data ?? []) as AssessmentRow[];
-  const handoffNoteRows = (handoffNotesResult.data ?? []) as SessionHandoffNoteRow[];
-  const exceptionFlagRows = (exceptionFlagsResult.data ?? []) as AttendanceExceptionFlagRow[];
-  const coverageFlagRows = (coverageFlagsResult.data ?? []) as SessionCoverageFlagRow[];
+  const enrollments = ((enrollmentsResult.data ?? []) as EnrollmentRow[]).filter((enrollment) =>
+    isSameDemoPartition(viewer, enrollment),
+  );
+  const attendanceRecords = ((attendanceRecordsResult.data ?? []) as AttendanceRecordRow[]).filter((record) =>
+    isSameDemoPartition(viewer, record),
+  );
+  const assessments = ((assessmentsResult.data ?? []) as AssessmentRow[]).filter((assessment) =>
+    isSameDemoPartition(viewer, assessment),
+  );
+  const allAssessments = ((allAssessmentsResult.data ?? []) as AssessmentRow[]).filter((assessment) =>
+    isSameDemoPartition(viewer, assessment),
+  );
+  const handoffNoteRows = ((handoffNotesResult.data ?? []) as SessionHandoffNoteRow[]).filter((note) =>
+    isSameDemoPartition(viewer, note),
+  );
+  const exceptionFlagRows = ((exceptionFlagsResult.data ?? []) as AttendanceExceptionFlagRow[]).filter((flag) =>
+    isSameDemoPartition(viewer, flag),
+  );
+  const coverageFlagRows = ((coverageFlagsResult.data ?? []) as SessionCoverageFlagRow[]).filter((flag) =>
+    isSameDemoPartition(viewer, flag),
+  );
 
   const studentIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.student_id)));
   const assessmentIds = assessments.map((assessment) => assessment.id);
@@ -292,9 +309,11 @@ async function loadLiveAttendanceBundle(
 
   const studentsResult = await serviceClient
     .from("students")
-    .select("id, family_id, first_name, last_name, grade_level, school, focus")
+    .select("id, family_id, first_name, last_name, grade_level, school, focus, demo")
     .in("id", studentIds);
-  const studentRows = (studentsResult.data ?? []) as StudentRow[];
+  const studentRows = ((studentsResult.data ?? []) as StudentRow[]).filter((student) =>
+    isSameDemoPartition(viewer, student),
+  );
   const familyIds = canViewFamilyAttendanceContext(viewer.role)
     ? Array.from(new Set(studentRows.map((student) => student.family_id)))
     : [];
@@ -500,12 +519,16 @@ export async function persistAttendanceStatus({
   const serviceClient = createSupabaseServiceClient();
   const { data: session } = await serviceClient
     .from("sessions")
-    .select("id, cohort_id")
+    .select("id, cohort_id, demo")
     .eq("id", sessionId)
     .maybeSingle();
-  const typedSession = (session ?? null) as Pick<SessionRow, "id" | "cohort_id"> | null;
+  const typedSession = (session ?? null) as Pick<SessionRow, "id" | "cohort_id" | "demo"> | null;
 
-  if (!typedSession || !viewerCanAccessCohort(viewer, typedSession.cohort_id)) {
+  if (
+    !typedSession ||
+    !viewerCanAccessCohort(viewer, typedSession.cohort_id) ||
+    !isSameDemoPartition(viewer, typedSession)
+  ) {
     throw new Error("You do not have access to this session.");
   }
 
@@ -529,6 +552,7 @@ export async function persistAttendanceStatus({
       student_id: studentId,
       status,
       updated_by: viewer.id,
+      demo: getDemoPartition(viewer),
     },
     { onConflict: "session_id,student_id" },
   );
