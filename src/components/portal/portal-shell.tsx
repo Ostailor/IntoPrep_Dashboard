@@ -89,6 +89,7 @@ import { StaffCohortOperationsPanel } from "@/components/portal/staff-cohort-ope
 import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
 import { StaffFamilyOpsPanel } from "@/components/portal/staff-family-ops-panel";
 import { StaffMessagingPanel } from "@/components/portal/staff-messaging-panel";
+import { StudentCohortAssignmentPanel } from "@/components/portal/student-cohort-assignment-panel";
 import { InstructorAcademicsPanel } from "@/components/portal/instructor-academics-panel";
 import { InstructorAttendanceSupportPanel } from "@/components/portal/instructor-attendance-support-panel";
 import { InstructorDashboardPanels } from "@/components/portal/instructor-dashboard-panels";
@@ -1255,9 +1256,10 @@ function renderSectionContent({
               />
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 {context.visibleCohorts.map((cohort) => (
-                  <div
+                  <Link
                     key={cohort.id}
-                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                    href={`/cohorts?cohortId=${cohort.id}`}
+                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[rgba(187,110,69,0.45)] hover:bg-white"
                   >
                     <div className="text-lg font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
                     <div className="mt-2 text-sm text-[color:var(--muted)]">{cohort.cadence}</div>
@@ -1265,7 +1267,7 @@ function renderSectionContent({
                       <span>{cohort.roomLabel}</span>
                       <span>{cohort.enrolled}/{cohort.capacity}</span>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </SectionPanel>
@@ -1358,6 +1360,15 @@ function renderSectionContent({
                 : "TA, staff, and admin can see student records with support-ready context. Instructors do not see this surface."
             }
           />
+          {role === "admin" || role === "staff" ? (
+            <StudentCohortAssignmentPanel
+              viewerMode={viewerMode}
+              role={role}
+              students={context.visibleStudents}
+              cohorts={context.visibleCohorts}
+              enrollments={context.visibleEnrollments}
+            />
+          ) : null}
           <div className="mt-5 overflow-hidden rounded-[1.75rem] border border-[color:var(--line)]">
             <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-4 bg-[rgba(23,56,75,0.06)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
               <span>Student</span>

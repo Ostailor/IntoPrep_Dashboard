@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
       title: body?.title,
       startAt: body?.startAt,
       endAt: body?.endAt,
+      sessions: body?.sessions,
       roomLabel: body?.roomLabel,
       mode: body?.mode,
       force: Boolean(body?.force),

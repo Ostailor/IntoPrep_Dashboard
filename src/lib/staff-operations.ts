@@ -1072,11 +1072,79 @@ export async function moveSingleEnrollment({
     throw new Error(enrollmentError.message);
   }
 
-  if (
-    !enrollment ||
-    !viewerCanAccessCohort(viewer, enrollment.cohort_id) ||
-    !isSameDemoPartition(viewer, enrollment)
-  ) {
+  if (!enrollment) {
+    const [{ data: targetCohortData, error: targetCohortError }, { data: studentData, error: studentError }] =
+      await Promise.all([
+        serviceClient.from("cohorts").select("*").eq("id", targetCohortId).maybeSingle(),
+        serviceClient.from("students").select("*").eq("id", studentId).maybeSingle(),
+      ]);
+    const targetCohort = (targetCohortData ?? null) as CohortRow | null;
+    const student = (studentData ?? null) as StudentRow | null;
+
+    if (targetCohortError) {
+      throw new Error(targetCohortError.message);
+    }
+
+    if (studentError) {
+      throw new Error(studentError.message);
+    }
+
+    if (!targetCohort || !viewerCanAccessCohort(viewer, targetCohortId)) {
+      throw new Error("The target cohort could not be found.");
+    }
+
+    if (!student || !isSameDemoPartition(viewer, student)) {
+      throw new Error("That student could not be found.");
+    }
+
+    assertSameDemoPartition(viewer, targetCohort, "The target cohort could not be found.");
+
+    if (targetCohort.enrolled >= targetCohort.capacity) {
+      throw new Error("That cohort is already full.");
+    }
+
+    const enrollmentId = createId("enrollment");
+    const { error: insertEnrollmentError } = await serviceClient.from("enrollments").insert({
+      id: enrollmentId,
+      student_id: studentId,
+      cohort_id: targetCohortId,
+      status: "active",
+      registered_at: new Date().toISOString(),
+      demo: Boolean(targetCohort.demo),
+    });
+
+    if (insertEnrollmentError) {
+      throw new Error(insertEnrollmentError.message);
+    }
+
+    const { error: targetUpdateError } = await serviceClient
+      .from("cohorts")
+      .update({
+        enrolled: targetCohort.enrolled + 1,
+      })
+      .eq("id", targetCohortId);
+
+    if (targetUpdateError) {
+      throw new Error(targetUpdateError.message);
+    }
+
+    await recordAccountAuditLog(serviceClient, {
+      actorId: viewer.id,
+      targetType: "cohort",
+      action: "cohort_operation_run",
+      summary: `${viewer.name} assigned ${student.first_name} ${student.last_name} to a cohort.`,
+      details: {
+        studentId,
+        fromCohortId: null,
+        toCohortId: targetCohortId,
+        enrollmentId,
+      },
+    });
+
+    return;
+  }
+
+  if (!viewerCanAccessCohort(viewer, enrollment.cohort_id) || !isSameDemoPartition(viewer, enrollment)) {
     throw new Error("That enrollment could not be found.");
   }
 

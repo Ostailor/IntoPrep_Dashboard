@@ -3285,7 +3285,7 @@ export async function getLivePortalBundle(
     return null;
   }
 
-  if (section === "calendar" || section === "cohorts") {
+  if (section === "calendar" || section === "cohorts" || section === "students") {
     return loadLivePortalBundle(viewer, section);
   }
 

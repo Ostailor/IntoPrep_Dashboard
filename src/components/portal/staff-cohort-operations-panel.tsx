@@ -320,6 +320,46 @@ export function StaffCohortOperationsPanel({
         </div>
       ) : null}
 
+      <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="section-kicker">Cohort roster</div>
+            <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
+              {selectedCohort?.name ?? "Selected cohort"}
+            </h3>
+          </div>
+          <div className="rounded-full border border-[color:var(--line)] bg-white/85 px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]">
+            {sourceStudents.length}/{selectedCohort?.capacity ?? 0} active
+          </div>
+        </div>
+        <div className="mt-5 max-h-[320px] overflow-y-auto rounded-[1.5rem] border border-[color:var(--line)] bg-white/70">
+          {sourceStudents.length > 0 ? (
+            sourceStudents.map((student) => (
+              <div
+                key={student.id}
+                className="grid gap-3 border-t border-[color:var(--line)] px-4 py-3 text-sm first:border-t-0 md:grid-cols-[1.2fr_1fr_1fr]"
+              >
+                <div>
+                  <div className="font-semibold text-[color:var(--navy-strong)]">
+                    {student.firstName} {student.lastName}
+                  </div>
+                  <div className="mt-1 text-[color:var(--muted)]">Grade {student.gradeLevel}</div>
+                </div>
+                <div className="text-[color:var(--muted)]">{student.school}</div>
+                <div>
+                  <div className="font-semibold text-[color:var(--navy-strong)]">{student.targetTest}</div>
+                  <div className="mt-1 text-[color:var(--muted)]">{student.focus}</div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="px-4 py-5 text-sm text-[color:var(--muted)]">
+              No active students are assigned to this cohort yet.
+            </div>
+          )}
+        </div>
+      </section>
+
       <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
           <div className="section-kicker">Session details</div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import type {
@@ -62,11 +62,13 @@ export function AdminCohortOperationsPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const forecastFilter = searchParams.get("forecast") ?? "all";
+  const selectedCohortParam = searchParams.get("cohortId") ?? "";
   const sortedCohorts = useMemo(
     () => [...cohorts].sort((left, right) => left.name.localeCompare(right.name)),
     [cohorts],
   );
-  const defaultCohort = sortedCohorts[0];
+  const defaultCohort =
+    sortedCohorts.find((item) => item.id === selectedCohortParam) ?? sortedCohorts[0];
   const [selectedCohortId, setSelectedCohortId] = useState(defaultCohort?.id ?? "");
   const cohort = sortedCohorts.find((item) => item.id === selectedCohortId) ?? defaultCohort;
   const scopedSessions = useMemo(
@@ -136,6 +138,41 @@ export function AdminCohortOperationsPanel({
       .map((enrollment) => enrollment.studentId);
     return students.filter((student) => targetIds.includes(student.id));
   }, [bulkAttendanceState.cohortId, enrollments, students]);
+  const selectedRoster = useMemo(() => {
+    const rosterIds = enrollments
+      .filter((enrollment) => enrollment.cohortId === selectedCohortId && enrollment.status === "active")
+      .map((enrollment) => enrollment.studentId);
+    return students
+      .filter((student) => rosterIds.includes(student.id))
+      .sort((left, right) => `${left.lastName} ${left.firstName}`.localeCompare(`${right.lastName} ${right.firstName}`));
+  }, [enrollments, selectedCohortId, students]);
+
+  useEffect(() => {
+    if (!selectedCohortParam || selectedCohortParam === selectedCohortId) {
+      return;
+    }
+
+    const nextCohort = sortedCohorts.find((item) => item.id === selectedCohortParam);
+
+    if (!nextCohort) {
+      return;
+    }
+
+    const nextSession = sessions.find((session) => session.cohortId === nextCohort.id);
+    setSelectedCohortId(nextCohort.id);
+    setSelectedSessionId(nextSession?.id ?? "");
+    setFormState({
+      capacity: String(nextCohort.capacity ?? 0),
+      cadence: nextCohort.cadence ?? "",
+      roomLabel: nextCohort.roomLabel ?? "",
+      leadInstructorId: nextCohort.leadInstructorId ?? "",
+      sessionTitle: nextSession?.title ?? "",
+      sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
+      sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
+      sessionMode: nextSession?.mode ?? "Hybrid",
+      sessionRoomLabel: nextSession?.roomLabel ?? nextCohort.roomLabel ?? "",
+    });
+  }, [selectedCohortId, selectedCohortParam, sessions, sortedCohorts]);
 
   const updateFilters = (next: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -177,6 +214,7 @@ export function AdminCohortOperationsPanel({
             section: "cohorts",
             filterState: {
               forecast: forecastFilter,
+              cohortId: selectedCohortId,
             },
           }),
         });
@@ -379,7 +417,8 @@ export function AdminCohortOperationsPanel({
               type="button"
               onClick={() => {
                 const nextForecast = String(view.filterState.forecast ?? "all");
-                updateFilters({ forecast: nextForecast });
+                const nextCohortId = typeof view.filterState.cohortId === "string" ? view.filterState.cohortId : selectedCohortId;
+                updateFilters({ forecast: nextForecast, cohortId: nextCohortId });
               }}
               className="rounded-full border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
             >
@@ -432,6 +471,7 @@ export function AdminCohortOperationsPanel({
                 const nextCohort = sortedCohorts.find((item) => item.id === nextId);
                 const nextSession = sessions.find((session) => session.cohortId === nextId);
                 setSelectedCohortId(nextId);
+                updateFilters({ cohortId: nextId });
                 setSelectedSessionId(nextSession?.id ?? "");
                 setFormState({
                   capacity: String(nextCohort?.capacity ?? 0),
@@ -698,6 +738,46 @@ export function AdminCohortOperationsPanel({
               {pendingKey === `archive-${cohort.id}` ? "Archiving..." : "Archive cohort"}
             </button>
           ) : null}
+        </div>
+      </section>
+
+      <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="section-kicker">Cohort roster</div>
+            <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
+              {cohort?.name ?? "Selected cohort"}
+            </h3>
+          </div>
+          <div className="rounded-full border border-[color:var(--line)] bg-white/85 px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]">
+            {selectedRoster.length}/{cohort?.capacity ?? 0} active
+          </div>
+        </div>
+        <div className="mt-5 max-h-[360px] overflow-y-auto rounded-[1.5rem] border border-[color:var(--line)] bg-white/70">
+          {selectedRoster.length > 0 ? (
+            selectedRoster.map((student) => (
+              <div
+                key={student.id}
+                className="grid gap-3 border-t border-[color:var(--line)] px-4 py-3 text-sm first:border-t-0 md:grid-cols-[1.2fr_1fr_1fr]"
+              >
+                <div>
+                  <div className="font-semibold text-[color:var(--navy-strong)]">
+                    {student.firstName} {student.lastName}
+                  </div>
+                  <div className="mt-1 text-[color:var(--muted)]">Grade {student.gradeLevel}</div>
+                </div>
+                <div className="text-[color:var(--muted)]">{student.school}</div>
+                <div>
+                  <div className="font-semibold text-[color:var(--navy-strong)]">{student.targetTest}</div>
+                  <div className="mt-1 text-[color:var(--muted)]">{student.focus}</div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="px-4 py-5 text-sm text-[color:var(--muted)]">
+              No active students are assigned to this cohort yet.
+            </div>
+          )}
         </div>
       </section>
 

@@ -953,6 +953,7 @@ export async function createAdminSession({
   title,
   startAt,
   endAt,
+  sessions,
   mode,
   roomLabel,
   force,
@@ -960,8 +961,9 @@ export async function createAdminSession({
   viewer: User;
   cohortId: string;
   title: string;
-  startAt: string;
-  endAt: string;
+  startAt?: string;
+  endAt?: string;
+  sessions?: Array<{ startAt: string; endAt: string }>;
   mode: string;
   roomLabel?: string;
   force?: boolean;
@@ -992,53 +994,88 @@ export async function createAdminSession({
   }
 
   const normalizedTitle = title?.trim();
-  const startTimestamp = Date.parse(startAt);
-  const endTimestamp = Date.parse(endAt);
   const normalizedMode = normalizeSessionMode(mode);
   const normalizedRoomLabel = roomLabel?.trim() || cohort.room_label;
+  const requestedSessions =
+    Array.isArray(sessions) && sessions.length > 0
+      ? sessions
+      : startAt && endAt
+        ? [{ startAt, endAt }]
+        : [];
 
   if (!normalizedTitle) {
     throw new Error("Session title is required.");
   }
 
-  if (Number.isNaN(startTimestamp) || Number.isNaN(endTimestamp)) {
+  if (requestedSessions.length === 0) {
     throw new Error("Session start and end times are required.");
   }
 
-  if (startTimestamp >= endTimestamp) {
-    throw new Error("Session end must be after the start time.");
+  if (requestedSessions.length > 120) {
+    throw new Error("Create 120 sessions or fewer at one time.");
   }
 
-  const normalizedStartAt = new Date(startTimestamp).toISOString();
-  const normalizedEndAt = new Date(endTimestamp).toISOString();
+  const normalizedSessions = requestedSessions.map((session, index) => {
+    const startTimestamp = Date.parse(session.startAt);
+    const endTimestamp = Date.parse(session.endAt);
 
-  const warnings = await getConflictWarnings({
-    cohort,
-    sessionId: null,
-    startAt: normalizedStartAt,
-    endAt: normalizedEndAt,
-    roomLabel: normalizedRoomLabel,
-    leadInstructorId: cohort.lead_instructor_id,
+    if (Number.isNaN(startTimestamp) || Number.isNaN(endTimestamp)) {
+      throw new Error(`Session ${index + 1} start and end times are required.`);
+    }
+
+    if (startTimestamp >= endTimestamp) {
+      throw new Error(`Session ${index + 1} end must be after the start time.`);
+    }
+
+    return {
+      startAt: new Date(startTimestamp).toISOString(),
+      endAt: new Date(endTimestamp).toISOString(),
+    };
   });
 
-  if (warnings.length > 0 && !force) {
+  const warnings = (
+    await Promise.all(
+      normalizedSessions.map(async (session) => {
+        const dateLabel = new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(session.startAt));
+        const sessionWarnings = await getConflictWarnings({
+          cohort,
+          sessionId: null,
+          startAt: session.startAt,
+          endAt: session.endAt,
+          roomLabel: normalizedRoomLabel,
+          leadInstructorId: cohort.lead_instructor_id,
+        });
+
+        return sessionWarnings.map((warning) => `${dateLabel}: ${warning}`);
+      }),
+    )
+  ).flat();
+
+  const dedupedWarnings = Array.from(new Set(warnings)).slice(0, 30);
+
+  if (dedupedWarnings.length > 0 && !force) {
     return {
-      warnings,
+      warnings: dedupedWarnings,
       created: false,
     };
   }
 
-  const sessionId = createId("session");
-  const { error: insertError } = await serviceClient.from("sessions").insert({
-    id: sessionId,
+  const sessionRows = normalizedSessions.map((session) => ({
+    id: createId("session"),
     cohort_id: cohort.id,
     title: normalizedTitle,
-    start_at: normalizedStartAt,
-    end_at: normalizedEndAt,
+    start_at: session.startAt,
+    end_at: session.endAt,
     mode: normalizedMode,
     room_label: normalizedRoomLabel,
     demo: Boolean(cohort.demo),
-  });
+  }));
+  const { error: insertError } = await serviceClient.from("sessions").insert(sessionRows);
 
   if (insertError) {
     throw new Error(insertError.message);
@@ -1048,19 +1085,22 @@ export async function createAdminSession({
     actorId: viewer.id,
     targetType: "session",
     action: "cohort_operation_run",
-    summary: `${viewer.name} created ${normalizedTitle} for ${cohort.name}.`,
+    summary: `${viewer.name} created ${sessionRows.length} ${normalizedTitle} session${sessionRows.length === 1 ? "" : "s"} for ${cohort.name}.`,
     details: {
       cohortId: cohort.id,
-      sessionId,
-      warnings,
+      sessionIds: sessionRows.map((session) => session.id),
+      warnings: dedupedWarnings,
       forced: Boolean(force),
+      count: sessionRows.length,
     },
   });
 
   return {
-    warnings,
+    warnings: dedupedWarnings,
     created: true,
-    sessionId,
+    sessionId: sessionRows[0]?.id,
+    sessionIds: sessionRows.map((session) => session.id),
+    createdCount: sessionRows.length,
   };
 }
 
