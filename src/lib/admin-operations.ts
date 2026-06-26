@@ -81,6 +81,17 @@ function normalizeTaskType(value: string) {
   }
 }
 
+function normalizeSessionMode(value: string): SessionRow["mode"] {
+  switch (value) {
+    case "In person":
+    case "Hybrid":
+    case "Zoom":
+      return value;
+    default:
+      throw new Error("Invalid session mode.");
+  }
+}
+
 function normalizeTaskStatus(value: string) {
   switch (value) {
     case "open":
@@ -907,7 +918,12 @@ async function getConflictWarnings({
   const warnings = new Set<string>();
 
   sessions
-    .filter((session) => session.id !== sessionId && overlaps(startAt, endAt, session.start_at, session.end_at))
+    .filter(
+      (session) =>
+        Boolean(session.demo) === Boolean(cohort.demo) &&
+        session.id !== sessionId &&
+        overlaps(startAt, endAt, session.start_at, session.end_at),
+    )
     .forEach((session) => {
       const relatedCohort = cohortsById.get(session.cohort_id);
 
@@ -929,6 +945,123 @@ async function getConflictWarnings({
     });
 
   return Array.from(warnings);
+}
+
+export async function createAdminSession({
+  viewer,
+  cohortId,
+  title,
+  startAt,
+  endAt,
+  mode,
+  roomLabel,
+  force,
+}: {
+  viewer: User;
+  cohortId: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  mode: string;
+  roomLabel?: string;
+  force?: boolean;
+}) {
+  ensureServiceRole();
+  assertAdminAccess(viewer);
+
+  if (!canManageSchedules(viewer.role)) {
+    throw new Error("You cannot create instruction sessions.");
+  }
+
+  await assertWritesAllowed("operational_writes");
+
+  const serviceClient = createSupabaseServiceClient();
+  const { data: cohortData, error: cohortError } = await serviceClient
+    .from("cohorts")
+    .select("*")
+    .eq("id", cohortId)
+    .maybeSingle();
+  const cohort = (cohortData ?? null) as CohortRow | null;
+
+  if (cohortError) {
+    throw new Error(cohortError.message);
+  }
+
+  if (!cohort || !isSameDemoPartition(viewer, cohort)) {
+    throw new Error("That cohort could not be found.");
+  }
+
+  const normalizedTitle = title?.trim();
+  const startTimestamp = Date.parse(startAt);
+  const endTimestamp = Date.parse(endAt);
+  const normalizedMode = normalizeSessionMode(mode);
+  const normalizedRoomLabel = roomLabel?.trim() || cohort.room_label;
+
+  if (!normalizedTitle) {
+    throw new Error("Session title is required.");
+  }
+
+  if (Number.isNaN(startTimestamp) || Number.isNaN(endTimestamp)) {
+    throw new Error("Session start and end times are required.");
+  }
+
+  if (startTimestamp >= endTimestamp) {
+    throw new Error("Session end must be after the start time.");
+  }
+
+  const normalizedStartAt = new Date(startTimestamp).toISOString();
+  const normalizedEndAt = new Date(endTimestamp).toISOString();
+
+  const warnings = await getConflictWarnings({
+    cohort,
+    sessionId: null,
+    startAt: normalizedStartAt,
+    endAt: normalizedEndAt,
+    roomLabel: normalizedRoomLabel,
+    leadInstructorId: cohort.lead_instructor_id,
+  });
+
+  if (warnings.length > 0 && !force) {
+    return {
+      warnings,
+      created: false,
+    };
+  }
+
+  const sessionId = createId("session");
+  const { error: insertError } = await serviceClient.from("sessions").insert({
+    id: sessionId,
+    cohort_id: cohort.id,
+    title: normalizedTitle,
+    start_at: normalizedStartAt,
+    end_at: normalizedEndAt,
+    mode: normalizedMode,
+    room_label: normalizedRoomLabel,
+    demo: Boolean(cohort.demo),
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  await recordAccountAuditLog(serviceClient, {
+    actorId: viewer.id,
+    targetType: "session",
+    action: "cohort_operation_run",
+    summary: `${viewer.name} created ${normalizedTitle} for ${cohort.name}.`,
+    details: {
+      cohortId: cohort.id,
+      sessionId,
+      warnings,
+      forced: Boolean(force),
+    },
+  });
+
+  return {
+    warnings,
+    created: true,
+    sessionId,
+  };
 }
 
 export async function updateAdminCohortOperation({

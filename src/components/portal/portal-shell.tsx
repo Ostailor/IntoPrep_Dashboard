@@ -83,6 +83,7 @@ import { AdminCohortOperationsPanel } from "@/components/portal/admin-cohort-ope
 import { AdminFamilyOpsPanel } from "@/components/portal/admin-family-ops-panel";
 import { AdminMessagingBulkPanel } from "@/components/portal/admin-messaging-bulk-panel";
 import { AdminProgramArchivePanel } from "@/components/portal/admin-program-archive-panel";
+import { AdminSessionCreatePanel } from "@/components/portal/admin-session-create-panel";
 import { StaffBillingPanel } from "@/components/portal/staff-billing-panel";
 import { StaffCohortOperationsPanel } from "@/components/portal/staff-cohort-operations-panel";
 import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
@@ -1153,7 +1154,7 @@ function renderSectionContent({
               description="Class timing, modality, and rooming for visible cohorts."
             />
             <div className="mt-5 space-y-4">
-              {context.visibleSessions
+              {[...context.visibleSessions]
                 .sort((left, right) => left.startAt.localeCompare(right.startAt))
                 .map((session) => {
                   const cohort = context.visibleCohorts.find((item) => item.id === session.cohortId);
@@ -1183,28 +1184,38 @@ function renderSectionContent({
                     </div>
                   );
                 })}
+              {context.visibleSessions.length === 0 ? (
+                <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
+                  No instruction sessions are scheduled for the current role scope.
+                </div>
+              ) : null}
             </div>
           </SectionPanel>
 
-          <SectionPanel>
-            <SectionHeading
-              eyebrow="Campus load"
-              title="Rooming and modality"
-              description="Every visible campus footprint represented in the current role scope."
-            />
-            <div className="mt-5 space-y-3">
-              {context.visibleCohorts.map((cohort) => (
-                <div key={cohort.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                  <div className="text-base font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
-                  <div className="mt-1 text-sm text-[color:var(--muted)]">{cohort.roomLabel}</div>
-                  <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                    <span>{cohort.cadence}</span>
-                    <span>{cohort.enrolled}/{cohort.capacity} filled</span>
+          <div className="space-y-5">
+            {role === "admin" ? (
+              <AdminSessionCreatePanel viewerMode={viewerMode} cohorts={context.visibleCohorts} />
+            ) : null}
+            <SectionPanel>
+              <SectionHeading
+                eyebrow="Campus load"
+                title="Rooming and modality"
+                description="Every visible campus footprint represented in the current role scope."
+              />
+              <div className="mt-5 space-y-3">
+                {context.visibleCohorts.map((cohort) => (
+                  <div key={cohort.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+                    <div className="text-base font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
+                    <div className="mt-1 text-sm text-[color:var(--muted)]">{cohort.roomLabel}</div>
+                    <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      <span>{cohort.cadence}</span>
+                      <span>{cohort.enrolled}/{cohort.capacity} filled</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </SectionPanel>
+                ))}
+              </div>
+            </SectionPanel>
+          </div>
         </section>
       );
 

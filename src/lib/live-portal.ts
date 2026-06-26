@@ -3285,6 +3285,10 @@ export async function getLivePortalBundle(
     return null;
   }
 
+  if (section === "calendar" || section === "cohorts") {
+    return loadLivePortalBundle(viewer, section);
+  }
+
   return getCachedLivePortalBundle(
     serializeLiveCacheViewer(viewer),
     getLivePortalCacheSection(viewer, section),
