@@ -77,6 +77,7 @@ import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { InstallAppButton } from "@/components/install-app-button";
 import { AdminDashboardPanels } from "@/components/portal/admin-dashboard-panels";
+import { AdminAnnouncementNotices } from "@/components/portal/admin-announcement-notices";
 import { AdminBillingPanel } from "@/components/portal/admin-billing-panel";
 import { AdminCohortOperationsPanel } from "@/components/portal/admin-cohort-operations-panel";
 import { AdminFamilyOpsPanel } from "@/components/portal/admin-family-ops-panel";
@@ -581,24 +582,11 @@ export async function PortalShell({
             </div>
           ) : null}
 
-          {activeAdminAnnouncements.length > 0 ? (
-            <div className="mb-5 space-y-3">
-              {activeAdminAnnouncements.slice(0, 2).map((announcement) => (
-                <div
-                  key={announcement.id}
-                  className={clsx(
-                    "rounded-lg border px-5 py-4 text-sm shadow-[var(--shadow)]",
-                    announcement.tone === "warning"
-                      ? "border-amber-200 bg-amber-100 text-amber-800"
-                      : "border-[rgba(17,69,84,0.16)] bg-[rgba(17,69,84,0.06)] text-[color:var(--navy-strong)]",
-                  )}
-                >
-                  <div className="font-semibold">{announcement.title}</div>
-                  <div className="mt-1">{announcement.body}</div>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <AdminAnnouncementNotices
+            announcements={activeAdminAnnouncements.slice(0, 2)}
+            viewerId={currentUser.id}
+            className="mb-5"
+          />
 
           {role === "engineer" &&
           viewer.mode === "live" &&
@@ -931,6 +919,7 @@ function renderSectionContent({
           ) : null}
           {role === "admin" && adminOps ? (
             <AdminDashboardPanels
+              viewerId={viewerId}
               viewerMode={viewerMode}
               tasks={visibleAdminTasks}
               savedViews={adminOps.savedViews}
@@ -964,6 +953,7 @@ function renderSectionContent({
           ) : null}
           {role === "ta" && taOps ? (
             <TaDashboardPanels
+              viewerId={viewerId}
               viewerMode={viewerMode}
               tasks={visibleAdminTasks}
               taskActivities={taOps.taskActivities}

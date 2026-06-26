@@ -14,9 +14,11 @@ import type {
   TaskActivity,
 } from "@/lib/domain";
 import type { StudentTrendRow } from "@/lib/portal";
+import { AdminAnnouncementNotices } from "@/components/portal/admin-announcement-notices";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 
 interface TaDashboardPanelsProps {
+  viewerId: string;
   viewerMode: "preview" | "live" | "live-role-preview";
   tasks: AdminTask[];
   taskActivities: TaskActivity[];
@@ -44,6 +46,7 @@ function formatDateTime(value?: string | null) {
 }
 
 export function TaDashboardPanels({
+  viewerId,
   viewerMode,
   tasks,
   taskActivities,
@@ -391,14 +394,11 @@ export function TaDashboardPanels({
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Admin announcements
           </h3>
-          <div className="mt-5 space-y-3">
-            {announcements.map((announcement) => (
-              <div key={announcement.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                <div className="text-base font-semibold text-[color:var(--navy-strong)]">{announcement.title}</div>
-                <div className="mt-2 text-sm text-[color:var(--muted)]">{announcement.body}</div>
-              </div>
-            ))}
-          </div>
+          <AdminAnnouncementNotices
+            announcements={announcements}
+            viewerId={viewerId}
+            className="mt-5"
+          />
         </div>
       ) : null}
     </div>

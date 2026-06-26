@@ -11,8 +11,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    await persistAdminAnnouncement({
+    const announcement = await persistAdminAnnouncement({
       viewer: viewer.user,
+      announcementId: body?.announcementId,
       title: body?.title,
       body: body?.body,
       tone: body?.tone,
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
       expiresAt: body?.expiresAt,
       isActive: body?.isActive,
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, announcement });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Announcement save failed." },

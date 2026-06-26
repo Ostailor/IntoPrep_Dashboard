@@ -12,7 +12,7 @@ import type {
   UserRole,
 } from "@/lib/domain";
 import { recordAccountAuditLog } from "@/lib/account-governance";
-import { getDemoPartition } from "@/lib/demo-partition";
+import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   canExportBilling,
@@ -35,6 +35,7 @@ type CohortRow = Database["public"]["Tables"]["cohorts"]["Row"];
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type ProgramRow = Database["public"]["Tables"]["programs"]["Row"];
+type AdminAnnouncementRow = Database["public"]["Tables"]["admin_announcements"]["Row"];
 type ApprovalRequestRow = Database["public"]["Tables"]["approval_requests"]["Row"];
 type AdminEscalationRow = Database["public"]["Tables"]["admin_escalations"]["Row"];
 
@@ -636,6 +637,7 @@ export async function persistFamilyContactEvent({
 
 export async function persistAdminAnnouncement({
   viewer,
+  announcementId,
   title,
   body,
   tone,
@@ -644,6 +646,7 @@ export async function persistAdminAnnouncement({
   isActive,
 }: {
   viewer: User;
+  announcementId?: string | null;
   title: string;
   body: string;
   tone: string;
@@ -668,16 +671,88 @@ export async function persistAdminAnnouncement({
   }
 
   const serviceClient = createSupabaseServiceClient();
+  const normalizedTone = normalizeAnnouncementTone(tone);
+  const normalizedVisibleRoles = normalizeAnnouncementRoles(visibleRoles);
+  const normalizedExpiresAt = expiresAt?.trim() ? new Date(expiresAt).toISOString() : null;
+
+  if (announcementId?.trim()) {
+    const id = announcementId.trim();
+    const updatedAt = new Date().toISOString();
+    const { data, error: loadError } = await serviceClient
+      .from("admin_announcements")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    const existing = (data ?? null) as AdminAnnouncementRow | null;
+
+    if (loadError) {
+      throw new Error(loadError.message);
+    }
+
+    if (!existing || !isSameDemoPartition(viewer, existing)) {
+      throw new Error("That announcement could not be found.");
+    }
+
+    if (existing.created_by !== viewer.id) {
+      throw new Error("Only the admin who created this announcement can edit or cancel it.");
+    }
+
+    const { error } = await serviceClient
+      .from("admin_announcements")
+      .update({
+        title: normalizedTitle,
+        body: normalizedBody,
+        tone: normalizedTone,
+        visible_roles: normalizedVisibleRoles,
+        is_active: isActive ?? existing.is_active,
+        expires_at: normalizedExpiresAt,
+        updated_at: updatedAt,
+      })
+      .eq("id", id);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await recordAccountAuditLog(serviceClient, {
+      actorId: viewer.id,
+      targetType: "announcement",
+      action: "admin_announcement_updated",
+      summary: `${viewer.name} ${isActive === false ? "cancelled" : "updated"} an internal admin announcement.`,
+      details: {
+        announcementId: id,
+        visibleRoles: normalizedVisibleRoles,
+        isActive: isActive ?? existing.is_active,
+      },
+    });
+
+    return {
+      id,
+      title: normalizedTitle,
+      body: normalizedBody,
+      tone: normalizedTone,
+      visibleRoles: normalizedVisibleRoles,
+      isActive: isActive ?? existing.is_active,
+      createdBy: existing.created_by ?? viewer.id,
+      createdByName: viewer.name,
+      createdAt: existing.created_at,
+      updatedAt,
+      startsAt: existing.starts_at,
+      expiresAt: normalizedExpiresAt,
+    } satisfies AdminAnnouncement;
+  }
+
   const id = createId("announcement");
+  const now = new Date().toISOString();
   const { error } = await serviceClient.from("admin_announcements").insert({
     id,
     title: normalizedTitle,
     body: normalizedBody,
-    tone: normalizeAnnouncementTone(tone),
-    visible_roles: normalizeAnnouncementRoles(visibleRoles),
+    tone: normalizedTone,
+    visible_roles: normalizedVisibleRoles,
     is_active: isActive ?? true,
     created_by: viewer.id,
-    expires_at: expiresAt?.trim() ? new Date(expiresAt).toISOString() : null,
+    expires_at: normalizedExpiresAt,
     demo: getDemoPartition(viewer),
   });
 
@@ -692,9 +767,24 @@ export async function persistAdminAnnouncement({
     summary: `${viewer.name} posted an internal admin announcement.`,
     details: {
       announcementId: id,
-      visibleRoles: normalizeAnnouncementRoles(visibleRoles),
+      visibleRoles: normalizedVisibleRoles,
     },
   });
+
+  return {
+    id,
+    title: normalizedTitle,
+    body: normalizedBody,
+    tone: normalizedTone,
+    visibleRoles: normalizedVisibleRoles,
+    isActive: isActive ?? true,
+    createdBy: viewer.id,
+    createdByName: viewer.name,
+    createdAt: now,
+    updatedAt: now,
+    startsAt: now,
+    expiresAt: normalizedExpiresAt,
+  } satisfies AdminAnnouncement;
 }
 
 async function getConflictWarnings({

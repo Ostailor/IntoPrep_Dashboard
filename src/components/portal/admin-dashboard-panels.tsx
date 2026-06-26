@@ -4,6 +4,10 @@ import Link from "next/link";
 import { startTransition, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
+import {
+  ANNOUNCEMENT_CANCELLED_EVENT,
+  getAnnouncementToneClass,
+} from "@/components/portal/admin-announcement-notices";
 import type {
   AdminEscalation,
   AdminAnnouncement,
@@ -16,6 +20,7 @@ import type {
 import type { LiveSettingsUserRow } from "@/lib/live-portal";
 
 interface AdminDashboardPanelsProps {
+  viewerId: string;
   viewerMode: "preview" | "live" | "live-role-preview";
   tasks: AdminTask[];
   savedViews: AdminSavedView[];
@@ -29,6 +34,13 @@ interface AdminDashboardPanelsProps {
 
 type AnnouncementVisibleRole = "admin" | "staff" | "ta";
 type AnnouncementVisibleRoles = Record<AnnouncementVisibleRole, boolean>;
+type AnnouncementFormState = {
+  title: string;
+  body: string;
+  tone: AdminAnnouncement["tone"];
+  expiresAt: string;
+  visibleRoles: AnnouncementVisibleRoles;
+};
 
 const taskTypeOptions = [
   { value: "billing_follow_up", label: "Billing follow-up" },
@@ -75,6 +87,20 @@ function formatDateTime(value?: string | null) {
   }).format(new Date(value));
 }
 
+function formatDateTimeLocal(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
+}
+
 function createDefaultAnnouncementVisibleRoles(): AnnouncementVisibleRoles {
   return {
     admin: true,
@@ -93,7 +119,36 @@ function normalizeAnnouncementVisibleRoles(
   };
 }
 
+function createAnnouncementFormFromAnnouncement(
+  announcement: AdminAnnouncement,
+): AnnouncementFormState {
+  const visibleRoles = new Set(announcement.visibleRoles);
+
+  return {
+    title: announcement.title,
+    body: announcement.body,
+    tone: announcement.tone,
+    expiresAt: formatDateTimeLocal(announcement.expiresAt),
+    visibleRoles: {
+      admin: visibleRoles.has("admin"),
+      staff: visibleRoles.has("staff"),
+      ta: visibleRoles.has("ta"),
+    },
+  };
+}
+
+function createDefaultAnnouncementForm(): AnnouncementFormState {
+  return {
+    title: "",
+    body: "",
+    tone: "warning",
+    expiresAt: "",
+    visibleRoles: createDefaultAnnouncementVisibleRoles(),
+  };
+}
+
 export function AdminDashboardPanels({
+  viewerId,
   viewerMode,
   tasks,
   savedViews,
@@ -118,13 +173,14 @@ export function AdminDashboardPanels({
     dueAt: "",
     details: "",
   });
-  const [announcementForm, setAnnouncementForm] = useState({
-    title: "",
-    body: "",
-    tone: "warning",
-    expiresAt: "",
-    visibleRoles: createDefaultAnnouncementVisibleRoles(),
-  });
+  const [announcementForm, setAnnouncementForm] = useState<AnnouncementFormState>(
+    createDefaultAnnouncementForm,
+  );
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
+  const [localAnnouncements, setLocalAnnouncements] = useState<AdminAnnouncement[]>([]);
+  const [cancelledAnnouncementIds, setCancelledAnnouncementIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [reviewPendingId, setReviewPendingId] = useState<string | null>(null);
 
   const assignableUsers = useMemo(
@@ -149,6 +205,27 @@ export function AdminDashboardPanels({
         return left.name.localeCompare(right.name);
       }),
     [users],
+  );
+  const mergedAnnouncements = useMemo(() => {
+    const announcementById = new Map<string, AdminAnnouncement>();
+
+    announcements.forEach((announcement) => {
+      announcementById.set(announcement.id, announcement);
+    });
+    localAnnouncements.forEach((announcement) => {
+      announcementById.set(announcement.id, announcement);
+    });
+
+    return Array.from(announcementById.values()).sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    );
+  }, [announcements, localAnnouncements]);
+  const visibleAnnouncements = useMemo(
+    () =>
+      mergedAnnouncements.filter(
+        (announcement) => announcement.isActive && !cancelledAnnouncementIds.has(announcement.id),
+      ),
+    [mergedAnnouncements, cancelledAnnouncementIds],
   );
 
   const handleTaskCreate = () => {
@@ -205,7 +282,19 @@ export function AdminDashboardPanels({
     });
   };
 
-  const handleAnnouncementCreate = () => {
+  const resetAnnouncementForm = () => {
+    setAnnouncementForm(createDefaultAnnouncementForm());
+    setEditingAnnouncementId(null);
+  };
+
+  const beginAnnouncementEdit = (announcement: AdminAnnouncement) => {
+    setAnnouncementForm(createAnnouncementFormFromAnnouncement(announcement));
+    setEditingAnnouncementId(announcement.id);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const handleAnnouncementSave = () => {
     if (readOnly) {
       setError("Role preview is read-only.");
       setSuccess(null);
@@ -227,6 +316,7 @@ export function AdminDashboardPanels({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            announcementId: editingAnnouncementId,
             title: announcementForm.title,
             body: announcementForm.body,
             tone: announcementForm.tone,
@@ -235,23 +325,92 @@ export function AdminDashboardPanels({
             isActive: true,
           }),
         });
-        const payload = (await response.json()) as { error?: string };
+        const payload = (await response.json()) as {
+          announcement?: AdminAnnouncement;
+          error?: string;
+        };
 
         if (!response.ok) {
           throw new Error(payload.error ?? "Announcement save failed.");
         }
 
-        setAnnouncementForm({
-          title: "",
-          body: "",
-          tone: "warning",
-          expiresAt: "",
-          visibleRoles: createDefaultAnnouncementVisibleRoles(),
-        });
-        setSuccess("Internal operations announcement posted.");
+        if (payload.announcement) {
+          setLocalAnnouncements((current) => [
+            payload.announcement as AdminAnnouncement,
+            ...current.filter((announcement) => announcement.id !== payload.announcement?.id),
+          ]);
+        }
+        resetAnnouncementForm();
+        setSuccess(
+          editingAnnouncementId
+            ? "Internal operations announcement updated."
+            : "Internal operations announcement posted.",
+        );
         router.refresh();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Announcement save failed.");
+      } finally {
+        setPending(null);
+      }
+    });
+  };
+
+  const handleAnnouncementCancel = (announcement: AdminAnnouncement) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
+    const pendingKey = `announcement-cancel-${announcement.id}`;
+    setPending(pendingKey);
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/admin/announcements", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            announcementId: announcement.id,
+            title: announcement.title,
+            body: announcement.body,
+            tone: announcement.tone,
+            expiresAt: announcement.expiresAt ?? null,
+            visibleRoles: announcement.visibleRoles,
+            isActive: false,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Announcement cancel failed.");
+        }
+
+        if (editingAnnouncementId === announcement.id) {
+          resetAnnouncementForm();
+        }
+
+        setLocalAnnouncements((current) =>
+          current.filter((localAnnouncement) => localAnnouncement.id !== announcement.id),
+        );
+        setCancelledAnnouncementIds((current) => {
+          const next = new Set(current);
+          next.add(announcement.id);
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent(ANNOUNCEMENT_CANCELLED_EVENT, {
+            detail: { announcementId: announcement.id },
+          }),
+        );
+        setSuccess("Internal operations announcement cancelled for everyone.");
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Announcement cancel failed.");
       } finally {
         setPending(null);
       }
@@ -711,7 +870,7 @@ export function AdminDashboardPanels({
                 <select
                   value={announcementForm.tone}
                   onChange={(event) => {
-                    const tone = event.currentTarget.value;
+                    const tone = event.currentTarget.value as AdminAnnouncement["tone"];
                     setAnnouncementForm((current) => ({ ...current, tone }));
                   }}
                   className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
@@ -767,7 +926,7 @@ export function AdminDashboardPanels({
             </div>
             <button
               type="button"
-              onClick={handleAnnouncementCreate}
+              onClick={handleAnnouncementSave}
               disabled={pending === "announcement" || readOnly}
               className={clsx(
                 "rounded-full px-4 py-2 text-sm font-semibold text-white",
@@ -776,24 +935,73 @@ export function AdminDashboardPanels({
                   : "bg-[color:var(--navy-strong)] hover:opacity-90",
               )}
             >
-              {pending === "announcement" ? "Posting..." : readOnly ? "Preview only" : "Post announcement"}
+              {pending === "announcement"
+                ? editingAnnouncementId
+                  ? "Saving..."
+                  : "Posting..."
+                : readOnly
+                  ? "Preview only"
+                  : editingAnnouncementId
+                    ? "Save announcement"
+                    : "Post announcement"}
             </button>
+            {editingAnnouncementId ? (
+              <button
+                type="button"
+                onClick={resetAnnouncementForm}
+                disabled={pending === "announcement" || readOnly}
+                className="rounded-full border border-[color:var(--line)] bg-white/90 px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
+              >
+                Clear edit
+              </button>
+            ) : null}
           </div>
 
-          {announcements.length > 0 ? (
+          {visibleAnnouncements.length > 0 ? (
             <div className="mt-5 space-y-3">
-              {announcements.map((announcement) => (
+              {visibleAnnouncements.map((announcement) => (
                 <div
                   key={announcement.id}
                   className={clsx(
                     "rounded-[1.5rem] border px-4 py-4 text-sm",
-                    announcement.tone === "warning"
-                      ? "border-amber-200 bg-amber-100/90 text-amber-800"
-                      : "border-[rgba(23,56,75,0.14)] bg-[rgba(23,56,75,0.08)] text-[color:var(--navy-strong)]",
+                    getAnnouncementToneClass(announcement.tone),
                   )}
                 >
-                  <div className="font-semibold">{announcement.title}</div>
-                  <div className="mt-2">{announcement.body}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold">{announcement.title}</div>
+                      <div className="mt-2 leading-6">{announcement.body}</div>
+                      <div className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+                        {announcement.createdByName ?? "Unknown creator"} ·{" "}
+                        {announcement.visibleRoles.join(", ")}
+                      </div>
+                    </div>
+                    <div className="rounded-full border border-current/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]">
+                      {announcement.tone}
+                    </div>
+                  </div>
+                  {announcement.createdBy === viewerId ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => beginAnnouncementEdit(announcement)}
+                        disabled={pending !== null || readOnly}
+                        className="rounded-full border border-current/20 bg-white/55 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAnnouncementCancel(announcement)}
+                        disabled={pending === `announcement-cancel-${announcement.id}` || readOnly}
+                        className="rounded-full border border-current/20 bg-white/55 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]"
+                      >
+                        {pending === `announcement-cancel-${announcement.id}`
+                          ? "Cancelling..."
+                          : "Cancel for everyone"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
