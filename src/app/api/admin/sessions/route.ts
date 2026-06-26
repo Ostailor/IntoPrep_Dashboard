@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Session create failed." },
+      { error: error instanceof Error ? error.message : "Class create failed." },
       { status: 400 },
     );
   }

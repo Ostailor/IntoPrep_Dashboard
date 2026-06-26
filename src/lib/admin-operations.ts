@@ -88,7 +88,7 @@ function normalizeSessionMode(value: string): SessionRow["mode"] {
     case "Zoom":
       return value;
     default:
-      throw new Error("Invalid session mode.");
+      throw new Error("Invalid class mode.");
   }
 }
 
@@ -972,7 +972,7 @@ export async function createAdminSession({
   assertAdminAccess(viewer);
 
   if (!canManageSchedules(viewer.role)) {
-    throw new Error("You cannot create instruction sessions.");
+    throw new Error("You cannot create instruction classes.");
   }
 
   await assertWritesAllowed("operational_writes");
@@ -1004,15 +1004,15 @@ export async function createAdminSession({
         : [];
 
   if (!normalizedTitle) {
-    throw new Error("Session title is required.");
+    throw new Error("Class name is required.");
   }
 
   if (requestedSessions.length === 0) {
-    throw new Error("Session start and end times are required.");
+    throw new Error("Class start and end times are required.");
   }
 
   if (requestedSessions.length > 120) {
-    throw new Error("Create 120 sessions or fewer at one time.");
+    throw new Error("Create 120 classes or fewer at one time.");
   }
 
   const normalizedSessions = requestedSessions.map((session, index) => {
@@ -1020,11 +1020,11 @@ export async function createAdminSession({
     const endTimestamp = Date.parse(session.endAt);
 
     if (Number.isNaN(startTimestamp) || Number.isNaN(endTimestamp)) {
-      throw new Error(`Session ${index + 1} start and end times are required.`);
+      throw new Error(`Class ${index + 1} start and end times are required.`);
     }
 
     if (startTimestamp >= endTimestamp) {
-      throw new Error(`Session ${index + 1} end must be after the start time.`);
+      throw new Error(`Class ${index + 1} end must be after the start time.`);
     }
 
     return {
@@ -1085,7 +1085,7 @@ export async function createAdminSession({
     actorId: viewer.id,
     targetType: "session",
     action: "cohort_operation_run",
-    summary: `${viewer.name} created ${sessionRows.length} ${normalizedTitle} session${sessionRows.length === 1 ? "" : "s"} for ${cohort.name}.`,
+    summary: `${viewer.name} created ${sessionRows.length} ${normalizedTitle} class${sessionRows.length === 1 ? "" : "es"} for ${cohort.name}.`,
     details: {
       cohortId: cohort.id,
       sessionIds: sessionRows.map((session) => session.id),

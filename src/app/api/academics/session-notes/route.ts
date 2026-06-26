@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     typeof sessionId !== "string" ||
     typeof noteBody !== "string"
   ) {
-    return NextResponse.json({ error: "Invalid session note payload." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid class note payload." }, { status: 400 });
   }
 
   try {
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Session note save failed." },
+      { error: error instanceof Error ? error.message : "Class note save failed." },
       { status: 400 },
     );
   }

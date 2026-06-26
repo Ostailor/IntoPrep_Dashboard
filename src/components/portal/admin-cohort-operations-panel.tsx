@@ -61,7 +61,7 @@ export function AdminCohortOperationsPanel({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const forecastFilter = searchParams.get("forecast") ?? "all";
+  const [forecastFilter, setForecastFilter] = useState(searchParams.get("forecast") ?? "all");
   const selectedCohortParam = searchParams.get("cohortId") ?? "";
   const sortedCohorts = useMemo(
     () => [...cohorts].sort((left, right) => left.name.localeCompare(right.name)),
@@ -83,7 +83,6 @@ export function AdminCohortOperationsPanel({
     capacity: String(defaultCohort?.capacity ?? 0),
     cadence: defaultCohort?.cadence ?? "",
     roomLabel: defaultCohort?.roomLabel ?? "",
-    leadInstructorId: defaultCohort?.leadInstructorId ?? "",
     sessionTitle: defaultSession?.title ?? "",
     sessionStartAt: defaultSession ? formatDateTimeLocal(defaultSession.startAt) : "",
     sessionEndAt: defaultSession ? formatDateTimeLocal(defaultSession.endAt) : "",
@@ -115,7 +114,6 @@ export function AdminCohortOperationsPanel({
       ),
     [forecastFilter, forecastRows],
   );
-  const instructorOptions = users.filter((user) => user.role === "instructor");
   const coverageOptions = users.filter(
     (user) => user.role === "staff" || user.role === "ta" || user.role === "instructor",
   );
@@ -165,7 +163,6 @@ export function AdminCohortOperationsPanel({
       capacity: String(nextCohort.capacity ?? 0),
       cadence: nextCohort.cadence ?? "",
       roomLabel: nextCohort.roomLabel ?? "",
-      leadInstructorId: nextCohort.leadInstructorId ?? "",
       sessionTitle: nextSession?.title ?? "",
       sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
       sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
@@ -175,7 +172,13 @@ export function AdminCohortOperationsPanel({
   }, [selectedCohortId, selectedCohortParam, sessions, sortedCohorts]);
 
   const updateFilters = (next: Record<string, string>) => {
-    const params = new URLSearchParams(searchParams.toString());
+    if (next.forecast) {
+      setForecastFilter(next.forecast);
+    }
+
+    const params = new URLSearchParams(
+      typeof window === "undefined" ? searchParams.toString() : window.location.search,
+    );
     Object.entries(next).forEach(([key, value]) => {
       if (value === "all") {
         params.delete(key);
@@ -183,7 +186,7 @@ export function AdminCohortOperationsPanel({
         params.set(key, value);
       }
     });
-    router.replace(`${pathname}${params.size > 0 ? `?${params.toString()}` : ""}`);
+    window.history.replaceState(null, "", `${pathname}${params.size > 0 ? `?${params.toString()}` : ""}`);
   };
 
   const saveView = () => {
@@ -259,7 +262,6 @@ export function AdminCohortOperationsPanel({
             capacity: Number(formState.capacity),
             cadence: formState.cadence,
             roomLabel: formState.roomLabel,
-            leadInstructorId: formState.leadInstructorId || null,
             sessionId: selectedSession?.id ?? null,
             sessionTitle: formState.sessionTitle,
             sessionStartAt: formState.sessionStartAt
@@ -294,7 +296,7 @@ export function AdminCohortOperationsPanel({
           return;
         }
 
-        setSuccess("Cohort and session details updated.");
+        setSuccess("Cohort and class details updated.");
         router.refresh();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Cohort update failed.");
@@ -417,7 +419,24 @@ export function AdminCohortOperationsPanel({
               type="button"
               onClick={() => {
                 const nextForecast = String(view.filterState.forecast ?? "all");
-                const nextCohortId = typeof view.filterState.cohortId === "string" ? view.filterState.cohortId : selectedCohortId;
+                const nextCohortId =
+                  typeof view.filterState.cohortId === "string" ? view.filterState.cohortId : selectedCohortId;
+                const nextCohort = sortedCohorts.find((item) => item.id === nextCohortId);
+                const nextSession = sessions.find((session) => session.cohortId === nextCohortId);
+                if (nextCohort) {
+                  setSelectedCohortId(nextCohortId);
+                  setSelectedSessionId(nextSession?.id ?? "");
+                  setFormState({
+                    capacity: String(nextCohort.capacity ?? 0),
+                    cadence: nextCohort.cadence ?? "",
+                    roomLabel: nextCohort.roomLabel ?? "",
+                    sessionTitle: nextSession?.title ?? "",
+                    sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
+                    sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
+                    sessionMode: nextSession?.mode ?? "Hybrid",
+                    sessionRoomLabel: nextSession?.roomLabel ?? nextCohort.roomLabel ?? "",
+                  });
+                }
                 updateFilters({ forecast: nextForecast, cohortId: nextCohortId });
               }}
               className="rounded-full border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
@@ -449,12 +468,12 @@ export function AdminCohortOperationsPanel({
       <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
         <div className="section-kicker">Cohort editor</div>
         <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-          Schedule, rooming, and lead coverage
+          Class schedule, rooming, and capacity
         </h3>
         <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-stone-50/80 px-4 py-3 text-sm text-[color:var(--muted)]">
           Cohort capacity is the max active roster size. Cadence is the meeting pattern. Room label
-          is the default location for the cohort, while session room label is the location override
-          for the selected session below.
+          is the default location for the cohort, while class room label is the location override
+          for the selected class below.
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <label className="flex flex-col gap-2">
@@ -477,7 +496,6 @@ export function AdminCohortOperationsPanel({
                   capacity: String(nextCohort?.capacity ?? 0),
                   cadence: nextCohort?.cadence ?? "",
                   roomLabel: nextCohort?.roomLabel ?? "",
-                  leadInstructorId: nextCohort?.leadInstructorId ?? "",
                   sessionTitle: nextSession?.title ?? "",
                   sessionStartAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
                   sessionEndAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
@@ -497,10 +515,10 @@ export function AdminCohortOperationsPanel({
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session
+              Class
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Choose the specific session to adjust under the selected cohort.
+              Choose the class schedule to adjust under the selected cohort.
             </span>
             <select
               value={selectedSessionId}
@@ -519,33 +537,10 @@ export function AdminCohortOperationsPanel({
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             >
-              <option value="">Choose a session</option>
+              <option value="">Choose a class</option>
               {scopedSessions.map((session) => (
                 <option key={session.id} value={session.id}>
                   {session.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Lead instructor
-            </span>
-            <span className="text-sm text-[color:var(--muted)]">
-              Set the instructor primarily responsible for this cohort.
-            </span>
-            <select
-              value={formState.leadInstructorId}
-              onChange={(event) => {
-                const leadInstructorId = event.currentTarget.value;
-                setFormState((current) => ({ ...current, leadInstructorId }));
-              }}
-              className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            >
-              <option value="">Lead instructor</option>
-              {instructorOptions.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
                 </option>
               ))}
             </select>
@@ -604,10 +599,10 @@ export function AdminCohortOperationsPanel({
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session title
+              Class name
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Name the selected session the way staff and families should recognize it.
+              Name the selected class the way staff and families should recognize it.
             </span>
             <input
               value={formState.sessionTitle}
@@ -616,7 +611,7 @@ export function AdminCohortOperationsPanel({
                 setFormState((current) => ({ ...current, sessionTitle }));
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-              placeholder="Example: Digital SAT Tuesday session"
+              placeholder="Example: Digital SAT Tuesday class"
             />
           </label>
           <div className="flex flex-col justify-end gap-2">
@@ -636,10 +631,10 @@ export function AdminCohortOperationsPanel({
           </div>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session start
+              Class start
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Start time for the selected session.
+              Start time for the selected class.
             </span>
             <input
               value={formState.sessionStartAt}
@@ -653,10 +648,10 @@ export function AdminCohortOperationsPanel({
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session end
+              Class end
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              End time for the selected session.
+              End time for the selected class.
             </span>
             <input
               value={formState.sessionEndAt}
@@ -670,10 +665,10 @@ export function AdminCohortOperationsPanel({
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session mode
+              Class mode
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Choose whether the session is in person, hybrid, or Zoom.
+              Choose whether the class is in person, hybrid, or Zoom.
             </span>
             <select
               value={formState.sessionMode}
@@ -693,10 +688,10 @@ export function AdminCohortOperationsPanel({
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              Session room label
+              Class room label
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Override the default cohort room for this specific session if needed.
+              Override the default cohort room for this specific class if needed.
             </span>
             <input
               value={formState.sessionRoomLabel}

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Session update failed." },
+      { error: error instanceof Error ? error.message : "Class update failed." },
       { status: 400 },
     );
   }

@@ -63,7 +63,7 @@ async function getAccessibleSession(sessionId: string, viewer: User) {
   }
 
   if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
-    throw new Error("You do not have access to that session.");
+    throw new Error("You do not have access to that class.");
   }
 
   return session;
@@ -131,11 +131,11 @@ export async function persistSessionInstructionNote({
 
     if (existing) {
       if (existing.session_id !== session.id) {
-        throw new Error("That session note could not be found.");
+        throw new Error("That class note could not be found.");
       }
 
       if (existing.author_id !== viewer.id) {
-        throw new Error("You can only edit your own session notes.");
+        throw new Error("You can only edit your own class notes.");
       }
 
       const { error: updateError } = await serviceClient
@@ -167,7 +167,7 @@ export async function persistSessionInstructionNote({
         fallbackExisting.author_id !== viewer.id ||
         !isFallbackSessionNoteBody(fallbackExisting.body)
       ) {
-        throw new Error("That session note could not be found.");
+        throw new Error("That class note could not be found.");
       }
 
       const { error: fallbackUpdateError } = await serviceClient
@@ -186,7 +186,7 @@ export async function persistSessionInstructionNote({
       actorId: viewer.id,
       targetType: "session",
       action: "session_instruction_note_saved",
-      summary: `${viewer.name} updated an instructional session note.`,
+      summary: `${viewer.name} updated an instructional class note.`,
       details: {
         sessionId,
         noteId,
@@ -230,7 +230,7 @@ export async function persistSessionInstructionNote({
     actorId: viewer.id,
     targetType: "session",
     action: "session_instruction_note_saved",
-    summary: `${viewer.name} logged an instructional session note.`,
+      summary: `${viewer.name} logged an instructional class note.`,
     details: {
       sessionId,
       noteId: createdNoteId,

@@ -226,7 +226,7 @@ function normalizeSessionMode(value: string): SessionRow["mode"] {
     case "Zoom":
       return value;
     default:
-      throw new Error("Invalid session mode.");
+      throw new Error("Invalid class mode.");
   }
 }
 
@@ -873,7 +873,7 @@ export async function persistSessionChecklist({
   assertStaffVisibility(viewer);
 
   if (!canUpdateSessionChecklists(viewer.role)) {
-    throw new Error("You cannot update session checklists.");
+    throw new Error("You cannot update class checklists.");
   }
 
   await assertWritesAllowed("operational_writes");
@@ -891,7 +891,7 @@ export async function persistSessionChecklist({
   }
 
   if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
-    throw new Error("You do not have access to that session.");
+    throw new Error("You do not have access to that class.");
   }
 
   const now = new Date().toISOString();
@@ -922,7 +922,7 @@ export async function persistSessionChecklist({
     actorId: viewer.id,
     targetType: "session",
     action: "session_checklist_updated",
-    summary: `${viewer.name} updated a session prep or closeout checklist.`,
+    summary: `${viewer.name} updated a class prep or closeout checklist.`,
     details: {
       sessionId,
     },
@@ -952,7 +952,7 @@ export async function updateStaffSession({
   assertStaffVisibility(viewer);
 
   if (!canEditSessions(viewer.role)) {
-    throw new Error("You cannot update session details.");
+    throw new Error("You cannot update class details.");
   }
 
   await assertWritesAllowed("operational_writes");
@@ -970,7 +970,7 @@ export async function updateStaffSession({
   }
 
   if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
-    throw new Error("You do not have access to that session.");
+    throw new Error("You do not have access to that class.");
   }
 
   const { data: cohortData, error: cohortError } = await serviceClient
@@ -1026,7 +1026,7 @@ export async function updateStaffSession({
     actorId: viewer.id,
     targetType: "session",
     action: "cohort_operation_run",
-    summary: `${viewer.name} updated day-to-day session details.`,
+    summary: `${viewer.name} updated day-to-day class details.`,
     details: {
       sessionId,
       warnings,

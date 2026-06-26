@@ -520,7 +520,7 @@ export function StaffDashboardPanels({
           </div>
 
           <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-            <div className="section-kicker">Session watch</div>
+            <div className="section-kicker">Class watch</div>
             <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
               Prep and closeout
             </h3>
@@ -729,7 +729,7 @@ export function StaffDashboardPanels({
                 <option value="family">Family</option>
                 <option value="thread">Thread</option>
                 <option value="cohort">Cohort</option>
-                <option value="session">Session</option>
+                <option value="session">Class</option>
               </select>
               <input
                 value={escalationForm.sourceId}

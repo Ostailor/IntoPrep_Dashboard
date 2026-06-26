@@ -302,7 +302,7 @@ export function TaDashboardPanels({
 
         <div className="space-y-5">
           <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-            <div className="section-kicker">Session watch</div>
+            <div className="section-kicker">Class watch</div>
             <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
               Support attention
             </h3>

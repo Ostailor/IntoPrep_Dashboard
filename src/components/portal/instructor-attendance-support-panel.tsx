@@ -213,7 +213,7 @@ export function InstructorAttendanceSupportPanel({
             disabled={readOnly}
           >
             <option value="student">Student follow-up</option>
-            <option value="session">Session follow-up</option>
+            <option value="session">Class follow-up</option>
           </select>
           <select
             value={flagForm.targetId}
@@ -230,7 +230,7 @@ export function InstructorAttendanceSupportPanel({
           >
             {flagForm.targetType === "session" ? (
               <option value={selectedSessionId}>
-                {sessions.find((session) => session.id === selectedSessionId)?.title ?? "Session"}
+                {sessions.find((session) => session.id === selectedSessionId)?.title ?? "Class"}
               </option>
             ) : (
               selectedRoster.map((row) => (
@@ -286,7 +286,7 @@ export function InstructorAttendanceSupportPanel({
         <div className="mt-6 space-y-3">
           {selectedFlags.length === 0 ? (
             <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 px-4 py-5 text-sm text-[color:var(--muted)]">
-              No open follow-up flags for this session yet.
+              No open follow-up flags for this class yet.
             </div>
           ) : null}
           {selectedFlags.slice(0, 5).map((flag) => (

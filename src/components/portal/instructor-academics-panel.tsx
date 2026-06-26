@@ -75,7 +75,7 @@ export function InstructorAcademicsPanel({
   });
   const [sessionAutosave, setSessionAutosave] = useState({
     tone: "idle" as "idle" | "saving" | "saved" | "error",
-    message: "Session notes save after you pause typing.",
+    message: "Class notes save after you pause typing.",
   });
   const [studentDirty, setStudentDirty] = useState(false);
   const [sessionDirty, setSessionDirty] = useState(false);
@@ -180,7 +180,7 @@ export function InstructorAcademicsPanel({
       setSessionDirty(false);
       setSessionAutosave({
         tone: "idle",
-        message: "Session notes save after you pause typing.",
+        message: "Class notes save after you pause typing.",
       });
     }
   }, [selectedSessionNoteId]);
@@ -257,7 +257,7 @@ export function InstructorAcademicsPanel({
     const timeout = window.setTimeout(() => {
       startTransition(async () => {
         setPendingKey("session-note");
-        setSessionAutosave({ tone: "saving", message: "Saving session note..." });
+        setSessionAutosave({ tone: "saving", message: "Saving class note..." });
         setError(null);
 
         try {
@@ -275,7 +275,7 @@ export function InstructorAcademicsPanel({
           const payload = (await response.json()) as { error?: string; noteId?: string };
 
           if (!response.ok) {
-            throw new Error(payload.error ?? "Session note save failed.");
+            throw new Error(payload.error ?? "Class note save failed.");
           }
 
           if (payload.noteId) {
@@ -292,10 +292,10 @@ export function InstructorAcademicsPanel({
           setSessionAutosave({
             tone: "error",
             message:
-              nextError instanceof Error ? nextError.message : "Session note save failed.",
+              nextError instanceof Error ? nextError.message : "Class note save failed.",
           });
           setError(
-            nextError instanceof Error ? nextError.message : "Session note save failed.",
+            nextError instanceof Error ? nextError.message : "Class note save failed.",
           );
         } finally {
           setPendingKey(null);
@@ -397,7 +397,7 @@ export function InstructorAcademicsPanel({
         </div>
 
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-          <div className="section-kicker">Session notes</div>
+          <div className="section-kicker">Class notes</div>
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Class block memory
           </h3>
@@ -423,7 +423,7 @@ export function InstructorAcademicsPanel({
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
               disabled={readOnly}
             >
-              <option value="new">New session note</option>
+              <option value="new">New class note</option>
               {editableSessionNotes.map((note) => (
                 <option key={note.id} value={note.id}>
                   {note.body.slice(0, 48)}
@@ -439,11 +439,11 @@ export function InstructorAcademicsPanel({
               setSessionDirty(true);
               setSessionAutosave({
                 tone: "idle",
-                message: "Session notes save after you pause typing.",
+                message: "Class notes save after you pause typing.",
               });
             }}
             className="mt-4 min-h-[140px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Capture what the teaching team should remember about this session."
+            placeholder="Capture what the teaching team should remember about this class."
             disabled={readOnly}
           />
           <div
@@ -452,7 +452,7 @@ export function InstructorAcademicsPanel({
               autosaveToneClass(sessionAutosave.tone),
             )}
           >
-            {pendingKey === "session-note" ? "Saving session note..." : sessionAutosave.message}
+            {pendingKey === "session-note" ? "Saving class note..." : sessionAutosave.message}
           </div>
 
           <div className="mt-5 space-y-3">
@@ -540,7 +540,7 @@ export function InstructorAcademicsPanel({
           <div className="mt-5 space-y-3">
             {selectedFlags.length === 0 ? (
               <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 px-4 py-5 text-sm text-[color:var(--muted)]">
-                No follow-up flags are open for this student or session.
+                No follow-up flags are open for this student or class.
               </div>
             ) : null}
             {selectedFlags.map((flag) => (

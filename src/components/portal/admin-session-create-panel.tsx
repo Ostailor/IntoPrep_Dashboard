@@ -119,11 +119,11 @@ function buildRecurringSessions({
   }
 
   if (sessions.length === 0) {
-    throw new Error("No sessions match the selected dates and weekdays.");
+    throw new Error("No classes match the selected dates and weekdays.");
   }
 
   if (sessions.length > 120) {
-    throw new Error("Narrow the date range to 120 sessions or fewer.");
+    throw new Error("Narrow the date range to 120 classes or fewer.");
   }
 
   return sessions;
@@ -208,7 +208,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
           formState.schedulePattern === "single" &&
           (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()))
         ) {
-          throw new Error("Session start and end times are required.");
+          throw new Error("Class start and end times are required.");
         }
 
         const response = await fetch("/api/admin/sessions", {
@@ -235,7 +235,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
         };
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Session create failed.");
+          throw new Error(payload.error ?? "Class create failed.");
         }
 
         if (!force && payload.created === false && payload.warnings && payload.warnings.length > 0) {
@@ -245,7 +245,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
 
         const nextWindow = getDefaultSessionWindow();
         setSuccess(
-          `Created ${payload.createdCount ?? recurringPreviewCount} instruction session${(payload.createdCount ?? recurringPreviewCount) === 1 ? "" : "s"}.`,
+          `Created ${payload.createdCount ?? recurringPreviewCount} instruction class${(payload.createdCount ?? recurringPreviewCount) === 1 ? "" : "es"}.`,
         );
         setWarningMessages([]);
         setFormState((current) => ({
@@ -256,7 +256,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
         }));
         router.refresh();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Session create failed.");
+        setError(nextError instanceof Error ? nextError.message : "Class create failed.");
       } finally {
         setPending(false);
       }
@@ -265,12 +265,12 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
 
   return (
     <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-      <div className="section-kicker">Create session</div>
+      <div className="section-kicker">Create class</div>
       <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
-        Add instruction to the calendar
+        Create a class schedule
       </h3>
       <p className="mt-2 text-sm text-[color:var(--muted)]">
-        New sessions inherit the selected cohort demo/main partition and appear on the calendar after save.
+        New classes inherit the selected cohort demo/main partition and appear on the calendar after save.
       </p>
 
       {error ? (
@@ -324,7 +324,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
 
         <label className="flex flex-col gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-            Session title
+            Class name
           </span>
           <input
             value={formState.title}
@@ -354,7 +354,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
             className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             disabled={readOnly}
           >
-            <option value="single">One session</option>
+            <option value="single">One class</option>
             <option value="weekly">Weekly on range start day</option>
             <option value="mwf">Monday / Wednesday / Friday</option>
             <option value="tths">Tuesday / Thursday / Saturday</option>
@@ -514,8 +514,8 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
               </div>
             ) : null}
             <div className="mt-3 rounded-2xl border border-[rgba(115,138,123,0.22)] bg-[rgba(115,138,123,0.12)] px-4 py-3 text-sm text-[color:var(--sage)]">
-              This will create {recurringPreviewCount} calendar session
-              {recurringPreviewCount === 1 ? "" : "s"} in the selected date range.
+              This will create {recurringPreviewCount} calendar class
+              {recurringPreviewCount === 1 ? "" : "es"} in the selected date range.
             </div>
           </div>
         )}
@@ -568,7 +568,7 @@ export function AdminSessionCreatePanel({ viewerMode, cohorts }: AdminSessionCre
               ? "Preview only"
               : warningMessages.length > 0
                 ? "Create anyway"
-                : "Create session"}
+                : "Create class"}
         </button>
       </div>
     </section>

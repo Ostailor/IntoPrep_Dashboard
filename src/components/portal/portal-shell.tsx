@@ -298,7 +298,7 @@ export async function PortalShell({
           },
           {
             label: "Current records",
-            detail: `${context.visibleCohorts.length} cohorts, ${context.visibleSessions.length} sessions, ${context.visibleStudents.length} students, and ${context.visibleFamilies.length} families are available in the current dashboard view.`,
+            detail: `${context.visibleCohorts.length} cohorts, ${context.visibleSessions.length} classes, ${context.visibleStudents.length} students, and ${context.visibleFamilies.length} families are available in the current dashboard view.`,
             tone: context.visibleCohorts.length > 0 ? ("healthy" as const) : ("warning" as const),
           },
           {
@@ -680,7 +680,7 @@ export async function PortalShell({
                           {roleScopedCohortCount} visible cohort{roleScopedCohortCount === 1 ? "" : "s"}
                         </div>
                         <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                          {todaySessions.length} live session{todaySessions.length === 1 ? "" : "s"} today
+                          {todaySessions.length} live class{todaySessions.length === 1 ? "" : "es"} today
                         </div>
                       </div>
                       <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -1013,8 +1013,8 @@ function renderSectionContent({
             <SectionPanel>
               <SectionHeading
                 eyebrow="Today’s flow"
-                title="Live session stack"
-                description="Sessions created from Calendar or cohort scheduling, ordered by time with room and roster context."
+                title="Live class stack"
+                description="Classes created from Calendar or cohort scheduling, ordered by time with room and roster context."
               />
               <div className="mt-5 space-y-3">
                 {todaySessions.map((session) => {
@@ -1187,7 +1187,7 @@ function renderSectionContent({
                 })}
               {context.visibleSessions.length === 0 ? (
                 <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
-                  No instruction sessions are scheduled for the current role scope.
+                  No instruction classes are scheduled for the current role scope.
                 </div>
               ) : null}
             </div>

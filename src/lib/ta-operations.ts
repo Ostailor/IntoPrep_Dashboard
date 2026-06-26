@@ -82,7 +82,7 @@ async function getAccessibleSession(sessionId: string, viewer: User) {
   }
 
   if (!session || !viewerCanAccessCohort(viewer, session.cohort_id) || !isSameDemoPartition(viewer, session)) {
-    throw new Error("You do not have access to that session.");
+    throw new Error("You do not have access to that class.");
   }
 
   return session;
@@ -110,11 +110,11 @@ async function assertStudentIsInSessionCohort({
   }
 
   if (!enrollment) {
-    throw new Error("That student is not active in the selected session cohort.");
+    throw new Error("That student is not active in the selected class cohort.");
   }
 
   if (!isSameDemoPartition({ role: "ta", demo: session.demo }, enrollment)) {
-    throw new Error("That student is not active in the selected session cohort.");
+    throw new Error("That student is not active in the selected class cohort.");
   }
 }
 
@@ -301,7 +301,7 @@ export async function persistSessionCoverageFlag({
     actorId: viewer.id,
     targetType: "session",
     action: "session_coverage_flagged",
-    summary: `${viewer.name} updated a session coverage marker.`,
+    summary: `${viewer.name} updated a class coverage marker.`,
     details: {
       sessionId,
       status,

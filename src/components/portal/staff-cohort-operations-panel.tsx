@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import type {
@@ -48,8 +48,8 @@ export function StaffCohortOperationsPanel({
     () => savedViews.filter((view) => view.section === "cohorts"),
     [savedViews],
   );
-  const cohortFilter = searchParams.get("cohortId") ?? cohorts[0]?.id ?? "";
-  const selectedCohort = cohorts.find((cohort) => cohort.id === cohortFilter) ?? cohorts[0];
+  const [selectedCohortId, setSelectedCohortId] = useState(searchParams.get("cohortId") ?? cohorts[0]?.id ?? "");
+  const selectedCohort = cohorts.find((cohort) => cohort.id === selectedCohortId) ?? cohorts[0];
   const scopedSessions = useMemo(
     () => sessions.filter((session) => session.cohortId === selectedCohort?.id),
     [selectedCohort?.id, sessions],
@@ -85,6 +85,45 @@ export function StaffCohortOperationsPanel({
       .map((enrollment) => enrollment.studentId);
     return students.filter((student) => studentIds.includes(student.id));
   }, [enrollments, selectedCohort?.id, students]);
+
+  const replaceCohortUrl = (cohortId: string) => {
+    const params = new URLSearchParams(
+      typeof window === "undefined" ? searchParams.toString() : window.location.search,
+    );
+    if (cohortId) {
+      params.set("cohortId", cohortId);
+    } else {
+      params.delete("cohortId");
+    }
+    window.history.replaceState(null, "", `${pathname}${params.size > 0 ? `?${params.toString()}` : ""}`);
+  };
+
+  useEffect(() => {
+    const nextSession = sessions.find((session) => session.cohortId === selectedCohort?.id);
+    const nextChecklist = sessionChecklists.find((entry) => entry.sessionId === nextSession?.id) ?? null;
+    setSessionForm({
+      sessionId: nextSession?.id ?? "",
+      title: nextSession?.title ?? "",
+      startAt: nextSession ? formatDateTimeLocal(nextSession.startAt) : "",
+      endAt: nextSession ? formatDateTimeLocal(nextSession.endAt) : "",
+      roomLabel: nextSession?.roomLabel ?? selectedCohort?.roomLabel ?? "",
+      mode: nextSession?.mode ?? "Hybrid",
+    });
+    setChecklistState({
+      roomConfirmed: nextChecklist?.roomConfirmed ?? false,
+      rosterReviewed: nextChecklist?.rosterReviewed ?? false,
+      materialsReady: nextChecklist?.materialsReady ?? false,
+      familyNoticeSentIfNeeded: nextChecklist?.familyNoticeSentIfNeeded ?? false,
+      attendanceComplete: nextChecklist?.attendanceComplete ?? false,
+      scoresLoggedIfNeeded: nextChecklist?.scoresLoggedIfNeeded ?? false,
+      followUpSentIfNeeded: nextChecklist?.followUpSentIfNeeded ?? false,
+      notesClosedOut: nextChecklist?.notesClosedOut ?? false,
+    });
+    setMoveState({
+      studentId: "",
+      targetCohortId: cohorts.find((cohort) => cohort.id !== selectedCohort?.id)?.id ?? "",
+    });
+  }, [cohorts, selectedCohort?.id, selectedCohort?.roomLabel, sessionChecklists, sessions]);
 
   const saveView = () => {
     if (readOnly) {
@@ -166,7 +205,7 @@ export function StaffCohortOperationsPanel({
         };
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Session update failed.");
+          throw new Error(payload.error ?? "Class update failed.");
         }
 
         if (payload.updated === false && payload.warnings && payload.warnings.length > 0) {
@@ -177,10 +216,10 @@ export function StaffCohortOperationsPanel({
           return;
         }
 
-        setSuccess("Session details updated.");
+        setSuccess("Class details updated.");
         router.refresh();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Session update failed.");
+        setError(nextError instanceof Error ? nextError.message : "Class update failed.");
       } finally {
         setPendingKey(null);
       }
@@ -215,7 +254,7 @@ export function StaffCohortOperationsPanel({
           throw new Error(payload.error ?? "Checklist update failed.");
         }
 
-        setSuccess("Session checklist updated.");
+        setSuccess("Class checklist updated.");
         router.refresh();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Checklist update failed.");
@@ -277,7 +316,9 @@ export function StaffCohortOperationsPanel({
         <select
           value={selectedCohort?.id ?? ""}
           onChange={(event) => {
-            router.replace(`${pathname}?cohortId=${event.currentTarget.value}`);
+            const cohortId = event.currentTarget.value;
+            setSelectedCohortId(cohortId);
+            replaceCohortUrl(cohortId);
           }}
           className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm text-[color:var(--navy-strong)]"
         >
@@ -310,7 +351,10 @@ export function StaffCohortOperationsPanel({
               type="button"
               onClick={() => {
                 const next = view.filterState.cohortId;
-                router.replace(`${pathname}${typeof next === "string" ? `?cohortId=${next}` : ""}`);
+                if (typeof next === "string") {
+                  setSelectedCohortId(next);
+                  replaceCohortUrl(next);
+                }
               }}
               className="rounded-full border border-[color:var(--line)] bg-white/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
             >
@@ -362,7 +406,7 @@ export function StaffCohortOperationsPanel({
 
       <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-          <div className="section-kicker">Session details</div>
+          <div className="section-kicker">Class details</div>
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Day-to-day edits
           </h3>
@@ -401,23 +445,32 @@ export function StaffCohortOperationsPanel({
             </select>
             <input
               value={sessionForm.title}
-              onChange={(event) => setSessionForm((current) => ({ ...current, title: event.currentTarget.value }))}
+              onChange={(event) => {
+                const title = event.currentTarget.value;
+                setSessionForm((current) => ({ ...current, title }));
+              }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-              placeholder="Session title"
+              placeholder="Class name"
               disabled={readOnly}
             />
             <div className="grid gap-3 md:grid-cols-2">
               <input
                 type="datetime-local"
                 value={sessionForm.startAt}
-                onChange={(event) => setSessionForm((current) => ({ ...current, startAt: event.currentTarget.value }))}
+                onChange={(event) => {
+                  const startAt = event.currentTarget.value;
+                  setSessionForm((current) => ({ ...current, startAt }));
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
                 disabled={readOnly}
               />
               <input
                 type="datetime-local"
                 value={sessionForm.endAt}
-                onChange={(event) => setSessionForm((current) => ({ ...current, endAt: event.currentTarget.value }))}
+                onChange={(event) => {
+                  const endAt = event.currentTarget.value;
+                  setSessionForm((current) => ({ ...current, endAt }));
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
                 disabled={readOnly}
               />
@@ -425,19 +478,23 @@ export function StaffCohortOperationsPanel({
             <div className="grid gap-3 md:grid-cols-2">
               <input
                 value={sessionForm.roomLabel}
-                onChange={(event) => setSessionForm((current) => ({ ...current, roomLabel: event.currentTarget.value }))}
+                onChange={(event) => {
+                  const roomLabel = event.currentTarget.value;
+                  setSessionForm((current) => ({ ...current, roomLabel }));
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
                 placeholder="Room"
                 disabled={readOnly}
               />
               <select
                 value={sessionForm.mode}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const mode = event.currentTarget.value as "In person" | "Hybrid" | "Zoom";
                   setSessionForm((current) => ({
                     ...current,
-                    mode: event.currentTarget.value as "In person" | "Hybrid" | "Zoom",
-                  }))
-                }
+                    mode,
+                  }));
+                }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
                 disabled={readOnly}
               >
@@ -457,7 +514,7 @@ export function StaffCohortOperationsPanel({
                   : "bg-[color:var(--navy-strong)] hover:opacity-90",
               )}
             >
-              {pendingKey === "session" ? "Saving..." : readOnly ? "Preview only" : "Save session"}
+              {pendingKey === "session" ? "Saving..." : readOnly ? "Preview only" : "Save class"}
             </button>
           </div>
         </div>
@@ -465,7 +522,7 @@ export function StaffCohortOperationsPanel({
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
           <div className="section-kicker">Prep and closeout checklist</div>
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-            Shared session checklist
+            Shared class checklist
           </h3>
           <div className="mt-5 grid gap-3">
             {[

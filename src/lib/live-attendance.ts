@@ -529,7 +529,7 @@ export async function persistAttendanceStatus({
     !viewerCanAccessCohort(viewer, typedSession.cohort_id) ||
     !isSameDemoPartition(viewer, typedSession)
   ) {
-    throw new Error("You do not have access to this session.");
+    throw new Error("You do not have access to this class.");
   }
 
   const { data: enrollment } = await serviceClient
@@ -541,7 +541,7 @@ export async function persistAttendanceStatus({
     .maybeSingle();
 
   if (!enrollment) {
-    throw new Error("That student is not actively enrolled in this session.");
+    throw new Error("That student is not actively enrolled in this class.");
   }
 
   const recordId = `${sessionId}:${studentId}`;

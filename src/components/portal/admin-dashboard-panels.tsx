@@ -858,7 +858,7 @@ export function AdminDashboardPanels({
               setTaskForm((current) => ({ ...current, details }));
             }}
             className="min-h-[104px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Example: Call the guardian, confirm the missed session makeup date, and note the answer in billing follow-up."
+            placeholder="Example: Call the guardian, confirm the missed class makeup date, and note the answer in billing follow-up."
             disabled={readOnly}
           />
         </label>

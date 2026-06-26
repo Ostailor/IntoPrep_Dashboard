@@ -706,7 +706,7 @@ export async function getSchemaInspectorRows() {
   const targets = [
     ["profiles", "Account records"],
     ["cohorts", "Active cohort shells"],
-    ["sessions", "Scheduled class sessions"],
+    ["sessions", "Scheduled classes"],
     ["students", "Student rows"],
     ["families", "Family rows"],
     ["assessments", "Assessment headers"],

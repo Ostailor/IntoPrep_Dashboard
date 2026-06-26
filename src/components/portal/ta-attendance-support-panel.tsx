@@ -161,7 +161,7 @@ export function TaAttendanceSupportPanel({
       <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
         <div className="section-kicker">TA support tools</div>
         <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-          Session prep and handoff
+          Class prep and handoff
         </h3>
 
         <div className="mt-5">
@@ -191,7 +191,7 @@ export function TaAttendanceSupportPanel({
 
         <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
           <div className="text-sm font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-            Shared session checklist
+            Shared class checklist
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {checklistItems.map(([key, label]) => (
@@ -227,7 +227,7 @@ export function TaAttendanceSupportPanel({
                     checklist: checklistState,
                   }),
                 }),
-                "Session checklist updated.",
+                "Class checklist updated.",
               )
             }
             disabled={pendingKey === "checklist" || readOnly}
@@ -250,7 +250,7 @@ export function TaAttendanceSupportPanel({
             value={handoffBody}
             onChange={(event) => setHandoffBody(event.currentTarget.value)}
             className="mt-4 min-h-[120px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            placeholder="Add a short note the instructor should see before or after the session."
+            placeholder="Add a short note the instructor should see before or after the class."
             disabled={readOnly}
           />
           <button

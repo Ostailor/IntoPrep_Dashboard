@@ -562,9 +562,9 @@ export const getDashboardMetricsFromContext = (
           tone: "navy",
         },
         {
-          label: "Upcoming sessions",
+          label: "Upcoming classes",
           value: String(todaySessions.length),
-          detail: "Sessions needing rooming, staffing, or communication prep.",
+          detail: "Classes needing rooming, staffing, or communication prep.",
           tone: "copper",
         },
         {
@@ -589,7 +589,7 @@ export const getDashboardMetricsFromContext = (
           tone: "navy",
         },
         {
-          label: "Live sessions",
+          label: "Live classes",
           value: String(todaySessions.length),
           detail: "Classes requiring attendance, notes, and family follow-up.",
           tone: "copper",
@@ -612,7 +612,7 @@ export const getDashboardMetricsFromContext = (
         {
           label: "Today’s classes",
           value: String(todaySessions.length),
-          detail: "Only assigned sessions are visible here.",
+          detail: "Only assigned classes are visible here.",
           tone: "navy",
         },
         {
