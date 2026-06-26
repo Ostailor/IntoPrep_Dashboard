@@ -16,6 +16,7 @@ import type {
   ApprovalRequest,
   CapacityForecastRow,
   SyncJob,
+  TaskActivity,
 } from "@/lib/domain";
 import type { LiveSettingsUserRow } from "@/lib/live-portal";
 
@@ -23,6 +24,7 @@ interface AdminDashboardPanelsProps {
   viewerId: string;
   viewerMode: "preview" | "live" | "live-role-preview";
   tasks: AdminTask[];
+  taskActivities: TaskActivity[];
   savedViews: AdminSavedView[];
   announcements: AdminAnnouncement[];
   capacityForecastRows: CapacityForecastRow[];
@@ -40,6 +42,15 @@ type AnnouncementFormState = {
   tone: AdminAnnouncement["tone"];
   expiresAt: string;
   visibleRoles: AnnouncementVisibleRoles;
+};
+type TaskFormState = {
+  title: string;
+  taskType: string;
+  targetType: string;
+  targetId: string;
+  assignedTo: string;
+  dueAt: string;
+  details: string;
 };
 
 const taskTypeOptions = [
@@ -101,6 +112,41 @@ function formatDateTimeLocal(value?: string | null) {
   return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
 }
 
+function createDefaultTaskForm(): TaskFormState {
+  return {
+    title: "",
+    taskType: "family_communication",
+    targetType: "cohort",
+    targetId: "",
+    assignedTo: "",
+    dueAt: "",
+    details: "",
+  };
+}
+
+function createTaskFormFromTask(task: AdminTask): TaskFormState {
+  return {
+    title: task.title,
+    taskType: task.taskType,
+    targetType: task.targetType,
+    targetId: task.targetId,
+    assignedTo: task.assignedTo ?? "",
+    dueAt: formatDateTimeLocal(task.dueAt),
+    details: task.details ?? "",
+  };
+}
+
+function getTaskStatusClass(status: AdminTask["status"]) {
+  switch (status) {
+    case "done":
+      return "border-emerald-200 bg-emerald-100 text-emerald-800";
+    case "in_progress":
+      return "border-sky-200 bg-sky-100 text-sky-800";
+    default:
+      return "border-[color:var(--line)] bg-stone-50 text-[color:var(--muted)]";
+  }
+}
+
 function createDefaultAnnouncementVisibleRoles(): AnnouncementVisibleRoles {
   return {
     admin: true,
@@ -151,6 +197,7 @@ export function AdminDashboardPanels({
   viewerId,
   viewerMode,
   tasks,
+  taskActivities,
   savedViews,
   announcements,
   capacityForecastRows,
@@ -164,15 +211,13 @@ export function AdminDashboardPanels({
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({
-    title: "",
-    taskType: "family_communication",
-    targetType: "cohort",
-    targetId: "",
-    assignedTo: "",
-    dueAt: "",
-    details: "",
-  });
+  const [taskForm, setTaskForm] = useState<TaskFormState>(createDefaultTaskForm);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [openedTaskId, setOpenedTaskId] = useState<string | null>(null);
+  const [localTasks, setLocalTasks] = useState<AdminTask[]>([]);
+  const [localTaskActivities, setLocalTaskActivities] = useState<TaskActivity[]>([]);
+  const [hiddenTaskIds, setHiddenTaskIds] = useState<Set<string>>(() => new Set());
+  const [taskCommentDrafts, setTaskCommentDrafts] = useState<Record<string, string>>({});
   const [announcementForm, setAnnouncementForm] = useState<AnnouncementFormState>(
     createDefaultAnnouncementForm,
   );
@@ -206,6 +251,43 @@ export function AdminDashboardPanels({
       }),
     [users],
   );
+  const mergedTasks = useMemo(() => {
+    const taskById = new Map<string, AdminTask>();
+
+    tasks.forEach((task) => taskById.set(task.id, task));
+    localTasks.forEach((task) => taskById.set(task.id, task));
+
+    return Array.from(taskById.values())
+      .filter((task) => !hiddenTaskIds.has(task.id))
+      .sort((left, right) => {
+        if (left.status === "done" && right.status !== "done") {
+          return -1;
+        }
+
+        if (left.status !== "done" && right.status === "done") {
+          return 1;
+        }
+
+        if (!left.dueAt && right.dueAt) {
+          return 1;
+        }
+
+        if (left.dueAt && !right.dueAt) {
+          return -1;
+        }
+
+        return (left.dueAt ?? left.createdAt).localeCompare(right.dueAt ?? right.createdAt);
+      });
+  }, [hiddenTaskIds, localTasks, tasks]);
+  const taskActivitiesByTaskId = useMemo(() => {
+    const next = new Map<string, TaskActivity[]>();
+
+    [...localTaskActivities, ...taskActivities].forEach((activity) => {
+      next.set(activity.taskId, [...(next.get(activity.taskId) ?? []), activity]);
+    });
+
+    return next;
+  }, [localTaskActivities, taskActivities]);
   const mergedAnnouncements = useMemo(() => {
     const announcementById = new Map<string, AdminAnnouncement>();
 
@@ -228,7 +310,129 @@ export function AdminDashboardPanels({
     [mergedAnnouncements, cancelledAnnouncementIds],
   );
 
-  const handleTaskCreate = () => {
+  const resetTaskForm = () => {
+    setTaskForm(createDefaultTaskForm());
+    setEditingTaskId(null);
+  };
+
+  const beginTaskEdit = (task: AdminTask) => {
+    setTaskForm(createTaskFormFromTask(task));
+    setEditingTaskId(task.id);
+    setOpenedTaskId(task.id);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const upsertLocalTask = (task: AdminTask) => {
+    setLocalTasks((current) => [
+      task,
+      ...current.filter((candidate) => candidate.id !== task.id),
+    ]);
+    setHiddenTaskIds((current) => {
+      const next = new Set(current);
+      next.delete(task.id);
+      return next;
+    });
+  };
+
+  const sendTaskUpdate = ({
+    task,
+    status,
+    comment,
+    successMessage,
+    hideAfterSave = false,
+    lifecycleState,
+  }: {
+    task: AdminTask;
+    status: AdminTask["status"];
+    comment?: string | null;
+    successMessage: string;
+    hideAfterSave?: boolean;
+    lifecycleState?: "closed" | "cancelled" | null;
+  }) => {
+    if (readOnly) {
+      setError("Role preview is read-only.");
+      setSuccess(null);
+      return;
+    }
+
+    const pendingKey = `task-${task.id}-${status}`;
+    setPending(pendingKey);
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/admin/tasks", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            taskId: task.id,
+            taskType: task.taskType,
+            targetType: task.targetType,
+            targetId: task.targetId,
+            title: task.title,
+            details: task.details,
+            assignedTo: task.assignedTo,
+            dueAt: task.dueAt,
+            status,
+            comment,
+            noteType: "progress",
+            lifecycleState,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string; task?: AdminTask };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Task update failed.");
+        }
+
+        if (payload.task) {
+          upsertLocalTask(payload.task);
+        }
+
+        if (comment?.trim()) {
+          setLocalTaskActivities((current) => [
+            {
+              id: `local-${task.id}-${Date.now()}`,
+              taskId: task.id,
+              authorId: viewerId,
+              authorName: "You",
+              body: comment.trim(),
+              noteType: "progress",
+              statusFrom: task.status,
+              statusTo: status,
+              createdAt: new Date().toISOString(),
+            },
+            ...current,
+          ]);
+        }
+
+        if (hideAfterSave) {
+          setHiddenTaskIds((current) => {
+            const next = new Set(current);
+            next.add(task.id);
+            return next;
+          });
+          if (openedTaskId === task.id) {
+            setOpenedTaskId(null);
+          }
+        }
+
+        setTaskCommentDrafts((current) => ({ ...current, [task.id]: "" }));
+        setSuccess(successMessage);
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Task update failed.");
+      } finally {
+        setPending(null);
+      }
+    });
+  };
+
+  const handleTaskSave = () => {
     if (readOnly) {
       setError("Role preview is read-only.");
       setSuccess(null);
@@ -242,11 +446,12 @@ export function AdminDashboardPanels({
     startTransition(async () => {
       try {
         const response = await fetch("/api/admin/tasks", {
-          method: "POST",
+          method: editingTaskId ? "PATCH" : "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            taskId: editingTaskId,
             title: taskForm.title,
             taskType: taskForm.taskType,
             targetType: taskForm.targetType,
@@ -257,22 +462,17 @@ export function AdminDashboardPanels({
             status: "open",
           }),
         });
-        const payload = (await response.json()) as { error?: string };
+        const payload = (await response.json()) as { error?: string; task?: AdminTask };
 
         if (!response.ok) {
           throw new Error(payload.error ?? "Task create failed.");
         }
 
-        setTaskForm({
-          title: "",
-          taskType: "family_communication",
-          targetType: "cohort",
-          targetId: "",
-          assignedTo: "",
-          dueAt: "",
-          details: "",
-        });
-        setSuccess("Operational task created.");
+        if (payload.task) {
+          upsertLocalTask(payload.task);
+        }
+        resetTaskForm();
+        setSuccess(editingTaskId ? "Operational task updated." : "Operational task created.");
         router.refresh();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Task create failed.");
@@ -664,7 +864,7 @@ export function AdminDashboardPanels({
         </label>
         <button
           type="button"
-          onClick={handleTaskCreate}
+          onClick={handleTaskSave}
           disabled={pending === "task" || readOnly}
           className={clsx(
             "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
@@ -673,17 +873,48 @@ export function AdminDashboardPanels({
               : "bg-[color:var(--navy-strong)] hover:opacity-90",
           )}
         >
-          {pending === "task" ? "Saving..." : readOnly ? "Preview only" : "Create task"}
+          {pending === "task"
+            ? "Saving..."
+            : readOnly
+              ? "Preview only"
+              : editingTaskId
+                ? "Save task"
+                : "Create task"}
         </button>
+        {editingTaskId ? (
+          <button
+            type="button"
+            onClick={resetTaskForm}
+            disabled={pending === "task" || readOnly}
+            className="ml-2 rounded-full border border-[color:var(--line)] bg-white/90 px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
+          >
+            Clear edit
+          </button>
+        ) : null}
 
-        <div className="mt-5 space-y-3">
-          {tasks.slice(0, 6).map((task) => (
+        <div className="thin-scrollbar mt-5 max-h-[560px] space-y-3 overflow-y-auto pr-1">
+          {mergedTasks.length === 0 ? (
+            <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+              No active tasks are waiting on admin review or teammate follow-up.
+            </div>
+          ) : null}
+          {mergedTasks.map((task) => {
+            const isOpen = openedTaskId === task.id;
+            const activityRows = taskActivitiesByTaskId.get(task.id) ?? [];
+            const commentDraft = taskCommentDrafts[task.id] ?? "";
+
+            return (
             <div
               key={task.id}
-              className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+              className={clsx(
+                "rounded-[1.5rem] border p-4",
+                task.status === "done"
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-[color:var(--line)] bg-white/75",
+              )}
             >
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <div className="text-base font-semibold text-[color:var(--navy-strong)]">
                     {task.title}
                   </div>
@@ -692,7 +923,12 @@ export function AdminDashboardPanels({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                  <div
+                    className={clsx(
+                      "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                      getTaskStatusClass(task.status),
+                    )}
+                  >
                     {task.status.replaceAll("_", " ")}
                   </div>
                   <div className="mt-2 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
@@ -703,8 +939,133 @@ export function AdminDashboardPanels({
               {task.details ? (
                 <div className="mt-3 text-sm text-[color:var(--muted)]">{task.details}</div>
               ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpenedTaskId(isOpen ? null : task.id)}
+                  className="rounded-full border border-[color:var(--line)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]"
+                >
+                  {isOpen ? "Close panel" : "Open task"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => beginTaskEdit(task)}
+                  disabled={pending !== null || readOnly}
+                  className="rounded-full border border-[color:var(--line)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)]"
+                >
+                  Edit
+                </button>
+                {task.status === "done" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      sendTaskUpdate({
+                        task,
+                        status: "done",
+                        comment: "Admin reviewed and closed the completed task.",
+                        lifecycleState: "closed",
+                        successMessage: "Task closed and removed from active queues.",
+                        hideAfterSave: true,
+                      })
+                    }
+                    disabled={pending !== null || readOnly}
+                    className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white"
+                  >
+                    Close completed
+                  </button>
+                ) : null}
+                {task.status === "done" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      sendTaskUpdate({
+                        task,
+                        status: "open",
+                        comment: "Admin reopened the task for additional follow-up.",
+                        lifecycleState: null,
+                        successMessage: "Task reopened for the assignee.",
+                      })
+                    }
+                    disabled={pending !== null || readOnly}
+                    className="rounded-full border border-sky-200 bg-sky-100 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-800"
+                  >
+                    Reopen
+                  </button>
+                ) : null}
+                {task.status !== "done" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      sendTaskUpdate({
+                        task,
+                        status: "done",
+                        comment: "Admin cancelled the task before completion.",
+                        lifecycleState: "cancelled",
+                        successMessage: "Task cancelled and removed from active queues.",
+                        hideAfterSave: true,
+                      })
+                    }
+                    disabled={pending !== null || readOnly}
+                    className="rounded-full border border-rose-200 bg-rose-100 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-rose-700"
+                  >
+                    Cancel task
+                  </button>
+                ) : null}
+              </div>
+
+              {isOpen ? (
+                <div className="mt-4 space-y-3 rounded-[1.25rem] border border-[color:var(--line)] bg-white/70 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                    Task conversation
+                  </div>
+                  {activityRows.length === 0 ? (
+                    <div className="text-sm text-[color:var(--muted)]">
+                      No comments yet. Add a note for the assignee or wait for their update.
+                    </div>
+                  ) : null}
+                  {activityRows.map((activity) => (
+                    <div key={activity.id} className="rounded-2xl border border-[color:var(--line)] bg-stone-50 px-4 py-3 text-sm text-[color:var(--muted)]">
+                      <span className="font-semibold text-[color:var(--navy-strong)]">{activity.authorName}</span>
+                      {" · "}
+                      {activity.noteType.replaceAll("_", " ")}
+                      {" · "}
+                      {formatDateTime(activity.createdAt)}
+                      <div className="mt-1 text-[color:var(--navy-strong)]">{activity.body}</div>
+                    </div>
+                  ))}
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <input
+                      value={commentDraft}
+                      onChange={(event) => {
+                        const body = event.currentTarget.value;
+                        setTaskCommentDrafts((current) => ({ ...current, [task.id]: body }));
+                      }}
+                      className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                      placeholder="Add a note or instruction for this task."
+                      disabled={readOnly}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        sendTaskUpdate({
+                          task,
+                          status: task.status,
+                          comment: commentDraft,
+                          successMessage: "Task comment added.",
+                        })
+                      }
+                      disabled={pending !== null || readOnly || commentDraft.trim().length < 6}
+                      className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[rgba(23,56,75,0.46)]"
+                    >
+                      Add comment
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -714,7 +1075,17 @@ export function AdminDashboardPanels({
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Reopen common queues
           </h3>
-          <div className="mt-5 space-y-3">
+          <p className="mt-3 text-sm text-[color:var(--muted)]">
+            Saved views are shortcuts back to filtered operational pages, such as a billing follow-up
+            list or cohort capacity watch. They appear here after an admin saves a filter set from a
+            page that supports saved views.
+          </p>
+          <div className="thin-scrollbar mt-5 max-h-[280px] space-y-3 overflow-y-auto pr-1">
+            {savedViews.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+                No saved views yet. Use this area once recurring admin filters are saved.
+              </div>
+            ) : null}
             {savedViews.map((view) => (
               <Link
                 key={view.id}
@@ -735,7 +1106,16 @@ export function AdminDashboardPanels({
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Pending requests and blockers
           </h3>
-          <div className="mt-5 space-y-3">
+          <p className="mt-3 text-sm text-[color:var(--muted)]">
+            Staff escalations are requests from staff, TAs, or instructors when they need admin
+            approval, a blocker acknowledged, or a decision that their role cannot make.
+          </p>
+          <div className="thin-scrollbar mt-5 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+            {approvalRequests.length === 0 && escalations.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+                No escalations or approvals are waiting right now.
+              </div>
+            ) : null}
             {approvalRequests.slice(0, 4).map((request) => (
               <div key={request.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
                 <div className="flex items-center justify-between gap-3">

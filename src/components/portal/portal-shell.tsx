@@ -922,6 +922,7 @@ function renderSectionContent({
               viewerId={viewerId}
               viewerMode={viewerMode}
               tasks={visibleAdminTasks}
+              taskActivities={adminOps.taskActivities}
               savedViews={adminOps.savedViews}
               announcements={visibleAdminAnnouncements}
               capacityForecastRows={adminOps.capacityForecastRows}
@@ -1011,7 +1012,7 @@ function renderSectionContent({
               <SectionHeading
                 eyebrow="Today’s flow"
                 title="Live session stack"
-                description="Visible sessions ordered by time with location, modality, and roster coverage."
+                description="Sessions created from Calendar or cohort scheduling, ordered by time with room and roster context."
               />
               <div className="mt-5 space-y-3">
                 {todaySessions.map((session) => {
@@ -1109,9 +1110,9 @@ function renderSectionContent({
               ) : (
                 <>
                   <SectionHeading
-                    eyebrow="Pipeline"
-                    title="Enrollment and finance snapshot"
-                    description="Staff and admin see intake motion, sync readiness, and read-only billing risk."
+                    eyebrow="Intake and billing"
+                    title="Lead and tuition snapshot"
+                    description="Leads come from intake imports or staff entry; billing risk comes from synced or manually entered invoices."
                   />
                   <div className="mt-5 space-y-3">
                     {visibleLeads.map((lead) => (

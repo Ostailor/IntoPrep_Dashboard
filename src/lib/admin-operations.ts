@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import type {
   AdminAnnouncement,
   AdminEscalationStatus,
+  AdminTask,
   ApprovalRequestStatus,
   BillingFollowUpState,
   ContactSource,
@@ -36,6 +37,7 @@ type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type ProgramRow = Database["public"]["Tables"]["programs"]["Row"];
 type AdminAnnouncementRow = Database["public"]["Tables"]["admin_announcements"]["Row"];
+type AdminTaskRow = Database["public"]["Tables"]["admin_tasks"]["Row"];
 type ApprovalRequestRow = Database["public"]["Tables"]["approval_requests"]["Row"];
 type AdminEscalationRow = Database["public"]["Tables"]["admin_escalations"]["Row"];
 
@@ -87,6 +89,17 @@ function normalizeTaskStatus(value: string) {
       return value;
     default:
       throw new Error("Invalid task status.");
+  }
+}
+
+function normalizeTaskActivityType(value: string) {
+  switch (value) {
+    case "progress":
+    case "handoff":
+    case "blocker":
+      return value;
+    default:
+      throw new Error("Invalid task note type.");
   }
 }
 
@@ -406,6 +419,9 @@ export async function persistAdminTask({
   assignedTo,
   dueAt,
   status,
+  comment,
+  noteType,
+  lifecycleState,
 }: {
   viewer: User;
   taskId?: string;
@@ -417,6 +433,9 @@ export async function persistAdminTask({
   assignedTo?: string | null;
   dueAt?: string | null;
   status?: string;
+  comment?: string | null;
+  noteType?: string | null;
+  lifecycleState?: "closed" | "cancelled" | null;
 }) {
   ensureServiceRole();
   assertAdminAccess(viewer);
@@ -432,6 +451,13 @@ export async function persistAdminTask({
   const normalizedStatus = normalizeTaskStatus(status ?? "open");
   const normalizedTitle = title.trim();
   const normalizedDetails = details?.trim() ? details.trim() : null;
+  const detailsWithoutLifecycleState = normalizedDetails?.replace(
+    /\n?\[\[admin_task_state:(closed|cancelled)\]\]$/u,
+    "",
+  ) ?? null;
+  const persistedDetails = lifecycleState
+    ? `${detailsWithoutLifecycleState ?? ""}\n[[admin_task_state:${lifecycleState}]]`.trim()
+    : detailsWithoutLifecycleState;
   const normalizedDueAt = dueAt?.trim() ? new Date(dueAt).toISOString() : null;
 
   if (normalizedTitle.length < 6) {
@@ -440,17 +466,38 @@ export async function persistAdminTask({
 
   const serviceClient = createSupabaseServiceClient();
   const id = taskId ?? createId("admin-task");
+  const now = new Date().toISOString();
+  let existingTask: AdminTaskRow | null = null;
+
+  if (taskId) {
+    const { data: taskData, error: taskLoadError } = await serviceClient
+      .from("admin_tasks")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (taskLoadError) {
+      throw new Error(taskLoadError.message);
+    }
+
+    existingTask = (taskData ?? null) as AdminTaskRow | null;
+
+    if (!existingTask || !isSameDemoPartition(viewer, existingTask)) {
+      throw new Error("That task could not be found.");
+    }
+  }
+
   const payload = {
     task_type: normalizedTaskType,
     target_type: normalizedTargetType,
     target_id: targetId,
     title: normalizedTitle,
-    details: normalizedDetails,
+    details: persistedDetails,
     assigned_to: assignedTo ?? null,
     due_at: normalizedDueAt,
     status: normalizedStatus,
-    created_by: viewer.id,
-    updated_at: new Date().toISOString(),
+    created_by: existingTask?.created_by ?? viewer.id,
+    updated_at: now,
   };
 
   const { error } = taskId
@@ -463,6 +510,25 @@ export async function persistAdminTask({
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  const normalizedComment = comment?.trim() ? comment.trim() : null;
+  if (normalizedComment) {
+    const { error: activityError } = await serviceClient.from("task_activities").insert({
+      id: createId("task-activity"),
+      task_id: id,
+      author_id: viewer.id,
+      body: normalizedComment,
+      note_type: normalizeTaskActivityType(noteType ?? "progress"),
+      status_from: existingTask?.status ?? null,
+      status_to: normalizedStatus,
+      created_at: now,
+      demo: getDemoPartition(viewer),
+    });
+
+    if (activityError) {
+      throw new Error(activityError.message);
+    }
   }
 
   await recordAccountAuditLog(serviceClient, {
@@ -480,7 +546,22 @@ export async function persistAdminTask({
     },
   });
 
-  return id;
+  return {
+    id,
+    taskType: normalizedTaskType,
+    targetType: normalizedTargetType,
+    targetId,
+    title: normalizedTitle,
+    details: detailsWithoutLifecycleState,
+    assignedTo: assignedTo ?? null,
+    assignedToName: null,
+    dueAt: normalizedDueAt,
+    status: normalizedStatus,
+    createdBy: existingTask?.created_by ?? viewer.id,
+    createdByName: viewer.name,
+    createdAt: existingTask?.created_at ?? now,
+    updatedAt: now,
+  } satisfies AdminTask;
 }
 
 export async function persistAdminSavedView({

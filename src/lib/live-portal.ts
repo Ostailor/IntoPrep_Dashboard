@@ -184,6 +184,7 @@ export interface LiveEngineerConsoleBundle {
 }
 
 export interface LiveAdminOpsBundle {
+  taskActivities: TaskActivity[];
   billingFollowUpNotes: BillingFollowUpNote[];
   savedViews: AdminSavedView[];
   familyContactEvents: FamilyContactEvent[];
@@ -737,6 +738,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     ],
     feedbackSubmissions,
     adminOps: {
+      taskActivities: [],
       billingFollowUpNotes: [],
       savedViews: [],
       familyContactEvents: [],
@@ -978,6 +980,27 @@ function normalizeTaskStatus(value: string): AdminTask["status"] | null {
     default:
       return null;
   }
+}
+
+function getAdminTaskLifecycleState(details?: string | null) {
+  const match = details?.match(/\[\[admin_task_state:(closed|cancelled)\]\]$/u);
+  return match?.[1] ?? null;
+}
+
+function stripAdminTaskLifecycleState(details?: string | null) {
+  return details?.replace(/\n?\[\[admin_task_state:(closed|cancelled)\]\]$/u, "") ?? null;
+}
+
+function isActiveTaskForViewer(task: AdminTaskRow, status: AdminTask["status"], viewerRole: UserRole) {
+  if (getAdminTaskLifecycleState(task.details)) {
+    return false;
+  }
+
+  if (viewerRole !== "admin" && status === "done") {
+    return false;
+  }
+
+  return true;
 }
 
 function parseSavedViewFilterState(
@@ -1362,7 +1385,6 @@ async function loadLivePortalBundle(
         .from("admin_tasks")
         .select("*")
         .eq("assigned_to", viewer.id)
-        .neq("status", "done")
         .order("due_at", { ascending: true, nullsFirst: false }),
       serviceClient
         .from("admin_announcements")
@@ -1644,7 +1666,7 @@ async function loadLivePortalBundle(
         const taskType = normalizeTaskType(task.task_type);
         const taskStatus = normalizeTaskStatus(task.status);
 
-        return taskType && taskStatus
+        return taskType && taskStatus && isActiveTaskForViewer(task, taskStatus, viewer.role)
           ? [
               {
                 id: task.id,
@@ -1652,7 +1674,7 @@ async function loadLivePortalBundle(
                 targetType: task.target_type as AdminTask["targetType"],
                 targetId: task.target_id,
                 title: task.title,
-                details: task.details,
+                details: stripAdminTaskLifecycleState(task.details),
                 assignedTo: task.assigned_to,
                 assignedToName: task.assigned_to
                   ? (compactProfilesById.get(task.assigned_to)?.full_name ?? null)
@@ -1921,7 +1943,7 @@ async function loadLivePortalBundle(
           .in("family_id", familyIds)
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] }),
-    viewer.role === "admin"
+      viewer.role === "admin"
       ? serviceClient
           .from("admin_tasks")
           .select("*")
@@ -1931,7 +1953,6 @@ async function loadLivePortalBundle(
             .from("admin_tasks")
             .select("*")
             .eq("assigned_to", viewer.id)
-            .neq("status", "done")
             .order("due_at", { ascending: true, nullsFirst: false })
         : Promise.resolve({ data: [] }),
     viewer.role === "admin"
@@ -2444,7 +2465,7 @@ async function loadLivePortalBundle(
     const taskType = normalizeTaskType(task.task_type);
     const taskStatus = normalizeTaskStatus(task.status);
 
-    return taskType && taskStatus
+    return taskType && taskStatus && isActiveTaskForViewer(task, taskStatus, viewer.role)
       ? [
           {
             id: task.id,
@@ -2452,7 +2473,7 @@ async function loadLivePortalBundle(
             targetType: task.target_type as AdminTask["targetType"],
             targetId: task.target_id,
             title: task.title,
-            details: task.details,
+            details: stripAdminTaskLifecycleState(task.details),
             assignedTo: task.assigned_to,
             assignedToName: task.assigned_to ? (profilesById.get(task.assigned_to)?.full_name ?? null) : null,
             dueAt: task.due_at,
@@ -2865,6 +2886,7 @@ async function loadLivePortalBundle(
             body: note.body,
             createdAt: note.created_at,
           })),
+          taskActivities: mappedTaskActivities,
           savedViews: mappedSavedViews,
           familyContactEvents: mappedFamilyContactEvents,
           capacityForecastRows: buildCapacityForecastRows(mappedCohorts),

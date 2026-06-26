@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const taskId = await persistAdminTask({
+    const task = await persistAdminTask({
       viewer: viewer.user,
       taskType: body?.taskType,
       targetType: body?.targetType,
@@ -21,8 +21,11 @@ export async function POST(request: NextRequest) {
       assignedTo: body?.assignedTo,
       dueAt: body?.dueAt,
       status: body?.status,
+      comment: body?.comment,
+      noteType: body?.noteType,
+      lifecycleState: body?.lifecycleState,
     });
-    return NextResponse.json({ ok: true, taskId });
+    return NextResponse.json({ ok: true, task });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Task save failed." },
@@ -40,7 +43,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const taskId = await persistAdminTask({
+    const task = await persistAdminTask({
       viewer: viewer.user,
       taskId: body?.taskId,
       taskType: body?.taskType,
@@ -51,8 +54,11 @@ export async function PATCH(request: NextRequest) {
       assignedTo: body?.assignedTo,
       dueAt: body?.dueAt,
       status: body?.status,
+      comment: body?.comment,
+      noteType: body?.noteType,
+      lifecycleState: body?.lifecycleState,
     });
-    return NextResponse.json({ ok: true, taskId });
+    return NextResponse.json({ ok: true, task });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Task update failed." },
