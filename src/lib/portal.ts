@@ -921,6 +921,7 @@ export const formatTimeRange = (startAt: string, endAt: string) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "America/New_York",
   });
   return `${formatter.format(new Date(startAt))} - ${formatter.format(new Date(endAt))}`;
 };

@@ -1,0 +1,4 @@
+Timestamp,Guardian Name,Guardian Email,Guardian Phone,Student First Name,Student Last Name,Grade Level,School,Target Program,Stage,Preferred Campus,Focus,Notes,Cohort ID
+2026-06-26 09:00,Jordan Lee,jordan.lee.demo@example.com,555-0101,Maya,Lee,11,Demo High School,DSAT Summer Intensive,registered,Online,Reading pacing and algebra fluency,Demo family imported through the production admin linked-sync workflow,qa-1782170025473-cohort
+2026-06-26 09:15,Sam Patel,sam.patel.demo@example.com,555-0102,Rohan,Patel,10,Demo Prep Academy,ACT Foundations,waitlist,Online,Science timing and grammar accuracy,Demo waitlist lead imported through the production admin linked-sync workflow,qa-1782170025473-cohort
+2026-06-26 09:30,Elena Garcia,elena.garcia.demo@example.com,555-0103,Sofia,Garcia,12,Demo Central High,SAT Bootcamp,new,Online,Essay planning and math review,Demo new lead imported through the production admin linked-sync workflow,

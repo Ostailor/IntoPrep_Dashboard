@@ -692,7 +692,7 @@ export function RoleManagementPanel({
                         {user.demo ? "Demo" : "Main"}
                       </span>
                     </div>
-                    <div className="mt-1 text-sm text-[color:var(--muted)]">
+                    <div className="mt-1 min-w-0 break-words text-sm leading-5 text-[color:var(--muted)] [overflow-wrap:anywhere]">
                       {user.email ?? "No profile email synced yet."}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">

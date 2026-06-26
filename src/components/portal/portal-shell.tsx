@@ -480,7 +480,7 @@ export async function PortalShell({
             </div>
             <div className="mt-2 text-sm text-[color:var(--muted)]">{currentUser.title}</div>
             {viewer.email ? (
-              <div className="mt-2 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+              <div className="mt-2 min-w-0 break-words text-xs leading-5 tracking-normal text-[color:var(--muted)] [overflow-wrap:anywhere]">
                 {viewer.email}
               </div>
             ) : null}

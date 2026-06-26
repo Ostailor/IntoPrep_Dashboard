@@ -6,6 +6,7 @@ import type {
   User,
 } from "@/lib/domain";
 import { canRunIntakeImports } from "@/lib/permissions";
+import { getDemoPartition } from "@/lib/demo-partition";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   finalizeSyncRun,
@@ -339,6 +340,13 @@ function matchCampusId(value: string, campuses: CampusRow[]) {
   );
 }
 
+function getFallbackCampusId(campuses: CampusRow[]) {
+  return campuses.find((campus) => normalizeFingerprint(campus.id) === "campusonline")?.id
+    ?? campuses.find((campus) => normalizeFingerprint(campus.name) === "online")?.id
+    ?? campuses[0]?.id
+    ?? null;
+}
+
 function resolveCohortId(
   row: ParsedCsvRow,
   cohorts: CohortRow[],
@@ -489,6 +497,7 @@ export async function importIntakeCsv({
   const serviceClient = createSupabaseServiceClient();
   const runId = `import-${randomUUID()}`;
   const startedAt = new Date().toISOString();
+  const demo = getDemoPartition(viewer);
   const syncRun = await startSyncRun({
     jobId: "sync-forms",
     initiatedBy: source === "Manual CSV" ? "manual" : "linked",
@@ -518,11 +527,11 @@ export async function importIntakeCsv({
       programsResult,
       campusesResult,
     ] = await Promise.all([
-      serviceClient.from("families").select("*"),
-      serviceClient.from("students").select("*"),
-      serviceClient.from("leads").select("*"),
-      serviceClient.from("enrollments").select("*"),
-      serviceClient.from("cohorts").select("*"),
+      serviceClient.from("families").select("*").eq("demo", demo),
+      serviceClient.from("students").select("*").eq("demo", demo),
+      serviceClient.from("leads").select("*").eq("demo", demo),
+      serviceClient.from("enrollments").select("*").eq("demo", demo),
+      serviceClient.from("cohorts").select("*").eq("demo", demo),
       serviceClient.from("programs").select("*"),
       serviceClient.from("campuses").select("*"),
     ]);
@@ -585,7 +594,14 @@ export async function importIntakeCsv({
       const familyName = row.studentLastName || row.guardianName.split(" ").slice(-1)[0] || "Household";
       const existingFamily = familyByEmail.get(row.guardianEmail);
       const familyId = existingFamily?.id ?? makeId("family", row.guardianEmail);
-      const preferredCampusId = matchCampusId(row.preferredCampus, existingCampuses) ?? existingFamily?.preferred_campus_id ?? "campus-online";
+      const preferredCampusId =
+        matchCampusId(row.preferredCampus, existingCampuses) ??
+        existingFamily?.preferred_campus_id ??
+        getFallbackCampusId(existingCampuses);
+      if (!preferredCampusId) {
+        errors.push(`Row ${index + 2}: no campus is configured for ${studentName}.`);
+        return;
+      }
       const familyNotes = [existingFamily?.notes ?? "", row.notes]
         .map((value) => normalizeText(value))
         .filter(Boolean)
@@ -599,7 +615,7 @@ export async function importIntakeCsv({
         phone: row.guardianPhone || existingFamily?.phone || "Not provided",
         preferred_campus_id: preferredCampusId,
         notes: familyNotes,
-        demo: false,
+        demo,
       });
       familyByEmail.set(row.guardianEmail, {
         id: familyId,
@@ -609,7 +625,7 @@ export async function importIntakeCsv({
         phone: row.guardianPhone || "Not provided",
         preferred_campus_id: preferredCampusId,
         notes: familyNotes,
-        demo: false,
+        demo,
       });
 
       const normalizedStudentName = normalizeFingerprint(studentName);
@@ -627,7 +643,7 @@ export async function importIntakeCsv({
         school: row.school || existingStudent?.school || "Not provided",
         target_test: track,
         focus: row.focus || existingStudent?.focus || "Needs placement review",
-        demo: false,
+        demo,
       });
       studentByFamilyAndName.set(`${familyId}|${normalizedStudentName}`, {
         id: studentId,
@@ -638,7 +654,7 @@ export async function importIntakeCsv({
         school: row.school || existingStudent?.school || "Not provided",
         target_test: track,
         focus: row.focus || existingStudent?.focus || "Needs placement review",
-        demo: false,
+        demo,
       });
 
       const leadFingerprint = normalizeFingerprint(`${studentName}|${row.guardianName}|${targetProgram}`);
@@ -656,7 +672,7 @@ export async function importIntakeCsv({
         owner_id: existingLead?.owner_id ?? null,
         follow_up_due_at: existingLead?.follow_up_due_at ?? null,
         notes: existingLead?.notes ?? null,
-        demo: false,
+        demo,
       });
       leadByFingerprint.set(leadFingerprint, {
         id: leadId,
@@ -668,7 +684,7 @@ export async function importIntakeCsv({
         owner_id: existingLead?.owner_id ?? null,
         follow_up_due_at: existingLead?.follow_up_due_at ?? null,
         notes: existingLead?.notes ?? null,
-        demo: false,
+        demo,
       });
 
       if (row.stage === "registered" || row.stage === "waitlist") {
@@ -691,7 +707,7 @@ export async function importIntakeCsv({
           cohort_id: cohortId,
           status: nextEnrollmentStatus,
           registered_at: submittedAt.slice(0, 10),
-          demo: false,
+          demo,
         });
         enrollmentByStudentAndCohort.set(enrollmentKey, {
           id: enrollmentId,
@@ -699,7 +715,7 @@ export async function importIntakeCsv({
           cohort_id: cohortId,
           status: nextEnrollmentStatus,
           registered_at: submittedAt.slice(0, 10),
-          demo: false,
+          demo,
         });
 
         const previousStatus = existingEnrollment?.status ?? null;
@@ -786,6 +802,7 @@ export async function importIntakeCsv({
       summary,
       error_samples: errors.slice(0, 5),
       created_by: viewer.id,
+      demo,
     };
 
     const { error: importRunError, data: importRunData } = await serviceClient
@@ -857,6 +874,7 @@ export async function importIntakeCsv({
       summary: message,
       error_samples: [message],
       created_by: viewer.id,
+      demo,
     });
 
     await upsertSyncJob({

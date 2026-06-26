@@ -1046,6 +1046,7 @@ export interface Database {
           summary: string;
           error_samples: Json;
           created_by: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -1063,6 +1064,7 @@ export interface Database {
           summary: string;
           error_samples?: Json;
           created_by?: string | null;
+          demo?: boolean;
         }
       >;
       sensitive_access_grants: Table<

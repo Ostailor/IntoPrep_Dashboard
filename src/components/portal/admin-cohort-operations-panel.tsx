@@ -31,6 +31,18 @@ function formatDateTimeLocal(value: string) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+function getTodaySessionWindow() {
+  const start = new Date();
+  start.setHours(16, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(17, 0, 0, 0);
+
+  return {
+    sessionStartAt: formatDateTimeLocal(start.toISOString()),
+    sessionEndAt: formatDateTimeLocal(end.toISOString()),
+  };
+}
+
 export function AdminCohortOperationsPanel({
   viewerMode,
   cohorts,
@@ -567,6 +579,21 @@ export function AdminCohortOperationsPanel({
               placeholder="Example: Digital SAT Tuesday session"
             />
           </label>
+          <div className="flex flex-col justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFormState((current) => ({
+                  ...current,
+                  ...getTodaySessionWindow(),
+                }));
+              }}
+              disabled={readOnly}
+              className="focus-ring rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm font-semibold text-[color:var(--navy-strong)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Use today
+            </button>
+          </div>
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
               Session start

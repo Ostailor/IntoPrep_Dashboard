@@ -15,6 +15,58 @@ export interface SyncRunHandle {
   jobId: string;
 }
 
+const syncJobDefaults: Record<string, { label: string; cadence: string }> = {
+  "sync-forms": {
+    label: "Google Forms registration import",
+    cadence: "Manual CSV + hourly sync",
+  },
+  "sync-morning-ops": {
+    label: "Morning linked sync bundle",
+    cadence: "Daily around 7:00 AM ET",
+  },
+  "sync-quickbooks": {
+    label: "QuickBooks invoice snapshot",
+    cadence: "Manual CSV snapshot",
+  },
+};
+
+async function ensureSyncJobExists(
+  serviceClient: ReturnType<typeof createSupabaseServiceClient>,
+  jobId: string,
+  summary: string,
+) {
+  const { data, error } = await serviceClient
+    .from("sync_jobs")
+    .select("id")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (data) {
+    return;
+  }
+
+  const defaults = syncJobDefaults[jobId] ?? {
+    label: jobId,
+    cadence: "On demand",
+  };
+  const { error: insertError } = await serviceClient.from("sync_jobs").insert({
+    id: jobId,
+    label: defaults.label,
+    cadence: defaults.cadence,
+    status: "healthy",
+    summary,
+    last_run_at: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+}
+
 export function getNewYorkLocalDate(value = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -47,6 +99,7 @@ export async function startSyncRun({
   }
 
   const serviceClient = createSupabaseServiceClient();
+  await ensureSyncJobExists(serviceClient, jobId, summary);
   const runId = `sync-run-${randomUUID()}`;
   const payload = {
     id: runId,

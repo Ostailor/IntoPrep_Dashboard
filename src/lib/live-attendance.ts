@@ -478,7 +478,7 @@ const getCachedLiveAttendanceBundle = unstable_cache(
 
     return loadLiveAttendanceBundle(viewer);
   },
-  ["live-attendance-bundle-v1"],
+  ["live-attendance-bundle-v2"],
   {
     revalidate: 15,
     tags: ["portal-live"],

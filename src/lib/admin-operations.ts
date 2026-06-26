@@ -12,6 +12,7 @@ import type {
   UserRole,
 } from "@/lib/domain";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { getDemoPartition } from "@/lib/demo-partition";
 import { assertWritesAllowed } from "@/lib/engineer-controls";
 import {
   canExportBilling,
@@ -306,6 +307,7 @@ export async function persistBillingFollowUp({
       family_id: invoice.family_id,
       author_id: viewer.id,
       body: normalizedBody,
+      demo: getDemoPartition(viewer),
     });
 
     if (noteError) {
@@ -455,6 +457,7 @@ export async function persistAdminTask({
     : await serviceClient.from("admin_tasks").insert({
         id,
         ...payload,
+        demo: getDemoPartition(viewer),
       });
 
   if (error) {
@@ -522,6 +525,7 @@ export async function persistAdminSavedView({
     : await serviceClient.from("admin_saved_views").insert({
         id,
         ...payload,
+        demo: getDemoPartition(viewer),
       });
 
   if (error) {
@@ -611,6 +615,7 @@ export async function persistFamilyContactEvent({
     outcome: normalizedOutcome,
     actor_id: viewer.id,
     contact_at: contactAt?.trim() ? new Date(contactAt).toISOString() : new Date().toISOString(),
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -673,6 +678,7 @@ export async function persistAdminAnnouncement({
     is_active: isActive ?? true,
     created_by: viewer.id,
     expires_at: expiresAt?.trim() ? new Date(expiresAt).toISOString() : null,
+    demo: getDemoPartition(viewer),
   });
 
   if (error) {
@@ -1250,6 +1256,7 @@ export async function runAdminBulkOperation({
           cohort_id: cohortId,
           user_id: userId,
           role: profile.role,
+          demo: getDemoPartition(viewer),
         },
       ];
     });
@@ -1308,6 +1315,7 @@ export async function runAdminBulkOperation({
     due_at: dueAt?.trim() ? new Date(dueAt).toISOString() : null,
     status: "open",
     created_by: viewer.id,
+    demo: getDemoPartition(viewer),
   }));
 
   const { error } = await serviceClient.from("admin_tasks").insert(createdTasks);
@@ -1380,6 +1388,7 @@ export async function sendBulkFamilyMessage({
     participants: family.guardian_names,
     last_message_preview: normalizedBody.slice(0, 160),
     unread_count: 0,
+    demo: getDemoPartition(viewer),
   }));
 
   const { error: threadError } = await serviceClient.from("message_threads").insert(insertedThreads);
@@ -1392,6 +1401,7 @@ export async function sendBulkFamilyMessage({
     thread_id: thread.id,
     author_id: viewer.id,
     body: normalizedBody,
+    demo: getDemoPartition(viewer),
   }));
   const { error: postError } = await serviceClient.from("message_posts").insert(posts);
 
