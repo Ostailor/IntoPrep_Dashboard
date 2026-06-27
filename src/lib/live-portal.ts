@@ -1313,6 +1313,69 @@ async function getAccessibleCohortIds(viewer: User) {
   );
 }
 
+function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
+  const role = viewer.role;
+  const isDashboard = section === "dashboard";
+  const isAdmin = role === "admin";
+  const isEngineer = role === "engineer";
+  const isStaff = role === "staff";
+  const isTa = role === "ta";
+  const isInstructor = role === "instructor";
+  const hasAnyRole = (...roles: UserRole[]) => roles.includes(role);
+  const isAnySection = (...sections: PortalSection[]) => sections.includes(section);
+
+  return {
+    section,
+    sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "programs", "academics"),
+    enrollments: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
+    students: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
+    assessments: isAnySection("dashboard", "cohorts", "attendance", "students", "academics"),
+    families: isAnySection("dashboard", "students", "families", "messaging", "billing"),
+    academicNotes: isAnySection("dashboard", "cohorts", "students", "academics"),
+    sessionInstructionNotes: isAnySection("dashboard", "academics"),
+    instructionalAccommodations:
+      isInstructor && isAnySection("dashboard", "attendance", "academics"),
+    instructorFollowUpFlags: isAnySection("dashboard", "cohorts", "attendance", "academics"),
+    resources: hasAnyRole("engineer", "admin", "staff", "ta") && isAnySection("dashboard", "academics"),
+    invoices: hasAnyRole("engineer", "admin", "staff") && isAnySection("dashboard", "families", "billing"),
+    messageThreads:
+      hasAnyRole("engineer", "admin", "staff", "ta") &&
+      isAnySection("dashboard", "families", "messaging"),
+    leads: hasAnyRole("engineer", "admin", "staff") && isDashboard,
+    integrations: canRunIntakeImports(role) && isAnySection("dashboard", "integrations"),
+    allProfiles:
+      (isEngineer || isAdmin) &&
+      isAnySection("dashboard", "cohorts", "settings", "integrations"),
+    userTemplates: (isEngineer || isAdmin) && section === "settings",
+    auditLogs: (isEngineer || isAdmin) && section === "settings",
+    billingFollowUpNotes: (isAdmin || isStaff) && section === "billing",
+    adminTasks:
+      isAdmin ||
+      (hasAnyRole("staff", "ta", "instructor") &&
+        isAnySection("dashboard", "cohorts", "billing", "attendance")),
+    savedViews:
+      (isAdmin && isAnySection("dashboard", "cohorts", "billing")) ||
+      (isStaff && isAnySection("dashboard", "cohorts", "billing")),
+    familyContactEvents: (isAdmin || isStaff) && section === "families",
+    adminAnnouncements: hasAnyRole("admin", "staff", "ta", "instructor"),
+    sessionChecklists:
+      hasAnyRole("admin", "staff", "ta") &&
+      isAnySection("dashboard", "cohorts", "attendance"),
+    handoffNotes: hasAnyRole("ta", "instructor") && isAnySection("dashboard", "attendance"),
+    attendanceExceptionFlags:
+      ((isAdmin && section === "cohorts") || isTa) &&
+      isAnySection("dashboard", "cohorts", "attendance"),
+    coverageFlags: isTa && isAnySection("dashboard", "attendance"),
+    approvalRequests: hasAnyRole("admin", "staff") && isDashboard,
+    escalations: hasAnyRole("admin", "staff", "ta", "instructor") && isDashboard,
+    outreachTemplates: isStaff && section === "messaging",
+    archivedCohorts: isAdmin && section === "cohorts",
+    archivedPrograms: isAdmin && section === "programs",
+    feedback: isEngineer && section === "settings",
+    engineerConsole: isEngineer && isAnySection("dashboard", "integrations", "settings"),
+  };
+}
+
 async function loadLivePortalBundle(
   viewer: User,
   section?: PortalSection,
@@ -1324,6 +1387,7 @@ async function loadLivePortalBundle(
   const serviceClient = createSupabaseServiceClient();
   const currentDate = getNewYorkDate();
   const accessibleCohortIds = await getAccessibleCohortIds(viewer);
+  const loadPlan = getPortalLoadPlan(viewer, section);
 
   if (
     section === "dashboard" &&
@@ -1737,21 +1801,21 @@ async function loadLivePortalBundle(
   const termIds = unique(cohortRows.map((cohort) => cohort.term_id));
   const [sessionsResult, enrollmentsResult, assessmentsResult, assignmentsResult, programsResult, campusesResult, termsResult, archivedCohortsResult, archivedProgramsResult] =
     await Promise.all([
-      cohortIds.length > 0
+      loadPlan.sessions && cohortIds.length > 0
         ? serviceClient
             .from("sessions")
             .select("*")
             .in("cohort_id", cohortIds)
             .order("start_at", { ascending: true })
         : Promise.resolve({ data: [] }),
-      cohortIds.length > 0
+      loadPlan.enrollments && cohortIds.length > 0
         ? serviceClient
             .from("enrollments")
             .select("*")
             .in("cohort_id", cohortIds)
             .eq("status", "active")
         : Promise.resolve({ data: [] }),
-      cohortIds.length > 0
+      loadPlan.assessments && cohortIds.length > 0
         ? serviceClient
             .from("assessments")
             .select("*")
@@ -1773,14 +1837,14 @@ async function loadLivePortalBundle(
       termIds.length > 0
         ? serviceClient.from("terms").select("*").in("id", termIds)
         : Promise.resolve({ data: [] }),
-      viewer.role === "admin"
+      loadPlan.archivedCohorts
         ? serviceClient
             .from("cohorts")
             .select("*")
             .eq("is_archived", true)
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),
-      viewer.role === "admin"
+      loadPlan.archivedPrograms
         ? serviceClient
             .from("programs")
             .select("*")
@@ -1817,7 +1881,7 @@ async function loadLivePortalBundle(
   const sessionIds = sessionRows.map((session) => session.id);
 
   const studentsResult =
-    studentIds.length > 0
+    loadPlan.students && studentIds.length > 0
       ? await serviceClient
           .from("students")
           .select("*")
@@ -1832,207 +1896,218 @@ async function loadLivePortalBundle(
       : [];
 
   const [familiesResult, resultsResult, notesResult, sessionNotesResult, accommodationsResult, followUpFlagsResult, resourcesResult, invoicesResult, threadsResult, leadsResult, syncJobsResult, importRunsResult, syncSourceResult, billingSyncSourceResult, profilesResult, templatesResult, auditLogsResult, billingFollowUpNotesResult, adminTasksResult, savedViewsResult, contactEventsResult, adminAnnouncementsResult, sessionChecklistsResult, handoffNotesResult, attendanceFlagsResult, coverageFlagsResult, approvalRequestsResult, escalationsResult, outreachTemplatesResult] = await Promise.all([
-    familyIds.length > 0
+    loadPlan.families && familyIds.length > 0
       ? serviceClient.from("families").select("*").in("id", familyIds)
       : Promise.resolve({ data: [] }),
-    assessmentIds.length > 0
+    loadPlan.assessments && assessmentIds.length > 0
       ? serviceClient
           .from("assessment_results")
           .select("*")
           .in("assessment_id", assessmentIds)
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor"
+    loadPlan.academicNotes
       ? studentIds.length > 0
         ? serviceClient
             .from("academic_notes")
             .select("*")
             .in("student_id", studentIds)
             .order("created_at", { ascending: false })
+            .limit(600)
         : Promise.resolve({ data: [] })
       : Promise.resolve({ data: [] }),
-    sessionIds.length > 0 && (viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
+    loadPlan.sessionInstructionNotes && sessionIds.length > 0
       ? serviceClient
           .from("session_instruction_notes")
           .select("*")
           .in("session_id", sessionIds)
           .order("updated_at", { ascending: false })
+          .limit(600)
       : Promise.resolve({ data: [] }),
-    viewer.role === "instructor" && studentIds.length > 0
+    loadPlan.instructionalAccommodations && studentIds.length > 0
       ? serviceClient
           .from("instructional_accommodations")
           .select("*")
           .in("student_id", studentIds)
           .order("updated_at", { ascending: false })
       : Promise.resolve({ data: [] }),
-    cohortIds.length > 0 && (viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
+    loadPlan.instructorFollowUpFlags && cohortIds.length > 0
       ? serviceClient
           .from("instructor_follow_up_flags")
           .select("*")
           .in("cohort_id", cohortIds)
           .order("created_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta"
-      ? cohortIds.length > 0
-        ? serviceClient
-            .from("resources")
-            .select("*")
-            .in("cohort_id", cohortIds)
-            .order("published_at", { ascending: false })
-        : Promise.resolve({ data: [] })
+    loadPlan.resources && cohortIds.length > 0
+      ? serviceClient
+          .from("resources")
+          .select("*")
+          .in("cohort_id", cohortIds)
+          .order("published_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
-      ? familyIds.length > 0
-        ? serviceClient
-            .from("invoices")
-            .select("*")
-            .in("family_id", familyIds)
-            .order("due_date", { ascending: true })
-        : Promise.resolve({ data: [] })
+    loadPlan.invoices && familyIds.length > 0
+      ? serviceClient
+          .from("invoices")
+          .select("*")
+          .in("family_id", familyIds)
+          .order("due_date", { ascending: true })
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta"
-      ? cohortIds.length > 0
-        ? serviceClient
-            .from("message_threads")
-            .select("*")
-            .in("cohort_id", cohortIds)
-            .order("last_message_at", { ascending: false })
-        : Promise.resolve({ data: [] })
+    loadPlan.messageThreads && cohortIds.length > 0
+      ? serviceClient
+          .from("message_threads")
+          .select("*")
+          .in("cohort_id", cohortIds)
+          .order("last_message_at", { ascending: false })
+          .limit(200)
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff"
-      ? serviceClient.from("leads").select("*").order("submitted_at", { ascending: false })
+    loadPlan.leads
+      ? serviceClient.from("leads").select("*").order("submitted_at", { ascending: false }).limit(150)
       : Promise.resolve({ data: [] }),
     serviceClient.from("sync_jobs").select("*").order("label", { ascending: true }),
-    canRunIntakeImports(viewer.role)
+    loadPlan.integrations
       ? serviceClient
           .from("intake_import_runs")
           .select("*")
           .order("started_at", { ascending: false })
           .limit(6)
       : Promise.resolve({ data: [] }),
-    canRunIntakeImports(viewer.role)
+    loadPlan.integrations
       ? serviceClient
           .from("intake_sync_sources")
           .select("*")
           .eq("id", "google-forms-primary")
           .maybeSingle()
       : Promise.resolve({ data: null }),
-    canRunIntakeImports(viewer.role)
+    loadPlan.integrations
       ? serviceClient
           .from("billing_sync_sources")
           .select("*")
           .eq("id", "quickbooks-primary")
           .maybeSingle()
       : Promise.resolve({ data: null }),
-    viewer.role === "engineer" || viewer.role === "admin"
+    loadPlan.allProfiles
       ? serviceClient.from("profiles").select("*").order("full_name", { ascending: true })
       : assignedUserIds.length > 0
         ? serviceClient.from("profiles").select("*").in("id", assignedUserIds)
         : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin"
+    loadPlan.userTemplates
       ? serviceClient.from("user_templates").select("*").order("email", { ascending: true })
       : Promise.resolve({ data: [] }),
-    viewer.role === "engineer" || viewer.role === "admin"
+    loadPlan.auditLogs
       ? serviceClient
           .from("account_audit_logs")
           .select("*")
           .order("created_at", { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [] }),
-    (viewer.role === "admin" || viewer.role === "staff") && familyIds.length > 0
+    loadPlan.billingFollowUpNotes && familyIds.length > 0
       ? serviceClient
           .from("billing_follow_up_notes")
           .select("*")
           .in("family_id", familyIds)
           .order("created_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-      viewer.role === "admin"
+      loadPlan.adminTasks && viewer.role === "admin"
       ? serviceClient
           .from("admin_tasks")
           .select("*")
           .order("due_at", { ascending: true, nullsFirst: false })
-      : viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor"
+          .limit(300)
+      : loadPlan.adminTasks && (viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
         ? serviceClient
             .from("admin_tasks")
             .select("*")
             .eq("assigned_to", viewer.id)
             .order("due_at", { ascending: true, nullsFirst: false })
+            .limit(100)
         : Promise.resolve({ data: [] }),
-    viewer.role === "admin"
+    loadPlan.savedViews && viewer.role === "admin"
       ? serviceClient
           .from("admin_saved_views")
           .select("*")
           .order("updated_at", { ascending: false })
-      : viewer.role === "staff"
+      : loadPlan.savedViews && viewer.role === "staff"
         ? serviceClient
             .from("admin_saved_views")
             .select("*")
             .eq("created_by", viewer.id)
             .order("updated_at", { ascending: false })
       : Promise.resolve({ data: [] }),
-    (viewer.role === "admin" || viewer.role === "staff") && familyIds.length > 0
+    loadPlan.familyContactEvents && familyIds.length > 0
       ? serviceClient
           .from("family_contact_events")
           .select("*")
           .in("family_id", familyIds)
           .order("contact_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor"
+    loadPlan.adminAnnouncements
       ? serviceClient
           .from("admin_announcements")
           .select("*")
           .eq("is_active", true)
           .order("starts_at", { ascending: false })
       : Promise.resolve({ data: [] }),
-    viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta"
+    loadPlan.sessionChecklists
       ? serviceClient
           .from("session_checklists")
           .select("*")
+          .limit(500)
       : Promise.resolve({ data: [] }),
-    (viewer.role === "ta" || viewer.role === "instructor") && sessionIds.length > 0
+    loadPlan.handoffNotes && sessionIds.length > 0
       ? serviceClient
           .from("session_handoff_notes")
           .select("*")
           .in("session_id", sessionIds)
           .order("created_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "ta" && sessionIds.length > 0
+    loadPlan.attendanceExceptionFlags && sessionIds.length > 0
       ? serviceClient
           .from("attendance_exception_flags")
           .select("*")
           .in("session_id", sessionIds)
           .order("created_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "ta" && sessionIds.length > 0
+    loadPlan.coverageFlags && sessionIds.length > 0
       ? serviceClient
           .from("session_coverage_flags")
           .select("*")
           .in("session_id", sessionIds)
           .order("updated_at", { ascending: false })
+          .limit(300)
       : Promise.resolve({ data: [] }),
-    viewer.role === "admin"
+    loadPlan.approvalRequests && viewer.role === "admin"
       ? serviceClient
           .from("approval_requests")
           .select("*")
           .order("created_at", { ascending: false })
-      : viewer.role === "staff"
+          .limit(200)
+      : loadPlan.approvalRequests && viewer.role === "staff"
         ? serviceClient
             .from("approval_requests")
             .select("*")
             .eq("requested_by", viewer.id)
             .order("created_at", { ascending: false })
+            .limit(100)
         : Promise.resolve({ data: [] }),
-    viewer.role === "admin" || viewer.role === "staff"
+    loadPlan.escalations && (viewer.role === "admin" || viewer.role === "staff")
       ? serviceClient
           .from("admin_escalations")
           .select("*")
           .order("created_at", { ascending: false })
-        : viewer.role === "ta" || viewer.role === "instructor"
+          .limit(200)
+        : loadPlan.escalations && (viewer.role === "ta" || viewer.role === "instructor")
           ? serviceClient
               .from("admin_escalations")
               .select("*")
               .order("created_at", { ascending: false })
+              .limit(100)
         : Promise.resolve({ data: [] }),
-    viewer.role === "staff"
+    loadPlan.outreachTemplates
       ? serviceClient
           .from("outreach_templates")
           .select("*")
@@ -2125,12 +2200,13 @@ async function loadLivePortalBundle(
   const taskIds = adminTaskRows.map((task) => task.id);
 
   const [threadPostsResult, resourceSignedUrlsResult, taskActivitiesResult] = await Promise.all([
-    threadIds.length > 0
+    loadPlan.messageThreads && threadIds.length > 0
       ? serviceClient
           .from("message_posts")
           .select("*")
           .in("thread_id", threadIds)
           .order("created_at", { ascending: true })
+          .limit(600)
       : Promise.resolve({ data: [] }),
     Promise.all(
       resourceRows.map(async (resource) => {
@@ -2149,12 +2225,13 @@ async function loadLivePortalBundle(
         return [resource.id, data.signedUrl] as const;
       }),
     ),
-    taskIds.length > 0 && (viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
+    loadPlan.adminTasks && taskIds.length > 0 && (viewer.role === "admin" || viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
       ? serviceClient
           .from("task_activities")
           .select("*")
           .in("task_id", taskIds)
           .order("created_at", { ascending: false })
+          .limit(500)
       : Promise.resolve({ data: [] }),
   ]);
   const threadPostRows = filterDemoScopedRows(
@@ -2380,7 +2457,7 @@ async function loadLivePortalBundle(
       ? auditLogRows.filter((log) => adminVisibleAuditActions.has(log.action))
       : auditLogRows;
   const settingsAuditLogs =
-    viewer.role === "engineer" || viewer.role === "admin"
+    loadPlan.auditLogs
       ? filteredAuditRows.map((log) => ({
           id: log.id,
           actorName:
@@ -2405,14 +2482,14 @@ async function loadLivePortalBundle(
         }))
       : null;
   const engineerSupportNotes =
-    viewer.role === "engineer" ? await getEngineerSupportNotes() : [];
-  const feedbackSubmissions = await listFeedbackSubmissions(viewer);
-  const engineerFeatureFlags = viewer.role === "engineer" ? await getFeatureFlags() : [];
-  const engineerChangeFreeze = viewer.role === "engineer" ? await getChangeFreeze() : null;
+    loadPlan.engineerConsole ? await getEngineerSupportNotes() : [];
+  const feedbackSubmissions = loadPlan.feedback ? await listFeedbackSubmissions(viewer) : [];
+  const engineerFeatureFlags = loadPlan.engineerConsole ? await getFeatureFlags() : [];
+  const engineerChangeFreeze = loadPlan.engineerConsole ? await getChangeFreeze() : null;
   const activeMaintenanceBanner = await getMaintenanceBanner();
-  const engineerSchemaInspectorRows = viewer.role === "engineer" ? await getSchemaInspectorRows() : [];
+  const engineerSchemaInspectorRows = loadPlan.engineerConsole ? await getSchemaInspectorRows() : [];
   const engineerSystemStatus =
-    viewer.role === "engineer"
+    loadPlan.engineerConsole
       ? await buildEngineerSystemStatus({
           syncJobs: mappedSyncJobs,
           intakeSource: mappedIntakeSyncSource,
@@ -2420,7 +2497,7 @@ async function loadLivePortalBundle(
         })
       : null;
   const engineerChangeLogEntries =
-    viewer.role === "engineer" && settingsAuditLogs
+    loadPlan.engineerConsole && settingsAuditLogs
       ? settingsAuditLogs
           .filter((entry) =>
             [
@@ -3257,19 +3334,18 @@ async function loadLivePortalBundle(
 }
 
 function getLivePortalCacheSection(viewer: User, section?: PortalSection) {
-  return viewer.role === "instructor" && section === "dashboard"
-    ? "instructor-dashboard"
-    : "shared";
+  const scopedSection = section ?? "dashboard";
+  return `${viewer.role}:${scopedSection}`;
 }
 
 const getCachedLivePortalBundle = unstable_cache(
   async (viewerJson: string, cacheSection: string) => {
     const viewer = JSON.parse(viewerJson) as User;
-    const section = cacheSection === "instructor-dashboard" ? "dashboard" : undefined;
+    const section = cacheSection.split(":").at(-1) as PortalSection | undefined;
 
     return loadLivePortalBundle(viewer, section);
   },
-  ["live-portal-bundle-v1"],
+  ["live-portal-bundle-v2"],
   {
     revalidate: 15,
     tags: ["portal-live"],
@@ -3286,10 +3362,6 @@ export async function getLivePortalBundle(
 
   if (!hasSupabaseServiceRole()) {
     return null;
-  }
-
-  if (section === "calendar" || section === "cohorts" || section === "students") {
-    return loadLivePortalBundle(viewer, section);
   }
 
   return getCachedLivePortalBundle(

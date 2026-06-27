@@ -71,7 +71,6 @@ import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
 import { PortalFeedbackButton } from "@/components/portal/portal-feedback-button";
-import { PortalNavPrefetch } from "@/components/portal/portal-nav-prefetch";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
@@ -245,23 +244,48 @@ export async function PortalShell({
         user: currentUser,
       };
   const liveAttendance = section === "attendance" ? await getLiveAttendanceBundle(viewer.user) : null;
-  const metrics = livePortal
+  const needsDashboardData = section === "dashboard";
+  const needsTodaySessions = section === "dashboard" || section === "attendance";
+  const needsTrendRows =
+    section === "dashboard" ||
+    section === "cohorts" ||
+    section === "attendance" ||
+    section === "academics";
+  const needsBillingRows =
+    section === "dashboard" || section === "families" || section === "billing";
+  const needsSettingsRows = section === "settings";
+  const metrics = needsDashboardData && livePortal
     ? getDashboardMetricsFromContext(role, context)
-    : getDashboardMetrics(role);
-  const alerts = livePortal ? getAlertsFromSyncJobs(role, context.visibleSyncJobs) : getAlerts(role);
-  const todaySessions = (livePortal
-    ? getTodaySessionsFromContext(context)
-    : getTodaySessions(role)
-  ).sort((left, right) => left.startAt.localeCompare(right.startAt));
-  const todayResults = livePortal
+    : needsDashboardData
+      ? getDashboardMetrics(role)
+      : [];
+  const alerts =
+    needsDashboardData && livePortal
+      ? getAlertsFromSyncJobs(role, context.visibleSyncJobs)
+      : needsDashboardData
+        ? getAlerts(role)
+        : [];
+  const todaySessions = needsTodaySessions
+    ? (livePortal
+        ? getTodaySessionsFromContext(context)
+        : getTodaySessions(role)
+      ).sort((left, right) => left.startAt.localeCompare(right.startAt))
+    : [];
+  const todayResults = section === "academics" && livePortal
     ? getTodayResultsFromContext(context)
-    : getTodayResults(role);
-  const visibleLeads = livePortal
+    : section === "academics"
+      ? getTodayResults(role)
+      : [];
+  const visibleLeads = needsDashboardData && livePortal
     ? getVisibleLeadsFromContext(role, context)
-    : getVisibleLeads(role);
-  const visibleTaskCards = livePortal
+    : needsDashboardData
+      ? getVisibleLeads(role)
+      : [];
+  const visibleTaskCards = needsDashboardData && livePortal
     ? getVisibleTaskCards(role, livePortal.visibleAdminTasks)
-    : getVisibleTaskCards(role);
+    : needsDashboardData
+      ? getVisibleTaskCards(role)
+      : [];
   const visibleSyncJobs = livePortal
     ? getVisibleSyncJobsFromContext(role, context)
     : getVisibleSyncJobs(role);
@@ -270,22 +294,38 @@ export async function PortalShell({
     : getVisibleImportRuns(role);
   const intakeSyncSource = livePortal?.intakeSyncSource ?? null;
   const billingSyncSource = livePortal?.billingSyncSource ?? null;
-  const visibleNotes = livePortal ? livePortal.visibleNotes : getVisibleNotes(role);
-  const visibleResources = livePortal ? livePortal.visibleResources : getSectionResourceRows(role);
+  const visibleNotes =
+    section === "cohorts" || section === "students" || section === "academics"
+      ? livePortal
+        ? livePortal.visibleNotes
+        : getVisibleNotes(role)
+      : [];
+  const visibleResources =
+    section === "academics"
+      ? livePortal
+        ? livePortal.visibleResources
+        : getSectionResourceRows(role)
+      : [];
   const visibleThreadPosts = livePortal?.visibleThreadPosts ?? {};
-  const trendRows = livePortal
+  const trendRows = needsTrendRows && livePortal
     ? getStudentTrendViewFromContext(role, context)
-    : getStudentTrendView(role);
-  const billingRows = livePortal
+    : needsTrendRows
+      ? getStudentTrendView(role)
+      : [];
+  const billingRows = needsBillingRows && livePortal
     ? getBillingRowsFromContext(context, role)
-    : getBillingRows(role);
-  const programRows = getProgramRowsFromContext(context);
-  const settingsRoleRows = getSettingsRoleRows(livePortal?.settingsRoleStats ?? undefined);
+    : needsBillingRows
+      ? getBillingRows(role)
+      : [];
+  const programRows = section === "programs" ? getProgramRowsFromContext(context) : [];
+  const settingsRoleRows = needsSettingsRows
+    ? getSettingsRoleRows(livePortal?.settingsRoleStats ?? undefined)
+    : [];
   const accessible = isSectionVisibleToRole(role, section);
   const fallbackSection = getSectionFallback(role);
   const permissions = getPermissionProfile(role);
-  const settingsReadinessRows =
-    livePortal
+  const settingsReadinessRows = needsSettingsRows
+    ? livePortal
       ? [
           {
             label: "User access",
@@ -345,7 +385,8 @@ export async function PortalShell({
                 ? ("healthy" as const)
                 : ("warning" as const),
           },
-        ];
+        ]
+    : [];
 
   const rosterMaps =
     liveAttendance?.rosters ??
@@ -405,10 +446,6 @@ export async function PortalShell({
   const withPreviewRole = (path: string, candidateRole: UserRole) => `${path}?role=${candidateRole}`;
   const sectionHref = (path: string) =>
     viewer.mode === "live-role-preview" ? withPreviewRole(path, role) : path;
-  const currentSectionHref = sectionHref(`/${section}`);
-  const navHrefs = context.visibleSections
-    .map((item) => sectionHref(`/${item}`))
-    .filter((href) => href !== currentSectionHref);
   const snapshotDate = liveAttendance?.currentDate ?? context.currentDate;
   const attendanceHandoffNotes = liveAttendance?.handoffNotes ?? [];
   const attendanceExceptionFlags = liveAttendance?.exceptionFlags ?? [];
@@ -425,7 +462,6 @@ export async function PortalShell({
   return (
     <div className="min-h-screen px-4 py-5 lg:px-6 lg:py-6">
       <PortalLiveSync enabled section={section} />
-      <PortalNavPrefetch hrefs={navHrefs} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 xl:flex-row">
         <aside className="glass-panel thin-scrollbar flex flex-col rounded-lg border border-[color:var(--line)] p-4 shadow-[var(--shadow)] xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:w-[300px] xl:overflow-y-auto">
           <div className="operations-image rounded-lg p-4 text-white">
@@ -457,7 +493,7 @@ export async function PortalShell({
                   <Link
                     key={item}
                     href={sectionHref(`/${item}`)}
-                    prefetch
+                    prefetch={false}
                     className={clsx(
                       "nav-pill flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold",
                       active ? "nav-pill-active" : "text-[color:var(--muted)] hover:bg-white",
