@@ -381,7 +381,7 @@ export function TaDashboardPanels({
                     </div>
                   </div>
                 </div>
-                <TrendSparkline className="mt-3" points={student.trend} tone="copper" />
+                <TrendSparkline className="mt-3" points={student.trend} />
               </div>
             ))}
           </div>

@@ -357,7 +357,6 @@ export function AttendanceBoard({
                     </div>
                     <TrendSparkline
                       points={row.trend}
-                      tone={role === "instructor" ? "navy" : "copper"}
                     />
                   </div>
                 </div>

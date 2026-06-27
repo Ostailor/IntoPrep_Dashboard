@@ -1118,7 +1118,7 @@ function renderSectionContent({
                             </div>
                           </div>
                         </div>
-                        <TrendSparkline className="mt-3" points={student.trend} tone="navy" />
+                        <TrendSparkline className="mt-3" points={student.trend} />
                       </div>
                     ))}
                   </div>
@@ -1280,72 +1280,18 @@ function renderSectionContent({
 
     case "students":
       return (
-        <SectionPanel>
-          <SectionHeading
-            eyebrow="Student directory"
-            title="Academic-facing student list"
-            description={
-              role === "ta"
-                ? "TA access stays limited to assigned-cohort student context plus family contact basics."
-                : "TA, staff, and admin can see student records with support-ready context. Instructors do not see this surface."
-            }
-          />
-          {role === "admin" || role === "staff" ? (
-            <StudentCohortAssignmentPanel
-              viewerMode={viewerMode}
-              role={role}
-              students={context.visibleStudents}
-              cohorts={context.visibleCohorts}
-              enrollments={context.visibleEnrollments}
-            />
-          ) : null}
-          <div className="mt-5 overflow-hidden rounded-[1.75rem] border border-[color:var(--line)]">
-            <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-4 bg-[rgba(23,56,75,0.06)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              <span>Student</span>
-              <span>School</span>
-              <span>Target</span>
-              <span>Family contact</span>
-            </div>
-            {context.visibleStudents.map((student) => {
-              const family = context.visibleFamilies.find((item) => item.id === student.familyId);
-              return (
-                <div
-                  key={student.id}
-                  className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-4 border-t border-[color:var(--line)] bg-white/75 px-5 py-4 text-sm"
-                >
-                  <div>
-                    <div className="font-semibold text-[color:var(--navy-strong)]">
-                      {student.firstName} {student.lastName}
-                    </div>
-                    <div className="mt-1 text-[color:var(--muted)]">Grade {student.gradeLevel}</div>
-                    {role === "engineer" && !student.sensitiveAccessGranted ? (
-                      <EngineerBreakGlassButton
-                        scopeType="student"
-                        scopeId={student.id}
-                        label={`${student.firstName} ${student.lastName}`}
-                        className="mt-3"
-                      />
-                    ) : null}
-                  </div>
-                  <div className="text-[color:var(--muted)]">{student.school}</div>
-                  <div>
-                    <div className="font-semibold text-[color:var(--navy-strong)]">{student.targetTest}</div>
-                    <div className="mt-1 text-[color:var(--muted)]">{student.focus}</div>
-                  </div>
-                  <div className="text-[color:var(--muted)]">
-                    {family
-                      ? permissions.canViewFamilyProfiles ||
-                        permissions.canViewFamilyContactBasics ||
-                        family.sensitiveAccessGranted
-                        ? family.email
-                        : "Protected"
-                      : "Restricted"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </SectionPanel>
+        <StudentCohortAssignmentPanel
+          viewerMode={viewerMode}
+          role={role}
+          currentDate={context.currentDate}
+          students={context.visibleStudents}
+          families={context.visibleFamilies}
+          cohorts={context.visibleCohorts}
+          sessions={context.visibleSessions}
+          enrollments={context.visibleEnrollments}
+          assessments={context.visibleAssessments}
+          results={context.visibleResults}
+        />
       );
 
     case "families":

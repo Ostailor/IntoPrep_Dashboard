@@ -13,16 +13,48 @@ const toneStyles = {
     stroke: "#738a7b",
     fill: "rgba(115, 138, 123, 0.14)",
   },
+  improving: {
+    stroke: "#047857",
+    fill: "rgba(4, 120, 87, 0.14)",
+  },
+  plateauing: {
+    stroke: "#b45309",
+    fill: "rgba(180, 83, 9, 0.14)",
+  },
+  declining: {
+    stroke: "#be123c",
+    fill: "rgba(190, 18, 60, 0.14)",
+  },
 };
+
+function getTrendTone(points: { label: string; score: number }[]) {
+  if (points.length < 2) {
+    return "plateauing" as const;
+  }
+
+  const delta = points.at(-1)!.score - points[0]!.score;
+
+  if (delta > 20) {
+    return "improving" as const;
+  }
+
+  if (delta < -20) {
+    return "declining" as const;
+  }
+
+  return "plateauing" as const;
+}
 
 export function TrendSparkline({
   points,
-  tone = "copper",
+  tone,
   className,
+  onClick,
 }: {
   points: { label: string; score: number }[];
   tone?: keyof typeof toneStyles;
   className?: string;
+  onClick?: () => void;
 }) {
   if (points.length === 0) {
     return (
@@ -54,20 +86,20 @@ export function TrendSparkline({
     .join(" ");
 
   const fillPoints = `${padding},${height - padding} ${svgPoints} ${width - padding},${height - padding}`;
-
-  return (
-    <div className={clsx("space-y-2", className)}>
+  const resolvedTone = tone ?? getTrendTone(points);
+  const content = (
+    <>
       <svg
         className="h-14 w-full overflow-visible"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label="Trend sparkline"
       >
-        <polygon points={fillPoints} fill={toneStyles[tone].fill} />
+        <polygon points={fillPoints} fill={toneStyles[resolvedTone].fill} />
         <polyline
           points={svgPoints}
           fill="none"
-          stroke={toneStyles[tone].stroke}
+          stroke={toneStyles[resolvedTone].stroke}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={3}
@@ -77,6 +109,24 @@ export function TrendSparkline({
         <span>{points[0]?.label}</span>
         <span>{points.at(-1)?.label}</span>
       </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={clsx("w-full space-y-2 rounded-2xl text-left outline-none transition focus:ring-2 focus:ring-[rgba(23,56,75,0.18)]", className)}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={clsx("space-y-2", className)}>
+      {content}
     </div>
   );
 }

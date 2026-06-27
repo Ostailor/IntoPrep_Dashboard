@@ -1340,7 +1340,7 @@ function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
 
   return {
     section,
-    sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "programs", "academics"),
+    sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "students", "programs", "academics"),
     enrollments: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
     students: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
     assessments: isAnySection("dashboard", "cohorts", "attendance", "students", "academics"),
@@ -1897,13 +1897,18 @@ async function loadLivePortalBundle(
   const assignedUserIds = unique(assignmentRows.map((assignment) => assignment.user_id));
   const sessionIds = sessionRows.map((session) => session.id);
 
-  const studentsResult =
-    loadPlan.students && studentIds.length > 0
-      ? await serviceClient
-          .from("students")
-          .select("*")
-          .in("id", studentIds)
-      : { data: [] };
+  const shouldLoadAllDirectoryStudents =
+    loadPlan.section === "students" && (viewer.role === "admin" || viewer.role === "staff");
+  const studentsResult = loadPlan.students
+    ? shouldLoadAllDirectoryStudents
+      ? await serviceClient.from("students").select("*").order("last_name", { ascending: true })
+      : studentIds.length > 0
+        ? await serviceClient
+            .from("students")
+            .select("*")
+            .in("id", studentIds)
+        : { data: [] }
+    : { data: [] };
   const studentRows = filterDemoScopedRows((studentsResult.data ?? []) as StudentRow[], viewer);
   const familyIds =
     viewer.role === "engineer" ||
@@ -3368,7 +3373,7 @@ const getCachedLivePortalBundle = unstable_cache(
 
     return loadLivePortalBundle(viewer, section);
   },
-  ["live-portal-bundle-v2"],
+  ["live-portal-bundle-v3"],
   {
     revalidate: 15,
     tags: ["portal-live"],

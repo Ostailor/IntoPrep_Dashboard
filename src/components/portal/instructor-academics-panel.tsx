@@ -496,7 +496,7 @@ export function InstructorAcademicsPanel({
                   </div>
                 </div>
               </div>
-              <TrendSparkline className="mt-3" points={selectedTrend.trend} tone="navy" />
+              <TrendSparkline className="mt-3" points={selectedTrend.trend} />
             </div>
           ) : (
             <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 px-4 py-5 text-sm text-[color:var(--muted)]">
