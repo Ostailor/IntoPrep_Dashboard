@@ -180,6 +180,9 @@ export interface Cohort {
   leadInstructorId: string;
   taIds: string[];
   cadence: string;
+  cohortMode: "In person" | "Hybrid" | "Zoom";
+  startDate: string | null;
+  endDate: string | null;
   roomLabel: string;
 }
 

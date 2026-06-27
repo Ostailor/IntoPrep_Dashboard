@@ -194,6 +194,9 @@ export interface Database {
           enrolled: number;
           lead_instructor_id: string | null;
           cadence: string;
+          cohort_mode: string;
+          start_date: string | null;
+          end_date: string | null;
           room_label: string;
           is_archived: boolean;
           archived_at: string | null;
@@ -209,6 +212,9 @@ export interface Database {
           enrolled?: number;
           lead_instructor_id?: string | null;
           cadence: string;
+          cohort_mode?: string;
+          start_date?: string | null;
+          end_date?: string | null;
           room_label: string;
           is_archived?: boolean;
           archived_at?: string | null;

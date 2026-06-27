@@ -191,7 +191,7 @@ export const sectionMeta: Record<
   },
   cohorts: {
     title: "Cohort map",
-    summary: "Capacity, staffing, and progress across active cohorts.",
+    summary: "Create cohort shells before building class schedules in Instruction Calendar.",
     eyebrow: "Cohorts",
   },
   attendance: {

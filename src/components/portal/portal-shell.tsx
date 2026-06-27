@@ -85,7 +85,6 @@ import { AdminProgramArchivePanel } from "@/components/portal/admin-program-arch
 import { AdminSessionCreatePanel } from "@/components/portal/admin-session-create-panel";
 import { AdminSessionManagementPanel } from "@/components/portal/admin-session-management-panel";
 import { StaffBillingPanel } from "@/components/portal/staff-billing-panel";
-import { StaffCohortOperationsPanel } from "@/components/portal/staff-cohort-operations-panel";
 import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
 import { StaffFamilyOpsPanel } from "@/components/portal/staff-family-ops-panel";
 import { StaffMessagingPanel } from "@/components/portal/staff-messaging-panel";
@@ -1226,94 +1225,17 @@ function renderSectionContent({
     case "cohorts":
       return (
         <div className="space-y-5">
-          {role === "admin" && adminOps ? (
-            <AdminCohortOperationsPanel
-              viewerMode={viewerMode}
-              cohorts={context.visibleCohorts}
-              archivedCohorts={adminOps.archivedCohorts}
-              sessions={context.visibleSessions}
-              students={context.visibleStudents}
-              enrollments={context.visibleEnrollments}
-              users={context.visibleUsers}
-              forecastRows={adminOps.capacityForecastRows}
-              attendanceFlags={adminOps.attendanceExceptionFlags}
-              adminTasks={visibleAdminTasks}
-              assessments={context.visibleAssessments}
-              results={context.visibleResults}
-              notes={visibleNotes}
-              savedViews={adminOps.savedViews}
-            />
-          ) : null}
-          {role === "staff" && staffOps ? (
-            <StaffCohortOperationsPanel
-              viewerMode={viewerMode}
-              cohorts={context.visibleCohorts}
-              sessions={context.visibleSessions}
-              students={context.visibleStudents}
-              enrollments={context.visibleEnrollments}
-              sessionChecklists={staffOps.sessionChecklists}
-              savedViews={staffOps.savedViews}
-            />
-          ) : null}
-          <section className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+          {role === "admin" ? (
+            <AdminCohortOperationsPanel viewerMode={viewerMode} />
+          ) : (
             <SectionPanel>
               <SectionHeading
-                eyebrow="Cohort inventory"
-                title="Active teaching groups"
-                description="Capacity, cadence, and staffing for every cohort visible to the current role."
+                eyebrow="Cohort map"
+                title="Cohort creation is admin-only"
+                description="This section creates cohort shells. Class schedules, instructors, rooms, Zoom accounts, and student-facing blocks are managed in Instruction Calendar."
               />
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                {context.visibleCohorts.map((cohort) => (
-                  <Link
-                    key={cohort.id}
-                    href={`/cohorts?cohortId=${cohort.id}`}
-                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[rgba(187,110,69,0.45)] hover:bg-white"
-                  >
-                    <div className="text-lg font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
-                    <div className="mt-2 text-sm text-[color:var(--muted)]">{cohort.cadence}</div>
-                    <div className="mt-4 flex items-center justify-between text-sm text-[color:var(--muted)]">
-                      <span>{cohort.roomLabel}</span>
-                      <span>{cohort.enrolled}/{cohort.capacity}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
             </SectionPanel>
-
-            <SectionPanel>
-              <SectionHeading
-                eyebrow={role === "instructor" ? "Assigned trends" : "Academic direction"}
-                title={role === "instructor" ? "Student progress pulse" : "Performance direction"}
-                description={
-                  role === "instructor"
-                    ? "Read-only score trends for students attached to assigned classes."
-                    : "Trend movement helps teaching teams decide where intervention is needed next."
-                }
-              />
-              <div className="mt-5 space-y-4">
-                {trendRows.map((student) => (
-                  <div key={student.studentId} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-base font-semibold text-[color:var(--navy-strong)]">{student.studentName}</div>
-                        <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
-                          {student.latestScore ?? "—"}
-                        </div>
-                        <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                          {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
-                          {student.deltaFromPrevious ?? 0} latest delta
-                        </div>
-                      </div>
-                    </div>
-                    <TrendSparkline className="mt-3" points={student.trend} tone={role === "instructor" ? "navy" : "copper"} />
-                  </div>
-                ))}
-              </div>
-            </SectionPanel>
-          </section>
+          )}
         </div>
       );
 

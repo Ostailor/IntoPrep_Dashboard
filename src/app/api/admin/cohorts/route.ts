@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
-import { updateAdminCohortOperation } from "@/lib/admin-operations";
+import { createAdminCohort } from "@/lib/admin-operations";
 
 export async function POST(request: NextRequest) {
   const viewer = await getAuthenticatedViewerForRequest();
@@ -11,25 +11,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const result = await updateAdminCohortOperation({
+    const result = await createAdminCohort({
       viewer: viewer.user,
-      cohortId: body?.cohortId,
-      capacity: typeof body?.capacity === "number" ? body.capacity : undefined,
+      name: body?.name,
       cadence: body?.cadence,
-      roomLabel: body?.roomLabel,
-      leadInstructorId: body?.leadInstructorId,
-      sessionId: body?.sessionId,
-      sessionTitle: body?.sessionTitle,
-      sessionStartAt: body?.sessionStartAt,
-      sessionEndAt: body?.sessionEndAt,
-      sessionMode: body?.sessionMode,
-      sessionRoomLabel: body?.sessionRoomLabel,
-      force: Boolean(body?.force),
+      cohortMode: body?.cohortMode,
+      startDate: body?.startDate,
+      endDate: body?.endDate,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Cohort update failed." },
+      { error: error instanceof Error ? error.message : "Cohort creation failed." },
       { status: 400 },
     );
   }

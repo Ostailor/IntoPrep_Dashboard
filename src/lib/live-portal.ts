@@ -372,6 +372,9 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       leadInstructorId: instructorUser.id,
       taIds: [taUser.id],
       cadence: "Sat 9:00 AM",
+      cohortMode: "Hybrid",
+      startDate: "2026-06-15",
+      endDate: "2026-08-15",
       roomLabel: "Room 204",
     },
   ];
@@ -894,6 +897,17 @@ function normalizeMode(value: string): Session["mode"] {
       return value;
     default:
       return "Hybrid";
+  }
+}
+
+function normalizeCohortMode(value: string | null | undefined): Cohort["cohortMode"] {
+  switch (value) {
+    case "In person":
+    case "Hybrid":
+    case "Zoom":
+      return value;
+    default:
+      return "In person";
   }
 }
 
@@ -1683,6 +1697,9 @@ async function loadLivePortalBundle(
             .filter((assignment) => assignment.role === "ta")
             .map((assignment) => assignment.user_id),
           cadence: cohort.cadence,
+          cohortMode: normalizeCohortMode(cohort.cohort_mode),
+          startDate: cohort.start_date,
+          endDate: cohort.end_date,
           roomLabel: cohort.room_label,
         };
       }),
@@ -2537,6 +2554,9 @@ async function loadLivePortalBundle(
         .filter((assignment) => assignment.role === "ta")
         .map((assignment) => assignment.user_id),
       cadence: cohort.cadence,
+      cohortMode: normalizeCohortMode(cohort.cohort_mode),
+      startDate: cohort.start_date,
+      endDate: cohort.end_date,
       roomLabel: cohort.room_label,
     } satisfies Cohort;
   });
@@ -2981,6 +3001,9 @@ async function loadLivePortalBundle(
             leadInstructorId: cohort.lead_instructor_id ?? "",
             taIds: [],
             cadence: cohort.cadence,
+            cohortMode: normalizeCohortMode(cohort.cohort_mode),
+            startDate: cohort.start_date,
+            endDate: cohort.end_date,
             roomLabel: cohort.room_label,
           })),
           archivedPrograms: archivedProgramRows.map((program) => ({

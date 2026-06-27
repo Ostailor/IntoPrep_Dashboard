@@ -36,6 +36,8 @@ type CohortRow = Database["public"]["Tables"]["cohorts"]["Row"];
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type ProgramRow = Database["public"]["Tables"]["programs"]["Row"];
+type CampusRow = Database["public"]["Tables"]["campuses"]["Row"];
+type TermRow = Database["public"]["Tables"]["terms"]["Row"];
 type AdminAnnouncementRow = Database["public"]["Tables"]["admin_announcements"]["Row"];
 type AdminTaskRow = Database["public"]["Tables"]["admin_tasks"]["Row"];
 type ApprovalRequestRow = Database["public"]["Tables"]["approval_requests"]["Row"];
@@ -89,6 +91,17 @@ function normalizeSessionMode(value: string): SessionRow["mode"] {
       return value;
     default:
       throw new Error("Invalid class mode.");
+  }
+}
+
+function normalizeCohortMode(value: string): string {
+  switch (value) {
+    case "In person":
+    case "Hybrid":
+    case "Zoom":
+      return value;
+    default:
+      throw new Error("Invalid cohort mode.");
   }
 }
 
@@ -945,6 +958,172 @@ async function getConflictWarnings({
     });
 
   return Array.from(warnings);
+}
+
+export async function createAdminCohort({
+  viewer,
+  name,
+  cadence,
+  cohortMode,
+  startDate,
+  endDate,
+}: {
+  viewer: User;
+  name: string;
+  cadence: string;
+  cohortMode: string;
+  startDate: string;
+  endDate: string;
+}) {
+  ensureServiceRole();
+  assertAdminAccess(viewer);
+
+  if (!canManageSchedules(viewer.role)) {
+    throw new Error("You cannot manage cohort operations.");
+  }
+
+  await assertWritesAllowed("operational_writes");
+
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  const normalizedCadence = typeof cadence === "string" ? cadence.trim() : "";
+  const normalizedMode = normalizeCohortMode(typeof cohortMode === "string" ? cohortMode : "");
+  const normalizedStartDate = typeof startDate === "string" ? startDate.trim() : "";
+  const normalizedEndDate = typeof endDate === "string" ? endDate.trim() : "";
+
+  if (!normalizedName || !normalizedCadence || !normalizedStartDate || !normalizedEndDate) {
+    throw new Error("Cohort, cadence, and start/end dates are required.");
+  }
+
+  if (Number.isNaN(Date.parse(`${normalizedStartDate}T12:00:00Z`))) {
+    throw new Error("Start date is invalid.");
+  }
+
+  if (Number.isNaN(Date.parse(`${normalizedEndDate}T12:00:00Z`))) {
+    throw new Error("End date is invalid.");
+  }
+
+  if (normalizedStartDate > normalizedEndDate) {
+    throw new Error("End date must be on or after the start date.");
+  }
+
+  const serviceClient = createSupabaseServiceClient();
+  const demo = getDemoPartition(viewer);
+  const [
+    { data: existingData, error: existingError },
+    { data: programData, error: programError },
+    { data: campusData, error: campusError },
+    { data: termData, error: termError },
+  ] = await Promise.all([
+    serviceClient
+      .from("cohorts")
+      .select("id")
+      .eq("name", normalizedName)
+      .eq("demo", demo)
+      .maybeSingle(),
+    serviceClient
+      .from("programs")
+      .select("*")
+      .eq("is_archived", false)
+      .order("name", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    serviceClient
+      .from("campuses")
+      .select("*")
+      .order("name", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    serviceClient
+      .from("terms")
+      .select("*")
+      .lte("start_date", normalizedEndDate)
+      .gte("end_date", normalizedStartDate)
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  if (existingData) {
+    throw new Error("A cohort with that name already exists.");
+  }
+
+  if (programError) {
+    throw new Error(programError.message);
+  }
+
+  if (campusError) {
+    throw new Error(campusError.message);
+  }
+
+  if (termError) {
+    throw new Error(termError.message);
+  }
+
+  const fallbackTermResult =
+    termData
+      ? { data: termData, error: null }
+      : await serviceClient
+          .from("terms")
+          .select("*")
+          .order("start_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+  if (fallbackTermResult.error) {
+    throw new Error(fallbackTermResult.error.message);
+  }
+
+  const program = (programData ?? null) as ProgramRow | null;
+  const campus = (campusData ?? null) as CampusRow | null;
+  const term = (fallbackTermResult.data ?? null) as TermRow | null;
+
+  if (!program || !campus || !term) {
+    throw new Error("A program, campus, and term must exist before creating cohorts.");
+  }
+
+  const cohortId = createId("cohort");
+  const { error: insertError } = await serviceClient.from("cohorts").insert({
+    id: cohortId,
+    name: normalizedName,
+    program_id: program.id,
+    campus_id: campus.id,
+    term_id: term.id,
+    capacity: 0,
+    enrolled: 0,
+    cadence: normalizedCadence,
+    cohort_mode: normalizedMode,
+    start_date: normalizedStartDate,
+    end_date: normalizedEndDate,
+    room_label: normalizedMode,
+    demo,
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  await recordAccountAuditLog(serviceClient, {
+    actorId: viewer.id,
+    targetType: "cohort",
+    action: "cohort_operation_run",
+    summary: `${viewer.name} created cohort ${normalizedName}.`,
+    details: {
+      cohortId,
+      cadence: normalizedCadence,
+      cohortMode: normalizedMode,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+    },
+  });
+
+  return {
+    cohortId,
+    created: true,
+  };
 }
 
 export async function createAdminSession({
