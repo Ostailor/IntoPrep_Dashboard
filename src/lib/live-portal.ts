@@ -189,6 +189,7 @@ export interface LiveAdminOpsBundle {
   savedViews: AdminSavedView[];
   familyContactEvents: FamilyContactEvent[];
   capacityForecastRows: CapacityForecastRow[];
+  attendanceExceptionFlags: AttendanceExceptionFlag[];
   archivedCohorts: Cohort[];
   archivedPrograms: Program[];
   approvalRequests: ApprovalRequest[];
@@ -753,6 +754,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
           detail: "Needs additional enrollment outreach.",
         },
       ],
+      attendanceExceptionFlags: [],
       archivedCohorts: [],
       archivedPrograms: [],
       approvalRequests: [],
@@ -2890,6 +2892,7 @@ async function loadLivePortalBundle(
           savedViews: mappedSavedViews,
           familyContactEvents: mappedFamilyContactEvents,
           capacityForecastRows: buildCapacityForecastRows(mappedCohorts),
+          attendanceExceptionFlags: mappedAttendanceExceptionFlags,
           archivedCohorts: archivedCohortRows.map((cohort) => ({
             id: cohort.id,
             name: cohort.name,

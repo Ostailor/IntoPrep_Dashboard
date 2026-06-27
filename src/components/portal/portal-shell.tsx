@@ -1200,6 +1200,11 @@ function renderSectionContent({
               enrollments={context.visibleEnrollments}
               users={context.visibleUsers}
               forecastRows={adminOps.capacityForecastRows}
+              attendanceFlags={adminOps.attendanceExceptionFlags}
+              adminTasks={visibleAdminTasks}
+              assessments={context.visibleAssessments}
+              results={context.visibleResults}
+              notes={visibleNotes}
               savedViews={adminOps.savedViews}
             />
           ) : null}

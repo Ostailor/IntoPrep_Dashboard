@@ -1711,7 +1711,7 @@ export async function runAdminBulkOperation({
   dueAt,
 }: {
   viewer: User;
-  operation: "move_students" | "assign_coverage" | "attendance_follow_up";
+  operation: "move_students" | "assign_coverage" | "remove_coverage" | "attendance_follow_up";
   sourceCohortId?: string;
   targetCohortId?: string;
   cohortId?: string;
@@ -1851,6 +1851,39 @@ export async function runAdminBulkOperation({
 
     return {
       assignedCount: payload.length,
+    };
+  }
+
+  if (operation === "remove_coverage") {
+    if (!cohortId || !Array.isArray(userIds) || userIds.length === 0) {
+      throw new Error("A cohort and at least one user are required.");
+    }
+
+    const { error } = await serviceClient
+      .from("cohort_assignments")
+      .delete()
+      .eq("cohort_id", cohortId)
+      .eq("demo", getDemoPartition(viewer))
+      .in("user_id", userIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await recordAccountAuditLog(serviceClient, {
+      actorId: viewer.id,
+      targetType: "cohort",
+      action: "bulk_operation_run",
+      summary: `${viewer.name} removed ${userIds.length} team members from ${cohortId}.`,
+      details: {
+        operation,
+        cohortId,
+        userIds,
+      },
+    });
+
+    return {
+      removedCount: userIds.length,
     };
   }
 

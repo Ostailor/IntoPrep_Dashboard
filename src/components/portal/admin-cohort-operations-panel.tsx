@@ -4,7 +4,12 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import type {
+  AcademicNote,
+  AdminTask,
   AdminSavedView,
+  Assessment,
+  AssessmentResult,
+  AttendanceExceptionFlag,
   CapacityForecastRow,
   Cohort,
   Enrollment,
@@ -22,6 +27,11 @@ interface AdminCohortOperationsPanelProps {
   enrollments: Enrollment[];
   users: User[];
   forecastRows: CapacityForecastRow[];
+  attendanceFlags: AttendanceExceptionFlag[];
+  adminTasks: AdminTask[];
+  assessments: Assessment[];
+  results: AssessmentResult[];
+  notes: AcademicNote[];
   savedViews: AdminSavedView[];
 }
 
@@ -52,6 +62,11 @@ export function AdminCohortOperationsPanel({
   enrollments,
   users,
   forecastRows,
+  attendanceFlags,
+  adminTasks,
+  assessments,
+  results,
+  notes,
   savedViews,
 }: AdminCohortOperationsPanelProps) {
   const router = useRouter();
@@ -98,11 +113,15 @@ export function AdminCohortOperationsPanel({
     cohortId: defaultCohort?.id ?? "",
     userIds: [] as string[],
   });
+  const [bulkAccessRemovalState, setBulkAccessRemovalState] = useState({
+    userIds: [] as string[],
+  });
   const [bulkAttendanceState, setBulkAttendanceState] = useState({
     cohortId: defaultCohort?.id ?? "",
     studentIds: [] as string[],
     dueAt: "",
   });
+  const [selectedAttendanceStudentId, setSelectedAttendanceStudentId] = useState("");
   const forecastSavedViews = useMemo(
     () => savedViews.filter((view) => view.section === "cohorts"),
     [savedViews],
@@ -117,6 +136,20 @@ export function AdminCohortOperationsPanel({
   const coverageOptions = users.filter(
     (user) => user.role === "staff" || user.role === "ta" || user.role === "instructor",
   );
+  const cohortAccessUsers = useMemo(
+    () =>
+      coverageOptions
+        .filter((user) => user.assignedCohortIds.includes(bulkCoverageState.cohortId))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [bulkCoverageState.cohortId, coverageOptions],
+  );
+  const accessGrantOptions = useMemo(
+    () =>
+      coverageOptions
+        .filter((user) => !user.assignedCohortIds.includes(bulkCoverageState.cohortId))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [bulkCoverageState.cohortId, coverageOptions],
+  );
   const sourceStudents = useMemo(() => {
     const sourceIds = enrollments
       .filter(
@@ -127,15 +160,89 @@ export function AdminCohortOperationsPanel({
     return students.filter((student) => sourceIds.includes(student.id));
   }, [bulkMoveState.sourceCohortId, enrollments, students]);
   const attendanceStudents = useMemo(() => {
-    const targetIds = enrollments
+    const cohortEnrollmentIds = enrollments
       .filter(
         (enrollment) =>
           enrollment.cohortId === bulkAttendanceState.cohortId &&
           enrollment.status === "active",
       )
       .map((enrollment) => enrollment.studentId);
-    return students.filter((student) => targetIds.includes(student.id));
-  }, [bulkAttendanceState.cohortId, enrollments, students]);
+    const cohortEnrollmentSet = new Set(cohortEnrollmentIds);
+    const sessionIds = new Set(
+      sessions
+        .filter((session) => session.cohortId === bulkAttendanceState.cohortId)
+        .map((session) => session.id),
+    );
+    const flaggedStudentIds = attendanceFlags
+      .filter((flag) => sessionIds.has(flag.sessionId))
+      .map((flag) => flag.studentId);
+    const openAttendanceTaskStudentIds = adminTasks
+      .filter(
+        (task) =>
+          task.taskType === "attendance_follow_up" &&
+          task.targetType === "student" &&
+          task.status !== "done" &&
+          cohortEnrollmentSet.has(task.targetId),
+      )
+      .map((task) => task.targetId);
+    const issueStudentIds = new Set([...flaggedStudentIds, ...openAttendanceTaskStudentIds]);
+
+    return students
+      .filter((student) => issueStudentIds.has(student.id) && cohortEnrollmentSet.has(student.id))
+      .sort((left, right) => `${left.lastName} ${left.firstName}`.localeCompare(`${right.lastName} ${right.firstName}`));
+  }, [adminTasks, attendanceFlags, bulkAttendanceState.cohortId, enrollments, sessions, students]);
+  const selectedAttendanceStudent =
+    attendanceStudents.find((student) => student.id === selectedAttendanceStudentId) ?? attendanceStudents[0] ?? null;
+  const selectedAttendanceFlags = useMemo(() => {
+    if (!selectedAttendanceStudent) {
+      return [];
+    }
+
+    const sessionIds = new Set(
+      sessions
+        .filter((session) => session.cohortId === bulkAttendanceState.cohortId)
+        .map((session) => session.id),
+    );
+
+    return attendanceFlags.filter(
+      (flag) => flag.studentId === selectedAttendanceStudent.id && sessionIds.has(flag.sessionId),
+    );
+  }, [attendanceFlags, bulkAttendanceState.cohortId, selectedAttendanceStudent, sessions]);
+  const selectedAttendanceTasks = useMemo(
+    () =>
+      selectedAttendanceStudent
+        ? adminTasks.filter(
+            (task) =>
+              task.taskType === "attendance_follow_up" &&
+              task.targetType === "student" &&
+              task.targetId === selectedAttendanceStudent.id &&
+              task.status !== "done",
+          )
+        : [],
+    [adminTasks, selectedAttendanceStudent],
+  );
+  const selectedScoreResults = useMemo(
+    () =>
+      selectedAttendanceStudent
+        ? results
+            .filter((result) => result.studentId === selectedAttendanceStudent.id)
+            .sort((left, right) => right.id.localeCompare(left.id))
+        : [],
+    [results, selectedAttendanceStudent],
+  );
+  const selectedStudentNotes = useMemo(
+    () =>
+      selectedAttendanceStudent
+        ? notes
+            .filter((note) => note.studentId === selectedAttendanceStudent.id)
+            .slice(0, 3)
+        : [],
+    [notes, selectedAttendanceStudent],
+  );
+  const assessmentsById = useMemo(
+    () => new Map(assessments.map((assessment) => [assessment.id, assessment])),
+    [assessments],
+  );
   const selectedRoster = useMemo(() => {
     const rosterIds = enrollments
       .filter((enrollment) => enrollment.cohortId === selectedCohortId && enrollment.status === "active")
@@ -170,6 +277,22 @@ export function AdminCohortOperationsPanel({
       sessionRoomLabel: nextSession?.roomLabel ?? nextCohort.roomLabel ?? "",
     });
   }, [selectedCohortId, selectedCohortParam, sessions, sortedCohorts]);
+
+  useEffect(() => {
+    setBulkAttendanceState((current) => ({
+      ...current,
+      studentIds: current.studentIds.filter((studentId) =>
+        attendanceStudents.some((student) => student.id === studentId),
+      ),
+    }));
+
+    if (
+      selectedAttendanceStudentId &&
+      !attendanceStudents.some((student) => student.id === selectedAttendanceStudentId)
+    ) {
+      setSelectedAttendanceStudentId("");
+    }
+  }, [attendanceStudents, selectedAttendanceStudentId]);
 
   const updateFilters = (next: Record<string, string>) => {
     if (next.forecast) {
@@ -892,9 +1015,13 @@ export function AdminCohortOperationsPanel({
         </div>
 
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-          <div className="section-kicker">Coverage</div>
+          <div className="section-kicker">Cohort access</div>
+          <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
+            Add or remove team access
+          </h3>
           <div className="mt-2 text-sm text-[color:var(--muted)]">
-            Add staff, TA, or instructor coverage to a cohort.
+            Give specific instructors, TAs, and staff access to this cohort. This compartmentalizes roster,
+            attendance, class notes, and family context to the team assigned to that cohort.
           </div>
           <div className="mt-4 space-y-3">
             <label className="flex flex-col gap-2">
@@ -902,13 +1029,14 @@ export function AdminCohortOperationsPanel({
                 Cohort
               </span>
               <span className="text-sm text-[color:var(--muted)]">
-                Choose the cohort that needs extra staff or TA coverage.
+                Choose the cohort whose access list you want to manage.
               </span>
               <select
               value={bulkCoverageState.cohortId}
               onChange={(event) => {
                 const cohortId = event.currentTarget.value;
                 setBulkCoverageState((current) => ({ ...current, cohortId }));
+                setBulkAccessRemovalState({ userIds: [] });
               }}
               className="w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             >
@@ -921,10 +1049,10 @@ export function AdminCohortOperationsPanel({
             </label>
             <label className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                Coverage users
+                Add people
               </span>
               <span className="text-sm text-[color:var(--muted)]">
-                Pick the staff, TA, or instructor accounts to add to this cohort.
+                Pick staff, TA, or instructor accounts that should be able to see this cohort.
               </span>
               <select
               multiple
@@ -937,11 +1065,14 @@ export function AdminCohortOperationsPanel({
               }}
               className="min-h-[136px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             >
-              {coverageOptions.map((user) => (
+              {accessGrantOptions.map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.name} · {user.role}
                 </option>
               ))}
+              {accessGrantOptions.length === 0 ? (
+                <option disabled>Everyone eligible already has access</option>
+              ) : null}
               </select>
             </label>
             <button
@@ -962,10 +1093,10 @@ export function AdminCohortOperationsPanel({
                         cohortId: bulkCoverageState.cohortId,
                         userIds: bulkCoverageState.userIds,
                       },
-                      "Coverage assignments updated.",
+                      "Cohort access granted.",
                     );
                   } catch (nextError) {
-                    setError(nextError instanceof Error ? nextError.message : "Coverage update failed.");
+                    setError(nextError instanceof Error ? nextError.message : "Cohort access update failed.");
                     setPendingKey(null);
                   }
                 });
@@ -973,15 +1104,94 @@ export function AdminCohortOperationsPanel({
               disabled={pendingKey === "coverage" || readOnly}
               className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white"
             >
-              {pendingKey === "coverage" ? "Saving..." : "Assign coverage"}
+              {pendingKey === "coverage" ? "Saving..." : "Grant cohort access"}
             </button>
+            <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                Current access
+              </div>
+              <div className="mt-3 space-y-2">
+                {cohortAccessUsers.map((user) => (
+                  <label
+                    key={user.id}
+                    className="flex items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-white/90 px-3 py-2 text-sm text-[color:var(--navy-strong)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkAccessRemovalState.userIds.includes(user.id)}
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        setBulkAccessRemovalState((current) => ({
+                          userIds: checked
+                            ? [...current.userIds, user.id]
+                            : current.userIds.filter((userId) => userId !== user.id),
+                        }));
+                      }}
+                      disabled={readOnly}
+                    />
+                    <span>
+                      <span className="font-semibold">{user.name}</span>
+                      <span className="mt-1 block text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        {user.role}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                {cohortAccessUsers.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[color:var(--line)] bg-stone-50 px-3 py-3 text-sm text-[color:var(--muted)]">
+                    No instructors, TAs, or staff are assigned to this cohort yet.
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (readOnly) {
+                    setError("Role preview is read-only.");
+                    return;
+                  }
+                  setPendingKey("remove-access");
+                  setError(null);
+                  setSuccess(null);
+                  startTransition(async () => {
+                    try {
+                      await runBulkOperation(
+                        {
+                          operation: "remove_coverage",
+                          cohortId: bulkCoverageState.cohortId,
+                          userIds: bulkAccessRemovalState.userIds,
+                        },
+                        "Cohort access removed.",
+                      );
+                      setBulkAccessRemovalState({ userIds: [] });
+                    } catch (nextError) {
+                      setError(nextError instanceof Error ? nextError.message : "Cohort access removal failed.");
+                      setPendingKey(null);
+                    }
+                  });
+                }}
+                disabled={pendingKey === "remove-access" || readOnly || bulkAccessRemovalState.userIds.length === 0}
+                className={clsx(
+                  "mt-3 rounded-full px-4 py-2 text-sm font-semibold text-white",
+                  pendingKey === "remove-access" || readOnly || bulkAccessRemovalState.userIds.length === 0
+                    ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
+                    : "bg-[color:var(--navy-strong)] hover:opacity-90",
+                )}
+              >
+                {pendingKey === "remove-access" ? "Removing..." : "Remove selected access"}
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
           <div className="section-kicker">Attendance queue</div>
+          <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
+            Students needing follow-up
+          </h3>
           <div className="mt-2 text-sm text-[color:var(--muted)]">
-            Open follow-up tasks for missing or risky attendance.
+            Only students with an attendance exception or an open attendance follow-up task show here. Click a name
+            to review the same student context used by Student Directory.
           </div>
           <div className="mt-4 space-y-3">
             <label className="flex flex-col gap-2">
@@ -1000,6 +1210,7 @@ export function AdminCohortOperationsPanel({
                   cohortId,
                   studentIds: [],
                 }));
+                setSelectedAttendanceStudentId("");
               }}
               className="w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
             >
@@ -1010,31 +1221,153 @@ export function AdminCohortOperationsPanel({
               ))}
               </select>
             </label>
-            <label className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                Students
+                Issue students
               </span>
               <span className="text-sm text-[color:var(--muted)]">
-                Select the students who need attendance follow-up tasks.
+                Select students to create follow-up tasks. Click a student name to inspect their profile context.
               </span>
-              <select
-              multiple
-              value={bulkAttendanceState.studentIds}
-              onChange={(event) => {
-                const studentIds = Array.from(event.currentTarget.selectedOptions).map(
-                  (option) => option.value,
-                );
-                setBulkAttendanceState((current) => ({ ...current, studentIds }));
-              }}
-              className="min-h-[136px] w-full rounded-[1.5rem] border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-            >
-              {attendanceStudents.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.firstName} {student.lastName}
-                </option>
-              ))}
-              </select>
-            </label>
+              <div className="max-h-[220px] overflow-y-auto rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-2">
+                {attendanceStudents.map((student) => {
+                  const selected = bulkAttendanceState.studentIds.includes(student.id);
+                  const focused = selectedAttendanceStudent?.id === student.id;
+                  const cohortSessionIds = new Set(
+                    sessions
+                      .filter((session) => session.cohortId === bulkAttendanceState.cohortId)
+                      .map((session) => session.id),
+                  );
+                  const issueCount =
+                    attendanceFlags.filter(
+                      (flag) => flag.studentId === student.id && cohortSessionIds.has(flag.sessionId),
+                    ).length +
+                    adminTasks.filter(
+                      (task) =>
+                        task.taskType === "attendance_follow_up" &&
+                        task.targetType === "student" &&
+                        task.targetId === student.id &&
+                        task.status !== "done",
+                    ).length;
+
+                  return (
+                    <div
+                      key={student.id}
+                      className={clsx(
+                        "mb-2 rounded-2xl border bg-white/90 p-3 last:mb-0",
+                        focused ? "border-[rgba(23,56,75,0.34)]" : "border-[color:var(--line)]",
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(event) => {
+                            const checked = event.currentTarget.checked;
+                            setBulkAttendanceState((current) => ({
+                              ...current,
+                              studentIds: checked
+                                ? [...current.studentIds, student.id]
+                                : current.studentIds.filter((studentId) => studentId !== student.id),
+                            }));
+                          }}
+                          disabled={readOnly}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAttendanceStudentId(student.id)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="block font-semibold text-[color:var(--navy-strong)]">
+                            {student.firstName} {student.lastName}
+                          </span>
+                          <span className="mt-1 block text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                            {issueCount} open signal{issueCount === 1 ? "" : "s"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {attendanceStudents.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[color:var(--line)] bg-stone-50 px-3 py-3 text-sm text-[color:var(--muted)]">
+                    No attendance issues are open for this cohort.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {selectedAttendanceStudent ? (
+              <div className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                  Student context
+                </div>
+                <div className="mt-2 text-base font-semibold text-[color:var(--navy-strong)]">
+                  {selectedAttendanceStudent.firstName} {selectedAttendanceStudent.lastName}
+                </div>
+                <div className="mt-2 grid gap-2 text-sm text-[color:var(--muted)]">
+                  <div>Grade {selectedAttendanceStudent.gradeLevel} · {selectedAttendanceStudent.school}</div>
+                  <div>{selectedAttendanceStudent.targetTest} · {selectedAttendanceStudent.focus}</div>
+                </div>
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Attendance signals
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {selectedAttendanceFlags.map((flag) => (
+                        <div key={flag.id} className="rounded-2xl border border-[color:var(--line)] bg-stone-50 px-3 py-2 text-sm text-[color:var(--muted)]">
+                          <span className="font-semibold text-[color:var(--navy-strong)]">
+                            {flag.flagType.replaceAll("_", " ")}
+                          </span>
+                          {flag.note ? ` · ${flag.note}` : ""}
+                        </div>
+                      ))}
+                      {selectedAttendanceTasks.map((task) => (
+                        <div key={task.id} className="rounded-2xl border border-[color:var(--line)] bg-stone-50 px-3 py-2 text-sm text-[color:var(--muted)]">
+                          <span className="font-semibold text-[color:var(--navy-strong)]">{task.title}</span>
+                          {task.dueAt ? ` · due ${new Date(task.dueAt).toLocaleDateString()}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Score trend
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedScoreResults.slice(0, 4).map((result) => {
+                        const assessment = assessmentsById.get(result.assessmentId);
+                        return (
+                          <span
+                            key={result.id}
+                            className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]"
+                          >
+                            {assessment?.title ?? "Assessment"}: {result.totalScore}
+                          </span>
+                        );
+                      })}
+                      {selectedScoreResults.length === 0 ? (
+                        <span className="text-sm text-[color:var(--muted)]">No score results recorded yet.</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Internal notes
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {selectedStudentNotes.map((note) => (
+                        <div key={note.id} className="rounded-2xl border border-[color:var(--line)] bg-stone-50 px-3 py-2 text-sm text-[color:var(--muted)]">
+                          {note.summary}
+                        </div>
+                      ))}
+                      {selectedStudentNotes.length === 0 ? (
+                        <div className="text-sm text-[color:var(--muted)]">No internal notes recorded yet.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <label className="flex flex-col gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
                 Due by
