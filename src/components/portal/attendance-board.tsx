@@ -225,16 +225,6 @@ export function AttendanceBoard({
                 {selectedSession.timeLabel} · {selectedSession.roomLabel}
               </div>
             </div>
-            <div
-              className={clsx(
-                "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em]",
-                persistence?.enabled
-                  ? "border-[rgba(45,125,99,0.25)] bg-[rgba(45,125,99,0.12)] text-emerald-800"
-                  : "border-[rgba(115,138,123,0.25)] bg-[rgba(115,138,123,0.12)] text-[color:var(--sage)]",
-              )}
-            >
-              {persistence?.enabled ? "Saving to Supabase" : "Prototype interaction only"}
-            </div>
           </div>
 
           {selectedCoverageFlag ? (
@@ -265,7 +255,7 @@ export function AttendanceBoard({
             </div>
           ) : null}
 
-          <div className="space-y-3">
+          <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
             {selectedRows.map((row) => {
               const currentStatus = attendanceMap[selectedSessionId]?.[row.studentId] ?? row.attendance;
               const saveKey = `${selectedSessionId}:${row.studentId}`;
