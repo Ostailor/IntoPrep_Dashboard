@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       familyNotes: body?.familyNotes,
     });
 
-    revalidateTag("portal-live", "max");
+    revalidateTag("portal-live", { expire: 0 });
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

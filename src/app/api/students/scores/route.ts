@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       totalScore: body?.totalScore,
     });
 
-    revalidateTag("portal-live", "max");
+    revalidateTag("portal-live", { expire: 0 });
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

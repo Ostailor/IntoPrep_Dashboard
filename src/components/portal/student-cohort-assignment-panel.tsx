@@ -17,6 +17,7 @@ import type {
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 
 type TrendMetric = "total" | "rw" | "math";
+type TrendFilter = "all" | "declining" | "plateauing" | "increasing";
 
 interface StudentCohortAssignmentPanelProps {
   viewerMode: "preview" | "live" | "live-role-preview";
@@ -85,7 +86,7 @@ function getTrendToneLabel(points: { label: string; score: number }[]) {
   const delta = points.at(-1)!.score - points[0]!.score;
 
   if (delta > 20) {
-    return "Improving";
+    return "Increasing";
   }
 
   if (delta < -20) {
@@ -93,6 +94,11 @@ function getTrendToneLabel(points: { label: string; score: number }[]) {
   }
 
   return "Plateauing";
+}
+
+function getTrendFilterValue(points: { label: string; score: number }[]): Exclude<TrendFilter, "all"> {
+  const tone = getTrendToneLabel(points).toLowerCase();
+  return tone === "declining" || tone === "increasing" ? tone : "plateauing";
 }
 
 function emptyStudentForm(): StudentFormState {
@@ -132,6 +138,7 @@ export function StudentCohortAssignmentPanel({
   const [cohortFilter, setCohortFilter] = useState("all");
   const [classFilter, setClassFilter] = useState("all");
   const [schoolFilter, setSchoolFilter] = useState("all");
+  const [trendFilter, setTrendFilter] = useState<TrendFilter>("all");
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkCohortId, setBulkCohortId] = useState(cohorts[0]?.id ?? "");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -176,6 +183,11 @@ export function StudentCohortAssignmentPanel({
     () => [...sessions].sort((left, right) => left.startAt.localeCompare(right.startAt)),
     [sessions],
   );
+
+  const refreshDirectory = () => {
+    router.refresh();
+    window.setTimeout(() => window.location.reload(), 500);
+  };
 
   const getStudentSessions = (studentId: string) => {
     const cohortIds = enrollments
@@ -263,6 +275,10 @@ export function StudentCohortAssignmentPanel({
           return false;
         }
 
+        if (trendFilter !== "all" && getTrendFilterValue(getTrendPoints(student.id, "total")) !== trendFilter) {
+          return false;
+        }
+
         return true;
       });
   })();
@@ -313,7 +329,7 @@ export function StudentCohortAssignmentPanel({
 
         setSuccess(studentForm.studentId ? "Student updated." : "Student added.");
         setStudentForm(null);
-        router.refresh();
+        refreshDirectory();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Student update failed.");
       } finally {
@@ -349,7 +365,7 @@ export function StudentCohortAssignmentPanel({
 
         setSuccess(`${payload.assigned ?? 0} student${payload.assigned === 1 ? "" : "s"} assigned. ${payload.skipped ?? 0} already in cohort.`);
         setSelectedStudentIds([]);
-        router.refresh();
+        refreshDirectory();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Bulk cohort assignment failed.");
       } finally {
@@ -400,7 +416,7 @@ export function StudentCohortAssignmentPanel({
 
         setSuccess("Score logged.");
         setScoreForm(null);
-        router.refresh();
+        refreshDirectory();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Score update failed.");
       } finally {
@@ -457,7 +473,7 @@ export function StudentCohortAssignmentPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr]">
+      <div className="mt-5 grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
         <label className="text-sm font-semibold text-[color:var(--navy-strong)]">
           Search
           <input
@@ -512,6 +528,19 @@ export function StudentCohortAssignmentPanel({
                 {school}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="text-sm font-semibold text-[color:var(--navy-strong)]">
+          Trend
+          <select
+            value={trendFilter}
+            onChange={(event) => setTrendFilter(event.currentTarget.value as TrendFilter)}
+            className="mt-2 w-full rounded-lg border border-[color:var(--line)] bg-white px-3 py-2 text-sm"
+          >
+            <option value="all">All trends</option>
+            <option value="declining">Declining</option>
+            <option value="plateauing">Plateauing</option>
+            <option value="increasing">Increasing</option>
           </select>
         </label>
       </div>

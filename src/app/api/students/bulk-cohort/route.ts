@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       targetCohortId: body?.targetCohortId,
     });
 
-    revalidateTag("portal-live", "max");
+    revalidateTag("portal-live", { expire: 0 });
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
