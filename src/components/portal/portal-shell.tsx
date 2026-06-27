@@ -84,6 +84,7 @@ import { AdminFamilyOpsPanel } from "@/components/portal/admin-family-ops-panel"
 import { AdminMessagingBulkPanel } from "@/components/portal/admin-messaging-bulk-panel";
 import { AdminProgramArchivePanel } from "@/components/portal/admin-program-archive-panel";
 import { AdminSessionCreatePanel } from "@/components/portal/admin-session-create-panel";
+import { AdminSessionManagementPanel } from "@/components/portal/admin-session-management-panel";
 import { StaffBillingPanel } from "@/components/portal/staff-billing-panel";
 import { StaffCohortOperationsPanel } from "@/components/portal/staff-cohort-operations-panel";
 import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
@@ -655,111 +656,115 @@ export async function PortalShell({
             </SectionPanel>
           ) : (
             <div className="mt-5 space-y-5">
-              <section className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
-                <SectionPanel className="overflow-hidden">
-                  <div className="relative">
-                    <div className="operations-image absolute inset-x-0 top-0 h-40 rounded-lg" />
-                    <div className="relative pt-20">
-                      <div className="rounded-lg border border-[color:var(--line)] bg-white p-5 shadow-[0_14px_30px_rgba(16,31,42,0.08)]">
-                        <SectionHeading
-                          eyebrow="Role brief"
-                          title={roleLabels[role]}
-                          description={getRoleHeadline(role)}
-                        />
+              {section === "dashboard" ? (
+                <>
+                  <section className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
+                    <SectionPanel className="overflow-hidden">
+                      <div className="relative">
+                        <div className="operations-image absolute inset-x-0 top-0 h-40 rounded-lg" />
+                        <div className="relative pt-20">
+                          <div className="rounded-lg border border-[color:var(--line)] bg-white p-5 shadow-[0_14px_30px_rgba(16,31,42,0.08)]">
+                            <SectionHeading
+                              eyebrow="Role brief"
+                              title={roleLabels[role]}
+                              description={getRoleHeadline(role)}
+                            />
+                          </div>
+                          <div className="mt-5 flex flex-wrap gap-3">
+                            <div
+                              className={clsx(
+                                "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
+                                roleAccent[role],
+                              )}
+                            >
+                              {currentUser.title}
+                            </div>
+                            <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                              {roleScopedCohortCount} visible cohort{roleScopedCohortCount === 1 ? "" : "s"}
+                            </div>
+                            <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                              {todaySessions.length} live class{todaySessions.length === 1 ? "" : "es"} today
+                            </div>
+                          </div>
+                          <div className="mt-6 grid gap-4 md:grid-cols-2">
+                            {visibleTaskCards.map((task) => (
+                              <div
+                                key={task.id}
+                                className="rounded-lg border border-[color:var(--line)] bg-white p-4"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
+                                    {task.title}
+                                  </div>
+                                  <div className="rounded-full border border-[color:var(--line)] bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                                    {task.dueLabel}
+                                  </div>
+                                </div>
+                                <div className="mt-3 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                                  {task.status === "active" ? "Needs motion" : "Watch item"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <div
-                          className={clsx(
-                            "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em]",
-                            roleAccent[role],
-                          )}
-                        >
-                          {currentUser.title}
-                        </div>
-                        <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                          {roleScopedCohortCount} visible cohort{roleScopedCohortCount === 1 ? "" : "s"}
-                        </div>
-                        <div className="rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                          {todaySessions.length} live class{todaySessions.length === 1 ? "" : "es"} today
-                        </div>
-                      </div>
-                      <div className="mt-6 grid gap-4 md:grid-cols-2">
-                        {visibleTaskCards.map((task) => (
+                    </SectionPanel>
+
+                    <SectionPanel>
+                      <SectionHeading
+                        eyebrow="Watch list"
+                        title="Critical signals"
+                        description="What needs human attention before the next class block or sync window."
+                      />
+                      <div className="mt-5 space-y-3">
+                        {alerts.map((alert) => (
                           <div
-                            key={task.id}
+                            key={alert.label}
                             className="rounded-lg border border-[color:var(--line)] bg-white p-4"
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
-                                {task.title}
+                              <div className="flex items-center gap-3">
+                                {alert.tone === "healthy" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                                ) : (
+                                  <AlertTriangle
+                                    className={clsx(
+                                      "h-4 w-4",
+                                      alert.tone === "warning" ? "text-amber-700" : "text-rose-700",
+                                    )}
+                                  />
+                                )}
+                                <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
+                                  {alert.label}
+                                </div>
                               </div>
-                              <div className="rounded-full border border-[color:var(--line)] bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                                {task.dueLabel}
-                              </div>
+                              <SyncStatusPill status={alert.tone} />
                             </div>
-                            <div className="mt-3 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                              {task.status === "active" ? "Needs motion" : "Watch item"}
-                            </div>
+                            <p className="mt-3 text-sm text-[color:var(--muted)]">{alert.detail}</p>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
-                </SectionPanel>
+                    </SectionPanel>
+                  </section>
 
-                <SectionPanel>
-                  <SectionHeading
-                    eyebrow="Watch list"
-                    title="Critical signals"
-                    description="What needs human attention before the next class block or sync window."
-                  />
-                  <div className="mt-5 space-y-3">
-                    {alerts.map((alert) => (
-                      <div
-                        key={alert.label}
-                        className="rounded-lg border border-[color:var(--line)] bg-white p-4"
+                  <section className="grid grid-autofit gap-4">
+                    {metrics.map((metric) => (
+                      <SectionPanel
+                        key={metric.label}
+                        className={clsx("metric-sheen p-0", `bg-gradient-to-br ${tonePill[metric.tone]}`)}
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            {alert.tone === "healthy" ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-700" />
-                            ) : (
-                              <AlertTriangle
-                                className={clsx(
-                                  "h-4 w-4",
-                                  alert.tone === "warning" ? "text-amber-700" : "text-rose-700",
-                                )}
-                              />
-                            )}
-                            <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
-                              {alert.label}
-                            </div>
+                        <div className="p-5">
+                          <div className="section-kicker">{metric.label}</div>
+                          <div className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--navy-strong)]">
+                            {metric.value}
                           </div>
-                          <SyncStatusPill status={alert.tone} />
+                          <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">{metric.detail}</p>
                         </div>
-                        <p className="mt-3 text-sm text-[color:var(--muted)]">{alert.detail}</p>
-                      </div>
+                      </SectionPanel>
                     ))}
-                  </div>
-                </SectionPanel>
-              </section>
-
-              <section className="grid grid-autofit gap-4">
-                {metrics.map((metric) => (
-                  <SectionPanel
-                    key={metric.label}
-                    className={clsx("metric-sheen p-0", `bg-gradient-to-br ${tonePill[metric.tone]}`)}
-                  >
-                    <div className="p-5">
-                      <div className="section-kicker">{metric.label}</div>
-                      <div className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--navy-strong)]">
-                        {metric.value}
-                      </div>
-                      <p className="mt-3 text-sm leading-7 text-[color:var(--muted)]">{metric.detail}</p>
-                    </div>
-                  </SectionPanel>
-                ))}
-              </section>
+                  </section>
+                </>
+              ) : null}
 
               {renderSectionContent({
                 section,
@@ -1148,53 +1153,15 @@ function renderSectionContent({
     case "calendar":
       return (
         <section className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
-          <SectionPanel>
-            <SectionHeading
-              eyebrow="Week view"
-              title="Scheduled instruction blocks"
-              description="Class timing, modality, and rooming for visible cohorts."
-            />
-            <div className="mt-5 space-y-4">
-              {[...context.visibleSessions]
-                .sort((left, right) => left.startAt.localeCompare(right.startAt))
-                .map((session) => {
-                  const cohort = context.visibleCohorts.find((item) => item.id === session.cohortId);
-                  return (
-                    <div
-                      key={session.id}
-                      className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
-                    >
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <div className="text-base font-semibold text-[color:var(--navy-strong)]">
-                            {session.title}
-                          </div>
-                          <div className="mt-1 text-sm text-[color:var(--muted)]">
-                            {formatLongDate(session.startAt.slice(0, 10))} · {formatTimeRange(session.startAt, session.endAt)}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                            {cohort?.name}
-                          </span>
-                          <span className="rounded-full border border-[rgba(115,138,123,0.22)] bg-[rgba(115,138,123,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--sage)]">
-                            {session.mode}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              {context.visibleSessions.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
-                  No instruction classes are scheduled for the current role scope.
-                </div>
-              ) : null}
-            </div>
-          </SectionPanel>
+          <AdminSessionManagementPanel
+            viewerMode={viewerMode}
+            cohorts={context.visibleCohorts}
+            sessions={context.visibleSessions}
+            canManage={permissions.canManageSchedules}
+          />
 
           <div className="space-y-5">
-            {role === "admin" ? (
+            {permissions.canManageSchedules ? (
               <AdminSessionCreatePanel viewerMode={viewerMode} cohorts={context.visibleCohorts} />
             ) : null}
             <SectionPanel>

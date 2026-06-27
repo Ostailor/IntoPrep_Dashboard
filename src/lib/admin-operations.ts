@@ -1104,6 +1104,226 @@ export async function createAdminSession({
   };
 }
 
+export async function updateAdminSession({
+  viewer,
+  sessionId,
+  cohortId,
+  title,
+  startAt,
+  endAt,
+  mode,
+  roomLabel,
+  force,
+}: {
+  viewer: User;
+  sessionId: string;
+  cohortId: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  mode: string;
+  roomLabel?: string;
+  force?: boolean;
+}) {
+  ensureServiceRole();
+  assertAdminAccess(viewer);
+
+  if (!canManageSchedules(viewer.role)) {
+    throw new Error("You cannot update instruction classes.");
+  }
+
+  await assertWritesAllowed("operational_writes");
+
+  const serviceClient = createSupabaseServiceClient();
+  const [{ data: sessionData, error: sessionError }, { data: cohortData, error: cohortError }] =
+    await Promise.all([
+      serviceClient.from("sessions").select("*").eq("id", sessionId).maybeSingle(),
+      serviceClient.from("cohorts").select("*").eq("id", cohortId).maybeSingle(),
+    ]);
+  const session = (sessionData ?? null) as SessionRow | null;
+  const cohort = (cohortData ?? null) as CohortRow | null;
+
+  if (sessionError) {
+    throw new Error(sessionError.message);
+  }
+
+  if (cohortError) {
+    throw new Error(cohortError.message);
+  }
+
+  if (!session || !isSameDemoPartition(viewer, session)) {
+    throw new Error("That class could not be found.");
+  }
+
+  if (!cohort || !isSameDemoPartition(viewer, cohort)) {
+    throw new Error("That cohort could not be found.");
+  }
+
+  const normalizedTitle = title?.trim();
+  const normalizedMode = normalizeSessionMode(mode);
+  const normalizedRoomLabel = roomLabel?.trim() || cohort.room_label;
+  const startTimestamp = Date.parse(startAt);
+  const endTimestamp = Date.parse(endAt);
+
+  if (!normalizedTitle) {
+    throw new Error("Class name is required.");
+  }
+
+  if (Number.isNaN(startTimestamp) || Number.isNaN(endTimestamp)) {
+    throw new Error("Class start and end times are required.");
+  }
+
+  if (startTimestamp >= endTimestamp) {
+    throw new Error("Class end must be after the start time.");
+  }
+
+  const normalizedStartAt = new Date(startTimestamp).toISOString();
+  const normalizedEndAt = new Date(endTimestamp).toISOString();
+  const warnings = await getConflictWarnings({
+    cohort,
+    sessionId,
+    startAt: normalizedStartAt,
+    endAt: normalizedEndAt,
+    roomLabel: normalizedRoomLabel,
+    leadInstructorId: cohort.lead_instructor_id,
+  });
+
+  if (warnings.length > 0 && !force) {
+    return {
+      warnings,
+      updated: false,
+    };
+  }
+
+  const { error: updateError } = await serviceClient
+    .from("sessions")
+    .update({
+      cohort_id: cohort.id,
+      title: normalizedTitle,
+      start_at: normalizedStartAt,
+      end_at: normalizedEndAt,
+      mode: normalizedMode,
+      room_label: normalizedRoomLabel,
+      demo: Boolean(cohort.demo),
+    })
+    .eq("id", session.id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  await recordAccountAuditLog(serviceClient, {
+    actorId: viewer.id,
+    targetType: "session",
+    action: "cohort_operation_run",
+    summary: `${viewer.name} updated ${normalizedTitle} on the instruction calendar.`,
+    details: {
+      cohortId: cohort.id,
+      previousCohortId: session.cohort_id,
+      sessionId: session.id,
+      warnings,
+      forced: Boolean(force),
+    },
+  });
+
+  return {
+    warnings,
+    updated: true,
+  };
+}
+
+export async function deleteAdminSession({
+  viewer,
+  sessionId,
+}: {
+  viewer: User;
+  sessionId: string;
+}) {
+  ensureServiceRole();
+  assertAdminAccess(viewer);
+
+  if (!canManageSchedules(viewer.role)) {
+    throw new Error("You cannot delete instruction classes.");
+  }
+
+  await assertWritesAllowed("operational_writes");
+
+  const serviceClient = createSupabaseServiceClient();
+  const { data, error } = await serviceClient
+    .from("sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .maybeSingle();
+  const session = (data ?? null) as SessionRow | null;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!session || !isSameDemoPartition(viewer, session)) {
+    throw new Error("That class could not be found.");
+  }
+
+  const sessionScopedTables = [
+    "attendance_records",
+    "session_instruction_notes",
+    "session_checklists",
+    "session_handoff_notes",
+    "attendance_exception_flags",
+    "session_coverage_flags",
+  ] as const;
+
+  for (const table of sessionScopedTables) {
+    const { error: deleteChildError } = await serviceClient
+      .from(table)
+      .delete()
+      .eq("session_id", session.id);
+
+    if (deleteChildError) {
+      throw new Error(deleteChildError.message);
+    }
+  }
+
+  await serviceClient
+    .from("instructor_follow_up_flags")
+    .delete()
+    .eq("target_type", "session")
+    .eq("target_id", session.id);
+
+  await serviceClient
+    .from("admin_escalations")
+    .delete()
+    .eq("source_type", "session")
+    .eq("source_id", session.id);
+
+  await serviceClient
+    .from("approval_requests")
+    .delete()
+    .eq("target_type", "session")
+    .eq("target_id", session.id);
+
+  const { error: deleteError } = await serviceClient.from("sessions").delete().eq("id", session.id);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  await recordAccountAuditLog(serviceClient, {
+    actorId: viewer.id,
+    targetType: "session",
+    action: "cohort_operation_run",
+    summary: `${viewer.name} deleted ${session.title} from the instruction calendar.`,
+    details: {
+      cohortId: session.cohort_id,
+      sessionId: session.id,
+    },
+  });
+
+  return {
+    deleted: true,
+  };
+}
+
 export async function updateAdminCohortOperation({
   viewer,
   cohortId,
