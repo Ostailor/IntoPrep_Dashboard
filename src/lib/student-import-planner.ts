@@ -113,6 +113,20 @@ type StudentPayload = ExistingImportStudent;
 type FamilyPayload = ExistingImportFamily;
 type CohortResolution = { cohort: ExistingImportCohort | null; error: string | null };
 type StudentResolution = { student: StudentPayload | null; error: string | null };
+type IdIndex = Map<string, Set<string>>;
+
+interface StudentMatchIndexes {
+  externalIds: IdIndex;
+  emails: IdIndex;
+  parentEmailNames: IdIndex;
+  nameSchools: IdIndex;
+}
+
+interface CohortIndexes {
+  ids: IdIndex;
+  names: IdIndex;
+  byId: Map<string, ExistingImportCohort>;
+}
 
 const STUDENT_FIELD_COLUMNS: Partial<Record<StudentImportFieldKey, keyof StudentPayload>> = {
   externalId: "external_id",
@@ -138,15 +152,24 @@ const FAMILY_FIELD_COLUMNS: Partial<Record<StudentImportFieldKey, keyof FamilyPa
 
 export function buildStudentImportPlan(input: StudentImportPlannerInput): StudentImportPlan {
   const partitionLabel = input.targetDemo ? "demo" : "main";
-  const existingStudents = input.existingStudents.filter((student) => student.demo === input.targetDemo);
-  const existingFamilies = input.existingFamilies.filter((family) => family.demo === input.targetDemo);
+  const existingStudents = input.existingStudents
+    .filter((student) => student.demo === input.targetDemo)
+    .map(cloneStudent);
+  const existingFamilies = input.existingFamilies
+    .filter((family) => family.demo === input.targetDemo)
+    .map(cloneFamily);
   const cohorts = input.cohorts.filter((cohort) => cohort.demo === input.targetDemo);
   const existingEnrollments = input.existingEnrollments.filter((enrollment) => enrollment.demo === input.targetDemo);
-  const existingDefinitions = new Set(
+  const existingDefinitionKeys = new Set(
     (input.existingFieldDefinitions ?? [])
       .filter((definition) => definition.demo === input.targetDemo)
       .map((definition) => normalizeKey(definition.key)),
   );
+  const confirmedNewDefinitions = uniqueByNormalizedKey(input.newFieldDefinitions);
+  const allowedCustomFieldKeys = new Set([
+    ...existingDefinitionKeys,
+    ...confirmedNewDefinitions.map((definition) => normalizeKey(definition.key)),
+  ]);
 
   const familyPayloads = new Map<string, FamilyPayload>();
   const studentPayloads = new Map<string, StudentPayload>();
@@ -155,12 +178,17 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
   const rows: StudentImportPlanRow[] = [];
 
   const familyById = new Map(existingFamilies.map((family) => [family.id, family]));
+  const studentById = new Map(existingStudents.map((student) => [student.id, student]));
+  const studentIdsByFamily = buildStudentIdsByFamily(existingStudents);
+  const familyEmailIndex = buildFamilyEmailIndex(existingFamilies);
+  const studentIndexes = buildStudentMatchIndexes(existingStudents, familyById);
+  const cohortIndexes = buildCohortIndexes(cohorts);
   const enrollmentKeys = new Set(
     existingEnrollments.map((enrollment) => enrollmentKey(enrollment.student_id, enrollment.cohort_id)),
   );
 
-  const newFieldDefinitions = uniqueByNormalizedKey(input.newFieldDefinitions)
-    .filter((definition) => !existingDefinitions.has(normalizeKey(definition.key)))
+  const newFieldDefinitions = confirmedNewDefinitions
+    .filter((definition) => !existingDefinitionKeys.has(normalizeKey(definition.key)))
     .map((definition) => ({
       id: input.createId("field"),
       key: definition.key,
@@ -184,21 +212,24 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
       errors: [],
     };
 
-    const availableFamilies = mergeRecordsById(existingFamilies, familyPayloads);
-    const availableStudents = mergeRecordsById(existingStudents, studentPayloads);
-    const studentResolution = resolveStudent(
-      row,
-      availableStudents,
-      new Map(availableFamilies.map((family) => [family.id, family])),
-      partitionLabel,
-    );
+    const staleCustomKeys = Object.keys(row.customFields)
+      .filter((key) => !allowedCustomFieldKeys.has(normalizeKey(key)));
+    if (staleCustomKeys.length > 0) {
+      planRow.errors.push(...staleCustomKeys.map(
+        (key) => `Custom field "${key}" is not available in the ${partitionLabel} import mapping.`,
+      ));
+      rows.push(planRow);
+      continue;
+    }
+
+    const studentResolution = resolveStudent(row, studentIndexes, studentById, partitionLabel);
     if (studentResolution.error) {
       planRow.errors.push(studentResolution.error);
       rows.push(planRow);
       continue;
     }
 
-    const cohortResolution = resolveCohort(row, cohorts, partitionLabel);
+    const cohortResolution = resolveCohort(row, cohortIndexes, partitionLabel);
     if (cohortResolution.error) {
       planRow.errors.push(cohortResolution.error);
       rows.push(planRow);
@@ -221,63 +252,81 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
     }
 
     let family: FamilyPayload | null = null;
-    let familyWasPlanned = false;
     if (matchedStudent) {
-      family = familyById.get(matchedStudent.family_id) ?? familyPayloads.get(matchedStudent.family_id) ?? null;
+      family = familyById.get(matchedStudent.family_id) ?? null;
       if (!family) {
         planRow.errors.push(`Matched student does not have a ${partitionLabel} family in the preview data.`);
         rows.push(planRow);
         continue;
       }
-      familyWasPlanned = familyPayloads.has(family.id);
     } else {
-      const familyMatches = findFamiliesByParentEmail(row.parent1Email, availableFamilies);
-      if (familyMatches.length > 1) {
+      const familyMatchIds = getIndexedIds(familyEmailIndex, row.parent1Email);
+      if (familyMatchIds.size > 1) {
         planRow.errors.push(`Parent email matches more than one ${partitionLabel} family.`);
         rows.push(planRow);
         continue;
       }
-      family = familyMatches[0] ?? null;
-      familyWasPlanned = family ? familyPayloads.has(family.id) : false;
+      const matchedFamilyId = firstSetValue(familyMatchIds);
+      family = matchedFamilyId ? familyById.get(matchedFamilyId) ?? null : null;
     }
 
     if (!family) {
       family = createFamilyPayload(row, input.createId("family"), input);
+      familyById.set(family.id, family);
+      addIndexValue(familyEmailIndex, familyParentEmail(family), family.id);
     }
 
-    const familyBefore = JSON.stringify(familyPayloads.get(family.id) ?? family);
+    const familyBefore = family;
     const mergedFamily = mergeFamilyPayload(family, row, finalLastName);
+    const familyChanged = !recordsEqual(familyBefore, mergedFamily);
+    if (familyChanged) {
+      replaceFamilyInIndexes({
+        before: familyBefore,
+        after: mergedFamily,
+        familyById,
+        familyEmailIndex,
+        studentById,
+        studentIdsByFamily,
+        studentIndexes,
+      });
+    }
     familyPayloads.set(mergedFamily.id, mergedFamily);
     familyById.set(mergedFamily.id, mergedFamily);
     planRow.familyId = mergedFamily.id;
 
+    let studentChanged = false;
     if (!matchedStudent) {
       const student = createStudentPayload(row, input.createId("student"), mergedFamily.id, input.targetDemo);
       studentPayloads.set(student.id, student);
+      studentById.set(student.id, student);
+      addStudentToFamily(studentIdsByFamily, student);
+      addStudentToIndexes(studentIndexes, student, familyById);
       plannedNewStudentIds.add(student.id);
       planRow.studentId = student.id;
-      planRow.action = "create";
     } else {
-      const studentBefore = JSON.stringify(studentPayloads.get(matchedStudent.id) ?? matchedStudent);
+      const studentBefore = matchedStudent;
       const mergedStudent = mergeStudentPayload(matchedStudent, row, mergedFamily.id);
-      studentPayloads.set(mergedStudent.id, mergedStudent);
-      planRow.studentId = mergedStudent.id;
-
-      if (plannedNewStudentIds.has(mergedStudent.id)) {
-        const familyChanged = familyBefore !== JSON.stringify(mergedFamily);
-        const studentChanged = studentBefore !== JSON.stringify(mergedStudent);
-        planRow.action = familyWasPlanned && !familyChanged && !studentChanged ? "skip" : "warning";
-        if (planRow.action === "warning") {
-          planRow.warnings.push("Duplicate row merged into the earlier student record.");
-        }
-      } else {
-        planRow.action = "update";
+      studentChanged = !recordsEqual(studentBefore, mergedStudent);
+      if (studentChanged) {
+        replaceStudentInIndexes({
+          before: studentBefore,
+          after: mergedStudent,
+          studentById,
+          studentIdsByFamily,
+          studentIndexes,
+          familyById,
+        });
       }
+      studentPayloads.set(mergedStudent.id, mergedStudent);
+      studentById.set(mergedStudent.id, mergedStudent);
+      planRow.studentId = mergedStudent.id;
     }
 
+    let enrollmentAdded = false;
     if (cohortResolution.cohort && planRow.studentId) {
       const key = enrollmentKey(planRow.studentId, cohortResolution.cohort.id);
       if (!enrollmentKeys.has(key)) {
+        enrollmentAdded = true;
         enrollmentKeys.add(key);
         enrollmentPayloads.set(key, {
           id: input.createId("enrollment"),
@@ -288,6 +337,17 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
           demo: input.targetDemo,
         });
       }
+    }
+
+    if (!matchedStudent) {
+      planRow.action = "create";
+    } else if (plannedNewStudentIds.has(matchedStudent.id)) {
+      planRow.action = familyChanged || studentChanged || enrollmentAdded ? "warning" : "skip";
+      if (planRow.action === "warning") {
+        planRow.warnings.push("Duplicate row merged into the earlier student record.");
+      }
+    } else {
+      planRow.action = familyChanged || studentChanged || enrollmentAdded ? "update" : "skip";
     }
 
     rows.push(planRow);
@@ -315,52 +375,48 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
 
 function resolveStudent(
   row: NormalizedStudentImportRow,
-  students: StudentPayload[],
-  families: Map<string, FamilyPayload>,
+  indexes: StudentMatchIndexes,
+  students: Map<string, StudentPayload>,
   partitionLabel: string,
 ): StudentResolution {
-  const matchers: Array<{
-    value: string;
+  const lookups: Array<{
+    index: IdIndex;
+    key: string;
     label: string;
-    matches: (student: StudentPayload) => boolean;
   }> = [
     {
-      value: row.externalId,
+      index: indexes.externalIds,
+      key: normalizeKey(row.externalId),
       label: "External ID",
-      matches: (student) => normalizeKey(student.external_id) === normalizeKey(row.externalId),
     },
     {
-      value: row.studentEmail,
+      index: indexes.emails,
+      key: normalizeKey(row.studentEmail),
       label: "Student email",
-      matches: (student) => normalizeKey(student.email) === normalizeKey(row.studentEmail),
     },
     {
-      value: row.parent1Email && normalizedStudentName(row),
+      index: indexes.parentEmailNames,
+      key: compositeKey(row.parent1Email, normalizedStudentName(row)),
       label: "Parent email and student name",
-      matches: (student) => {
-        const family = families.get(student.family_id);
-        return normalizeKey(family?.parent1_email || family?.email) === normalizeKey(row.parent1Email)
-          && normalizedStudentName(student) === normalizedStudentName(row);
-      },
     },
     {
-      value: normalizedStudentName(row) && row.school,
+      index: indexes.nameSchools,
+      key: compositeKey(normalizedStudentName(row), row.school),
       label: "Student name and school",
-      matches: (student) => normalizedStudentName(student) === normalizedStudentName(row)
-        && normalizeKey(student.school) === normalizeKey(row.school),
     },
   ];
 
-  for (const matcher of matchers) {
-    if (!normalizeKey(matcher.value)) {
+  for (const lookup of lookups) {
+    if (!lookup.key) {
       continue;
     }
-    const matches = students.filter(matcher.matches);
-    if (matches.length > 1) {
-      return { student: null, error: `${matcher.label} matches more than one ${partitionLabel} student.` };
+    const matches = lookup.index.get(lookup.key) ?? new Set<string>();
+    if (matches.size > 1) {
+      return { student: null, error: `${lookup.label} matches more than one ${partitionLabel} student.` };
     }
-    if (matches.length === 1) {
-      return { student: matches[0]!, error: null };
+    const studentId = firstSetValue(matches);
+    if (studentId) {
+      return { student: students.get(studentId) ?? null, error: null };
     }
   }
 
@@ -369,29 +425,31 @@ function resolveStudent(
 
 function resolveCohort(
   row: NormalizedStudentImportRow,
-  cohorts: ExistingImportCohort[],
+  indexes: CohortIndexes,
   partitionLabel: string,
 ): CohortResolution {
   if (normalizeKey(row.cohortId)) {
-    const matches = cohorts.filter((cohort) => cohort.id.trim() === row.cohortId.trim());
-    if (matches.length > 1) {
+    const matches = indexes.ids.get(row.cohortId.trim()) ?? new Set<string>();
+    if (matches.size > 1) {
       return { cohort: null, error: `Cohort ID matches more than one ${partitionLabel} cohort.` };
     }
-    if (matches.length === 0) {
+    const cohortId = firstSetValue(matches);
+    if (!cohortId) {
       return { cohort: null, error: `Cohort ID does not match a ${partitionLabel} cohort.` };
     }
-    return { cohort: matches[0]!, error: null };
+    return { cohort: indexes.byId.get(cohortId) ?? null, error: null };
   }
 
   if (normalizeKey(row.cohortName)) {
-    const matches = cohorts.filter((cohort) => normalizeKey(cohort.name) === normalizeKey(row.cohortName));
-    if (matches.length > 1) {
+    const matches = indexes.names.get(normalizeKey(row.cohortName)) ?? new Set<string>();
+    if (matches.size > 1) {
       return { cohort: null, error: `Cohort name matches more than one ${partitionLabel} cohort.` };
     }
-    if (matches.length === 0) {
+    const cohortId = firstSetValue(matches);
+    if (!cohortId) {
       return { cohort: null, error: `Cohort name does not match a ${partitionLabel} cohort.` };
     }
-    return { cohort: matches[0]!, error: null };
+    return { cohort: indexes.byId.get(cohortId) ?? null, error: null };
   }
 
   return { cohort: null, error: null };
@@ -482,9 +540,15 @@ function mergeFamilyPayload(family: FamilyPayload, row: NormalizedStudentImportR
   if (row.suppliedFields.includes("lastName") || row.suppliedFields.includes("fullName")) {
     merged.family_name = `${lastName} family`;
   }
-  merged.guardian_names = [merged.parent1_name, merged.parent2_name].filter((name): name is string => Boolean(name));
-  merged.email = merged.parent1_email ?? "";
-  merged.phone = merged.parent1_phone ?? "";
+  if (row.suppliedFields.includes("parent1Name") || row.suppliedFields.includes("parent2Name")) {
+    merged.guardian_names = [merged.parent1_name, merged.parent2_name].filter((name): name is string => Boolean(name));
+  }
+  if (row.suppliedFields.includes("parent1Email")) {
+    merged.email = merged.parent1_email ?? "";
+  }
+  if (row.suppliedFields.includes("parent1Phone")) {
+    merged.phone = merged.parent1_phone ?? "";
+  }
   return merged;
 }
 
@@ -521,20 +585,179 @@ function setPayloadValue<T extends object, K extends keyof T>(record: T, key: K,
   record[key] = value as T[K];
 }
 
-function findFamiliesByParentEmail(email: string, families: FamilyPayload[]): FamilyPayload[] {
-  const key = normalizeKey(email);
-  if (!key) {
-    return [];
+function buildFamilyEmailIndex(families: FamilyPayload[]): IdIndex {
+  const index: IdIndex = new Map();
+  for (const family of families) {
+    addIndexValue(index, familyParentEmail(family), family.id);
   }
-  return families.filter((family) => normalizeKey(family.parent1_email || family.email) === key);
+  return index;
 }
 
-function mergeRecordsById<T extends { id: string }>(existing: T[], planned: Map<string, T>): T[] {
-  const records = new Map(existing.map((record) => [record.id, record]));
-  for (const record of planned.values()) {
-    records.set(record.id, record);
+function buildStudentIdsByFamily(students: StudentPayload[]): Map<string, Set<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const student of students) {
+    addStudentToFamily(index, student);
   }
-  return [...records.values()];
+  return index;
+}
+
+function addStudentToFamily(index: Map<string, Set<string>>, student: StudentPayload): void {
+  addIndexValue(index, student.family_id, student.id);
+}
+
+function buildStudentMatchIndexes(
+  students: StudentPayload[],
+  families: Map<string, FamilyPayload>,
+): StudentMatchIndexes {
+  const indexes: StudentMatchIndexes = {
+    externalIds: new Map(),
+    emails: new Map(),
+    parentEmailNames: new Map(),
+    nameSchools: new Map(),
+  };
+  for (const student of students) {
+    addStudentToIndexes(indexes, student, families);
+  }
+  return indexes;
+}
+
+function buildCohortIndexes(cohorts: ExistingImportCohort[]): CohortIndexes {
+  const indexes: CohortIndexes = { ids: new Map(), names: new Map(), byId: new Map() };
+  for (const cohort of cohorts) {
+    indexes.byId.set(cohort.id, cohort);
+    addIndexValue(indexes.ids, cohort.id.trim(), cohort.id);
+    addIndexValue(indexes.names, normalizeKey(cohort.name), cohort.id);
+  }
+  return indexes;
+}
+
+function addStudentToIndexes(
+  indexes: StudentMatchIndexes,
+  student: StudentPayload,
+  families: Map<string, FamilyPayload>,
+): void {
+  const family = families.get(student.family_id);
+  addIndexValue(indexes.externalIds, normalizeKey(student.external_id), student.id);
+  addIndexValue(indexes.emails, normalizeKey(student.email), student.id);
+  addIndexValue(
+    indexes.parentEmailNames,
+    compositeKey(familyParentEmail(family), normalizedStudentName(student)),
+    student.id,
+  );
+  addIndexValue(indexes.nameSchools, compositeKey(normalizedStudentName(student), student.school), student.id);
+}
+
+function removeStudentFromIndexes(
+  indexes: StudentMatchIndexes,
+  student: StudentPayload,
+  families: Map<string, FamilyPayload>,
+): void {
+  const family = families.get(student.family_id);
+  removeIndexValue(indexes.externalIds, normalizeKey(student.external_id), student.id);
+  removeIndexValue(indexes.emails, normalizeKey(student.email), student.id);
+  removeIndexValue(
+    indexes.parentEmailNames,
+    compositeKey(familyParentEmail(family), normalizedStudentName(student)),
+    student.id,
+  );
+  removeIndexValue(indexes.nameSchools, compositeKey(normalizedStudentName(student), student.school), student.id);
+}
+
+function replaceFamilyInIndexes(input: {
+  before: FamilyPayload;
+  after: FamilyPayload;
+  familyById: Map<string, FamilyPayload>;
+  familyEmailIndex: IdIndex;
+  studentById: Map<string, StudentPayload>;
+  studentIdsByFamily: Map<string, Set<string>>;
+  studentIndexes: StudentMatchIndexes;
+}): void {
+  const affectedStudentIds = input.studentIdsByFamily.get(input.before.id) ?? new Set<string>();
+  for (const studentId of affectedStudentIds) {
+    const student = input.studentById.get(studentId);
+    if (student) {
+      removeStudentFromIndexes(input.studentIndexes, student, input.familyById);
+    }
+  }
+
+  removeIndexValue(input.familyEmailIndex, familyParentEmail(input.before), input.before.id);
+  input.familyById.set(input.after.id, input.after);
+  addIndexValue(input.familyEmailIndex, familyParentEmail(input.after), input.after.id);
+
+  for (const studentId of affectedStudentIds) {
+    const student = input.studentById.get(studentId);
+    if (student) {
+      addStudentToIndexes(input.studentIndexes, student, input.familyById);
+    }
+  }
+}
+
+function replaceStudentInIndexes(input: {
+  before: StudentPayload;
+  after: StudentPayload;
+  studentById: Map<string, StudentPayload>;
+  studentIdsByFamily: Map<string, Set<string>>;
+  studentIndexes: StudentMatchIndexes;
+  familyById: Map<string, FamilyPayload>;
+}): void {
+  removeStudentFromIndexes(input.studentIndexes, input.before, input.familyById);
+  if (input.before.family_id !== input.after.family_id) {
+    removeIndexValue(input.studentIdsByFamily, input.before.family_id, input.before.id);
+    addStudentToFamily(input.studentIdsByFamily, input.after);
+  }
+  input.studentById.set(input.after.id, input.after);
+  addStudentToIndexes(input.studentIndexes, input.after, input.familyById);
+}
+
+function addIndexValue(index: IdIndex, rawKey: string, id: string): void {
+  if (!rawKey) {
+    return;
+  }
+  const values = index.get(rawKey) ?? new Set<string>();
+  values.add(id);
+  index.set(rawKey, values);
+}
+
+function removeIndexValue(index: IdIndex, rawKey: string, id: string): void {
+  if (!rawKey) {
+    return;
+  }
+  const values = index.get(rawKey);
+  values?.delete(id);
+  if (values?.size === 0) {
+    index.delete(rawKey);
+  }
+}
+
+function getIndexedIds(index: IdIndex, rawKey: string): Set<string> {
+  const key = normalizeKey(rawKey);
+  return key ? index.get(key) ?? new Set<string>() : new Set<string>();
+}
+
+function firstSetValue(values: Set<string>): string | null {
+  return values.values().next().value ?? null;
+}
+
+function familyParentEmail(family: FamilyPayload | undefined): string {
+  return normalizeKey(family?.parent1_email || family?.email);
+}
+
+function compositeKey(first: unknown, second: unknown): string {
+  const normalizedFirst = normalizeKey(first);
+  const normalizedSecond = normalizeKey(second);
+  return normalizedFirst && normalizedSecond ? `${normalizedFirst}\u0000${normalizedSecond}` : "";
+}
+
+function cloneStudent(student: ExistingImportStudent): StudentPayload {
+  return { ...student, custom_fields: { ...student.custom_fields } };
+}
+
+function cloneFamily(family: ExistingImportFamily): FamilyPayload {
+  return { ...family, guardian_names: [...family.guardian_names] };
+}
+
+function recordsEqual(left: object, right: object): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function uniqueByNormalizedKey<T extends { key: string }>(values: T[]): T[] {

@@ -164,6 +164,22 @@ describe("student import planner", () => {
     expect(plan.students[0]?.school).toBe("Existing School");
   });
 
+  it("does not rewrite family-derived fields when no family fields are supplied", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily({
+        guardian_names: ["Stored Guardian Label"],
+        parent1_name: "Parent Chen",
+        parent1_email: "parent@example.com",
+        email: "parent@example.com",
+      })],
+      existingStudents: [makeStudent({ external_id: "S-100" })],
+      rows: [makeRow({ externalId: "S-100", suppliedFields: ["externalId"] })],
+    }));
+
+    expect(plan.rows[0]?.action).toBe("skip");
+    expect(plan.families[0]?.guardian_names).toEqual(["Stored Guardian Label"]);
+  });
+
   it("never falls through an ambiguous higher-priority match", () => {
     const plan = buildStudentImportPlan(makeInput({
       existingStudents: [
@@ -176,6 +192,110 @@ describe("student import planner", () => {
     expect(plan.rows[0]).toMatchObject({ action: "error", studentId: null });
     expect(plan.rows[0]?.errors).toContain("External ID matches more than one demo student.");
     expect(plan.students).toHaveLength(0);
+  });
+
+  it("blocks ambiguous parent-email-and-name matches before name-and-school matching", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [
+        makeFamily({ id: "family-a", parent1_email: "shared@example.com" }),
+        makeFamily({ id: "family-b", parent1_email: "shared@example.com" }),
+      ],
+      existingStudents: [
+        makeStudent({ id: "student-a", family_id: "family-a", school: "Central High" }),
+        makeStudent({ id: "student-b", family_id: "family-b", school: "Other High" }),
+      ],
+      rows: [makeRow({ parent1Email: "shared@example.com", school: "Central High" })],
+    }));
+
+    expect(plan.rows[0]?.errors).toContain("Parent email and student name matches more than one demo student.");
+    expect(plan.students).toHaveLength(0);
+  });
+
+  it("blocks ambiguous name-and-school matches", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingStudents: [
+        makeStudent({ id: "student-a" }),
+        makeStudent({ id: "student-b" }),
+      ],
+      rows: [makeRow()],
+    }));
+
+    expect(plan.rows[0]?.errors).toContain("Student name and school matches more than one demo student.");
+    expect(plan.students).toHaveLength(0);
+  });
+
+  it("updates external-id and email indexes for later rows", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily({ parent1_email: "parent@example.com", email: "parent@example.com" })],
+      existingStudents: [makeStudent({ external_id: "S-OLD", email: "old@example.com" })],
+      rows: [
+        makeRow({
+          externalId: "S-NEW",
+          studentEmail: "new@example.com",
+          parent1Email: "parent@example.com",
+          suppliedFields: ["externalId", "studentEmail", "parent1Email"],
+        }),
+        makeRow({ rowNumber: 3, studentEmail: "new@example.com", suppliedFields: ["studentEmail"] }),
+        makeRow({ rowNumber: 4, externalId: "S-NEW", suppliedFields: ["externalId"] }),
+      ],
+    }));
+
+    expect(plan.rows.map((row) => row.studentId)).toEqual([
+      "student-existing",
+      "student-existing",
+      "student-existing",
+    ]);
+    expect(plan.students).toHaveLength(1);
+  });
+
+  it("updates parent-email/name and name/school indexes for later rows", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily({ parent1_email: "old-parent@example.com", email: "old-parent@example.com" })],
+      existingStudents: [makeStudent({ external_id: "S-100", first_name: "Old", last_name: "Name", school: "Old School" })],
+      rows: [
+        makeRow({
+          externalId: "S-100",
+          firstName: "New",
+          lastName: "Name",
+          school: "New School",
+          parent1Email: "new-parent@example.com",
+          suppliedFields: ["externalId", "fullName", "school", "parent1Email"],
+        }),
+        makeRow({
+          rowNumber: 3,
+          firstName: "New",
+          lastName: "Name",
+          school: "Unrelated School",
+          parent1Email: "new-parent@example.com",
+          suppliedFields: [],
+        }),
+        makeRow({ rowNumber: 4, firstName: "New", lastName: "Name", school: "New School", suppliedFields: [] }),
+      ],
+    }));
+
+    expect(plan.rows.map((row) => row.studentId)).toEqual([
+      "student-existing",
+      "student-existing",
+      "student-existing",
+    ]);
+    expect(plan.students).toHaveLength(1);
+  });
+
+  it("turns a dynamically introduced duplicate into an ambiguous index entry", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily()],
+      existingStudents: [
+        makeStudent({ id: "student-a", external_id: "S-A", email: "a@example.com" }),
+        makeStudent({ id: "student-b", external_id: "S-B", email: "shared@example.com" }),
+      ],
+      rows: [
+        makeRow({ externalId: "S-A", studentEmail: "shared@example.com", suppliedFields: ["externalId", "studentEmail"] }),
+        makeRow({ rowNumber: 3, studentEmail: "shared@example.com", suppliedFields: ["studentEmail"] }),
+      ],
+    }));
+
+    expect(plan.rows[1]?.errors).toContain("Student email matches more than one demo student.");
+    expect(plan.rows[1]?.studentId).toBeNull();
   });
 
   it("collapses duplicate students and families from the same file", () => {
@@ -213,6 +333,19 @@ describe("student import planner", () => {
     expect(plan.summary.enrollments).toBe(0);
   });
 
+  it("updates an unchanged existing student when the row adds an enrollment", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily()],
+      existingStudents: [makeStudent({ external_id: "S-100" })],
+      cohorts: [makeCohort()],
+      rows: [makeRow({ externalId: "S-100", cohortId: "cohort-1", suppliedFields: ["externalId", "cohortId"] })],
+    }));
+
+    expect(plan.rows[0]?.action).toBe("update");
+    expect(plan.enrollments).toHaveLength(1);
+    expect(plan.summary).toMatchObject({ updates: 1, enrollments: 1, skips: 0 });
+  });
+
   it("deduplicates repeated enrollment requests within one file", () => {
     const row = makeRow({ externalId: "S-100", cohortName: "SAT Weekend" });
     const plan = buildStudentImportPlan(makeInput({
@@ -222,6 +355,31 @@ describe("student import planner", () => {
 
     expect(plan.enrollments).toHaveLength(1);
     expect(plan.summary.enrollments).toBe(1);
+  });
+
+  it("marks a duplicate planned student that adds another cohort as a warning", () => {
+    const row = makeRow({ externalId: "S-100", cohortId: "cohort-a" });
+    const plan = buildStudentImportPlan(makeInput({
+      cohorts: [makeCohort({ id: "cohort-a" }), makeCohort({ id: "cohort-b" })],
+      rows: [row, { ...row, rowNumber: 3, cohortId: "cohort-b" }],
+    }));
+
+    expect(plan.rows.map((item) => item.action)).toEqual(["create", "warning"]);
+    expect(plan.rows[1]?.warnings).toContain("Duplicate row merged into the earlier student record.");
+    expect(plan.enrollments).toHaveLength(2);
+    expect(plan.summary).toMatchObject({ creates: 1, updates: 0, enrollments: 2, skips: 0, warnings: 1 });
+  });
+
+  it("skips repeated unchanged existing students", () => {
+    const row = makeRow({ externalId: "S-100", suppliedFields: ["externalId"] });
+    const plan = buildStudentImportPlan(makeInput({
+      existingFamilies: [makeFamily()],
+      existingStudents: [makeStudent({ external_id: "S-100" })],
+      rows: [row, { ...row, rowNumber: 3 }],
+    }));
+
+    expect(plan.rows.map((item) => item.action)).toEqual(["skip", "skip"]);
+    expect(plan.summary).toMatchObject({ creates: 0, updates: 0, skips: 2 });
   });
 
   it("updates both names for fullName and merges only supplied custom keys", () => {
@@ -241,6 +399,10 @@ describe("student import planner", () => {
         customFields: { replace: "new", added: true },
         suppliedFields: ["externalId", "fullName"],
       })],
+      existingFieldDefinitions: [
+        { key: "replace", demo: true },
+        { key: "added", demo: true },
+      ],
     }));
 
     expect(plan.students[0]).toMatchObject({
@@ -249,6 +411,42 @@ describe("student import planner", () => {
       school: "Central High",
       custom_fields: { keep: "yes", replace: "new", added: true },
     });
+  });
+
+  it("blocks stale custom keys without emitting row payloads", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      rows: [makeRow({ customFields: { stale_key: "value" } })],
+    }));
+
+    expect(plan.rows[0]).toMatchObject({ action: "error", studentId: null, familyId: null });
+    expect(plan.rows[0]?.errors).toContain('Custom field "stale_key" is not available in the demo import mapping.');
+    expect(plan.families).toHaveLength(0);
+    expect(plan.students).toHaveLength(0);
+    expect(plan.enrollments).toHaveLength(0);
+  });
+
+  it("does not accept a custom definition from the opposite partition", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      existingFieldDefinitions: [{ key: "main_only", demo: false }],
+      rows: [makeRow({ customFields: { main_only: "private" } })],
+    }));
+
+    expect(plan.rows[0]?.errors).toContain('Custom field "main_only" is not available in the demo import mapping.');
+    expect(plan.students).toHaveLength(0);
+  });
+
+  it("shares a family for different same-file students with the same parent email without mutating input", () => {
+    const rows = [
+      makeRow({ externalId: "S-100", parent1Email: "parent@example.com" }),
+      makeRow({ rowNumber: 3, externalId: "S-200", firstName: "Rohan", parent1Email: "parent@example.com" }),
+    ];
+    const snapshot = structuredClone(rows);
+    const plan = buildStudentImportPlan(makeInput({ rows }));
+
+    expect(plan.students).toHaveLength(2);
+    expect(plan.families).toHaveLength(1);
+    expect(plan.students.map((student) => student.family_id)).toEqual([plan.families[0]?.id, plan.families[0]?.id]);
+    expect(rows).toEqual(snapshot);
   });
 
   it("reports missing required names without creating payloads", () => {
@@ -277,31 +475,33 @@ describe("student import planner", () => {
         required: false,
         sortOrder: 2,
       }],
-      createId: (prefix) => `${prefix}-fixed-${++nextId}`,
+      createId: (prefix) => prefix === "field"
+        ? "00000000-0000-4000-8000-000000000001"
+        : `${prefix}-fixed-${++nextId}`,
     }));
 
     expect(plan.families[0]).toMatchObject({
-      id: "family-fixed-2",
+      id: "family-fixed-1",
       family_name: "Chen family",
       preferred_campus_id: "campus-1",
       demo: true,
     });
     expect(plan.students[0]).toMatchObject({
-      id: "student-fixed-3",
-      family_id: "family-fixed-2",
+      id: "student-fixed-2",
+      family_id: "family-fixed-1",
       first_name: "Maya",
       custom_fields: { graduation_year: 2027 },
       demo: true,
     });
     expect(plan.enrollments[0]).toMatchObject({
-      id: "enrollment-fixed-4",
-      student_id: "student-fixed-3",
+      id: "enrollment-fixed-3",
+      student_id: "student-fixed-2",
       cohort_id: "cohort-1",
       registered_at: "2026-07-09",
       demo: true,
     });
     expect(plan.newFieldDefinitions).toEqual([{
-      id: "field-fixed-1",
+      id: "00000000-0000-4000-8000-000000000001",
       key: "graduation_year",
       label: "Graduation Year",
       data_type: "number",
