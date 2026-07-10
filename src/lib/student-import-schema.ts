@@ -66,7 +66,7 @@ const STUDENT_IMPORT_FIELD_ALIASES = {
 } satisfies Record<StudentImportFieldKey, readonly string[]>;
 
 export function normalizeStudentImportHeader(value: string): string {
-  return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/[^\w\s/]/g, "").replace(/\s+/g, " ");
+  return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/[^\w\s/]/g, "").replace(/\s*\/\s*/g, "/").replace(/\s+/g, " ");
 }
 
 export function suggestStudentImportMapping(sourceHeader: string): StudentImportMapping {
@@ -113,6 +113,10 @@ export function validateStudentImportMappings(mappings: readonly StudentImportMa
       }
       customFields.add(mapping.key);
     }
+  }
+
+  if (knownFields.has("fullName") && (knownFields.has("firstName") || knownFields.has("lastName"))) {
+    throw new Error("Full name cannot be mapped with separate first or last name columns.");
   }
 }
 
