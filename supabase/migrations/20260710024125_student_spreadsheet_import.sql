@@ -269,7 +269,8 @@ declare
   skipped_count integer;
   warning_count integer;
 begin
-  if p_actor_role not in ('engineer', 'admin', 'staff') then
+  if p_actor_role is null
+    or p_actor_role not in ('engineer', 'admin', 'staff') then
     raise exception 'This role cannot import students.';
   end if;
   if p_actor_demo is null or p_target_demo is null then
