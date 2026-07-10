@@ -38,7 +38,6 @@ describe("permission matrix", () => {
     expect(getVisibleSections("instructor")).toEqual([
       "dashboard",
       "calendar",
-      "cohorts",
       "attendance",
       "academics",
     ]);
