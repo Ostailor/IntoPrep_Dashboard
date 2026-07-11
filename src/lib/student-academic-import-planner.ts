@@ -76,7 +76,7 @@ export interface AcademicProgram {
   track: string;
   format?: string;
   is_archived: boolean;
-  demo?: boolean;
+  demo: boolean;
 }
 
 export interface AcademicCampus {
@@ -84,7 +84,7 @@ export interface AcademicCampus {
   name: string;
   location?: string;
   modality: string;
-  demo?: boolean;
+  demo: boolean;
 }
 
 export interface AcademicTerm {
@@ -92,7 +92,7 @@ export interface AcademicTerm {
   name: string;
   start_date: string;
   end_date: string;
-  demo?: boolean;
+  demo: boolean;
 }
 
 export interface PlannedAcademicProgram {
@@ -213,8 +213,8 @@ function sourceCohortLabel(sourceClass: string): string {
   return `Source cohort (Excel Class) "${display(sourceClass)}"`;
 }
 
-function inTargetPartition(record: { demo?: boolean }, targetDemo: boolean): boolean {
-  return record.demo === undefined || record.demo === targetDemo;
+function inTargetPartition(record: { demo: boolean }, targetDemo: boolean): boolean {
+  return record.demo === targetDemo;
 }
 
 function addUnique(values: string[], value: string) {
@@ -313,6 +313,19 @@ function referencedDraftKeys(
     .filter((entry) => sourceClasses.has(normalized(entry.sourceClass)))
     .map((entry) => entry[field])
     .filter((key): key is string => Boolean(key)));
+}
+
+function ambiguousSetupClasses(
+  setup: StudentWorkbookSetup,
+  sourceClasses: ReadonlySet<string>,
+): Set<string> {
+  const counts = new Map<string, number>();
+  for (const entry of setup.cohorts) {
+    const sourceClass = normalized(entry.sourceClass);
+    if (!sourceClasses.has(sourceClass)) continue;
+    counts.set(sourceClass, (counts.get(sourceClass) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count > 1).map(([sourceClass]) => sourceClass));
 }
 
 function duplicateDraftNames<T extends { key: string; name: string }>(
@@ -601,9 +614,13 @@ export function buildStudentAcademicImportPlan(
   };
   const catalog = input.setup.catalog ?? { programs: [], campuses: [], terms: [] };
   const sourceClasses = new Set(input.rows.map((row) => normalized(row.cohortName)));
+  const ambiguousSetups = ambiguousSetupClasses(input.setup, sourceClasses);
+  const resolvableSourceClasses = new Set(
+    [...sourceClasses].filter((sourceClass) => !ambiguousSetups.has(sourceClass)),
+  );
   const programDrafts = resolveProgramDrafts({
     drafts: catalog.programs,
-    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "programDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "programDraftKey"),
     existing: programs,
     targetDemo: input.targetDemo,
     createId: input.createId,
@@ -611,7 +628,7 @@ export function buildStudentAcademicImportPlan(
   });
   const campusDrafts = resolveCampusDrafts({
     drafts: catalog.campuses,
-    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "campusDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "campusDraftKey"),
     existing: campuses,
     targetDemo: input.targetDemo,
     createId: input.createId,
@@ -619,7 +636,7 @@ export function buildStudentAcademicImportPlan(
   });
   const termDrafts = resolveTermDrafts({
     drafts: catalog.terms,
-    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "termDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "termDraftKey"),
     existing: terms,
     targetDemo: input.targetDemo,
     createId: input.createId,
@@ -647,6 +664,15 @@ export function buildStudentAcademicImportPlan(
 
   let generatedSessionCount = 0;
   for (const group of groupsByName.values()) {
+    if (ambiguousSetups.has(normalized(group.sourceClass))) {
+      addUnique(requirements.cohorts, group.sourceClass);
+      addGroupError(
+        group,
+        rows,
+        `More than one setup entry matches ${sourceCohortLabel(group.sourceClass)}. Keep one cohort setup.`,
+      );
+      continue;
+    }
     const titles = [...new Map(group.rows
       .map((index) => input.rows[index].sessionTitle)
       .map((value) => [normalized(value), value])).values()];

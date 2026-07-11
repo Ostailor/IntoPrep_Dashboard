@@ -158,9 +158,28 @@ function makeRepository(options: {
         students: [],
         enrollments: [],
         cohorts: [],
-        programs: [{ id: "program-sat", name: "SAT", track: "SAT", is_archived: false }],
-        campuses: [{ id: "campus-default", name: "Main", modality: "In person" }],
-        terms: [{ id: "term-summer", name: "Summer 2026", start_date: "2026-07-06", end_date: "2026-07-11" }],
+        programs: [{
+          id: "program-sat",
+          name: "SAT",
+          track: "SAT",
+          format: "Small group",
+          is_archived: false,
+          demo: targetDemo,
+        }],
+        campuses: [{
+          id: "campus-default",
+          name: "Main",
+          location: "Westfield, NJ",
+          modality: "In person",
+          demo: targetDemo,
+        }],
+        terms: [{
+          id: "term-summer",
+          name: "Summer 2026",
+          start_date: "2026-07-06",
+          end_date: "2026-07-11",
+          demo: targetDemo,
+        }],
         sessions: [],
         assessments: [],
         results: [],
@@ -1555,11 +1574,17 @@ describe("student import preview and commit operations", () => {
     expect(repository.committedPayloads).toHaveLength(0);
   });
 
-  it("applies the target partition to every scoped query and paginates global references", async () => {
+  it("applies the target partition and pagination to every import query", async () => {
     const calls: Array<[string, string, unknown]> = [];
     const makeQuery = (table: string) => {
       const result = table === "campuses"
-        ? { data: [{ id: "campus-default", name: "Main", modality: "In person" }], error: null }
+        ? { data: [{
+            id: "campus-default",
+            name: "Main",
+            location: "Westfield, NJ",
+            modality: "In person",
+            demo: true,
+          }], error: null }
         : { data: [], error: null };
       const query = {
         select: vi.fn(() => query),
@@ -1588,14 +1613,10 @@ describe("student import preview and commit operations", () => {
 
     for (const table of [
       "families", "students", "enrollments", "cohorts", "student_field_definitions",
-      "sessions", "assessments", "assessment_results",
+      "programs", "campuses", "terms", "sessions", "assessments", "assessment_results",
     ]) {
       expect(calls).toContainEqual([table, "demo", true]);
       expect(calls).toContainEqual([table, "range", [0, 999]]);
-    }
-    for (const table of ["programs", "campuses", "terms"]) {
-      expect(calls).toContainEqual([table, "range", [0, 999]]);
-      expect(calls).not.toContainEqual([table, "demo", true]);
     }
   });
 

@@ -122,12 +122,22 @@ export interface Database {
           demo?: boolean;
         }
       >;
-      campuses: Table<{
-        id: string;
-        name: string;
-        location: string;
-        modality: string;
-      }>;
+      campuses: Table<
+        {
+          id: string;
+          name: string;
+          location: string;
+          modality: string;
+          demo: boolean;
+        },
+        {
+          id: string;
+          name: string;
+          location: string;
+          modality: string;
+          demo?: boolean;
+        }
+      >;
       programs: Table<
         {
           id: string;
@@ -137,6 +147,7 @@ export interface Database {
           tuition: number;
           is_archived: boolean;
           archived_at: string | null;
+          demo: boolean;
         },
         {
           id: string;
@@ -146,6 +157,7 @@ export interface Database {
           tuition: number;
           is_archived?: boolean;
           archived_at?: string | null;
+          demo?: boolean;
         }
       >;
       terms: Table<
@@ -154,12 +166,14 @@ export interface Database {
           name: string;
           start_date: string;
           end_date: string;
+          demo: boolean;
         },
         {
           id: string;
           name: string;
           start_date: string;
           end_date: string;
+          demo?: boolean;
         }
       >;
       families: Table<

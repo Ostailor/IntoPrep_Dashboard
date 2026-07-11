@@ -6,6 +6,9 @@ import { isLocalQaMode } from "@/lib/local-qa";
 import { resolveStudentImportTarget } from "@/lib/permissions";
 import {
   buildStudentAcademicImportPlan,
+  type AcademicCampus,
+  type AcademicProgram,
+  type AcademicTerm,
   type ExistingAcademicCohort,
   type StudentAcademicImportPlan,
 } from "@/lib/student-academic-import-planner";
@@ -76,9 +79,9 @@ export interface StudentImportPartitionData {
   enrollments: ExistingImportEnrollment[];
   cohorts: ExistingAcademicCohort[];
   fieldDefinitions: StudentImportFieldDefinitionRow[];
-  programs: Array<{ id: string; name: string; track: string; is_archived: boolean }>;
-  campuses: Array<{ id: string; name: string; modality: string }>;
-  terms: Array<{ id: string; name: string; start_date: string; end_date: string }>;
+  programs: AcademicProgram[];
+  campuses: AcademicCampus[];
+  terms: AcademicTerm[];
   sessions: Array<{
     id: string;
     cohort_id: string;
@@ -1229,8 +1232,14 @@ type FamilyRow = Database["public"]["Tables"]["families"]["Row"];
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type CohortRow = Database["public"]["Tables"]["cohorts"]["Row"];
-type ProgramRow = Pick<Database["public"]["Tables"]["programs"]["Row"], "id" | "name" | "track" | "is_archived">;
-type CampusRow = Pick<Database["public"]["Tables"]["campuses"]["Row"], "id" | "name" | "modality">;
+type ProgramRow = Pick<
+  Database["public"]["Tables"]["programs"]["Row"],
+  "id" | "name" | "track" | "format" | "is_archived" | "demo"
+>;
+type CampusRow = Pick<
+  Database["public"]["Tables"]["campuses"]["Row"],
+  "id" | "name" | "location" | "modality" | "demo"
+>;
 type TermRow = Database["public"]["Tables"]["terms"]["Row"];
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type AssessmentRow = Database["public"]["Tables"]["assessments"]["Row"];
@@ -1263,9 +1272,9 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         loadAllPages<EnrollmentRow>((from, to) => serviceClient.from("enrollments").select("*").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
         loadAllPages<CohortRow>((from, to) => serviceClient.from("cohorts").select("*").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
         loadAllPages<StudentImportFieldDefinitionRow>((from, to) => serviceClient.from("student_field_definitions").select("id,key,label,data_type,header_aliases,required,sensitive,sort_order,demo").eq("demo", targetDemo).is("archived_at", null).order("sort_order", { ascending: true }).order("key", { ascending: true }).range(from, to)),
-        loadAllPages<ProgramRow>((from, to) => serviceClient.from("programs").select("id,name,track,is_archived").order("name", { ascending: true }).range(from, to)),
-        loadAllPages<CampusRow>((from, to) => serviceClient.from("campuses").select("id,name,modality").order("name", { ascending: true }).range(from, to)),
-        loadAllPages<TermRow>((from, to) => serviceClient.from("terms").select("id,name,start_date,end_date").order("start_date", { ascending: true }).range(from, to)),
+        loadAllPages<ProgramRow>((from, to) => serviceClient.from("programs").select("id,name,track,format,is_archived,demo").eq("demo", targetDemo).order("name", { ascending: true }).range(from, to)),
+        loadAllPages<CampusRow>((from, to) => serviceClient.from("campuses").select("id,name,location,modality,demo").eq("demo", targetDemo).order("name", { ascending: true }).range(from, to)),
+        loadAllPages<TermRow>((from, to) => serviceClient.from("terms").select("id,name,start_date,end_date,demo").eq("demo", targetDemo).order("start_date", { ascending: true }).range(from, to)),
         loadAllPages<SessionRow>((from, to) => serviceClient.from("sessions").select("id,cohort_id,title,start_at,end_at,mode,room_label,demo").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
         loadAllPages<AssessmentRow>((from, to) => serviceClient.from("assessments").select("id,cohort_id,title,date,sections,demo").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
         loadAllPages<ResultRow>((from, to) => serviceClient.from("assessment_results").select("id,assessment_id,student_id,total_score,section_scores,delta_from_previous,demo").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),

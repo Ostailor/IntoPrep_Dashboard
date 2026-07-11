@@ -332,6 +332,46 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(dangling.cohorts).toEqual([]);
   });
 
+  it("blocks duplicate setup entries before resolving their distinct drafts", () => {
+    const plan = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: {
+          programs: [
+            { key: "program-one", name: "Summer SAT", track: "SAT", format: "Small group" },
+            { key: "program-two", name: "Advanced SAT", track: "SAT", format: "Small group" },
+          ],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [
+          {
+            sourceClass: "MWF",
+            programDraftKey: "program-one",
+            campusId: campus.id,
+            termId: summerTerm.id,
+            capacity: 24,
+          },
+          {
+            sourceClass: " mwf ",
+            programDraftKey: "program-two",
+            campusId: campus.id,
+            termId: summerTerm.id,
+            capacity: 24,
+          },
+        ],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+    });
+
+    expect(plan.programs).toEqual([]);
+    expect(plan.cohorts).toEqual([]);
+    expect(plan.requirements.cohorts).toEqual(["MWF"]);
+    expect(plan.rows[0].errors).toContain(
+      'More than one setup entry matches Source cohort (Excel Class) "MWF". Keep one cohort setup.',
+    );
+  });
+
   it("never resolves catalog records from the opposite partition", () => {
     const mainProgram = { ...satProgram, id: "program-main", name: "Summer SAT", demo: false };
     const mainCampus = { ...campus, id: "campus-main-only", name: "Westfield", demo: false };
@@ -413,6 +453,31 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(existingCohortWithMainCatalog.rows[0]).toMatchObject({ cohortId: null });
     expect(existingCohortWithMainCatalog.rows[0].errors).toContain(
       'The selected cohort catalog is unavailable for Source cohort (Excel Class) "MWF".',
+    );
+  });
+
+  it("fails closed when an existing catalog record has no partition marker", () => {
+    const runtimeProgramWithoutDemo = { ...satProgram } as Partial<typeof satProgram>;
+    delete runtimeProgramWithoutDemo.demo;
+    const plan = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      setup: {
+        catalog: { programs: [], campuses: [], terms: [] },
+        cohorts: [{
+          sourceClass: "MWF",
+          programId: runtimeProgramWithoutDemo.id,
+          campusId: campus.id,
+          termId: summerTerm.id,
+          capacity: 24,
+        }],
+        assessmentDates: [],
+      },
+      programs: [runtimeProgramWithoutDemo as unknown as typeof satProgram],
+    });
+
+    expect(plan.cohorts).toEqual([]);
+    expect(plan.rows[0].errors).toContain(
+      'Cohort setup references unavailable metadata for Source cohort (Excel Class) "MWF".',
     );
   });
 
@@ -692,6 +757,7 @@ describe("buildStudentAcademicImportPlan", () => {
       name: "Long term",
       start_date: "2026-01-01",
       end_date: "2028-03-01",
+      demo: true,
     };
     const sessionsPerCohort = buildEasternRecurringSessions({
       cadence: "MWF",
