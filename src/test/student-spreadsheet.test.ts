@@ -25,6 +25,7 @@ import {
   STUDENT_IMPORT_MAX_ROWS,
   readStudentSpreadsheet,
 } from "@/lib/student-spreadsheet";
+import { detectStudentWorkbook } from "@/lib/student-workbook-profile";
 
 describe("student spreadsheet decoding", () => {
   it("decodes quoted CSV cells", async () => {
@@ -79,6 +80,54 @@ describe("student spreadsheet decoding", () => {
     expect(result.sheets.map((sheet) => sheet.name)).toEqual(result.sheetNames);
     expect(result.sheets[0]?.rows[0]?.cells[0]).toBe("Student Name");
     expect(result.sheets[0]?.rows.some((row) => row.cells.includes("Needs Bus"))).toBe(true);
+  });
+
+  it("decodes the sanitized merged-header workbook through the production XLSX reader", async () => {
+    const bytes = await readFile("src/test/fixtures/adaptive-score-import.xlsx");
+    const result = await readStudentSpreadsheet({
+      filename: "adaptive-score-import.xlsx",
+      bytes,
+    });
+    const detected = detectStudentWorkbook({
+      sheets: result.sheets,
+      selectedSheet: result.selectedSheet,
+    });
+
+    expect(result.sheetNames).toEqual(["Camp Scores"]);
+    expect(result.sheets[0]?.rows[0]?.cells[0]).toBe("SAT Summer Camp 2026");
+    expect(detected).toMatchObject({
+      profile: "wide",
+      directory: {
+        sheetName: "Camp Scores",
+        headerRowNumbers: [2, 3, 4],
+        dataStartRow: 5,
+      },
+      academic: {
+        sheetName: "Camp Scores",
+        headerRowNumbers: [2, 3, 4],
+        dataStartRow: 5,
+      },
+    });
+    expect(detected.academic?.columns.map((column) => column.sourceHeader)).toEqual([
+      "Name",
+      "School",
+      "Grade",
+      "Class",
+      "Level",
+      "Room",
+      "HW1 / PSAT / RW",
+      "HW1 / PSAT / M",
+      "HW1 / PSAT / Total",
+      "HW1 / BB07 / RW",
+      "HW1 / BB07 / M",
+      "HW1 / BB07 / Total",
+      "HW2 / BB08 / RW",
+      "HW2 / BB08 / M",
+      "HW2 / BB08 / Total",
+      "HW3 / BB08 / RW",
+      "HW3 / BB08 / M",
+      "HW3 / BB08 / Total",
+    ]);
   });
 
   it("rejects files larger than four megabytes", async () => {

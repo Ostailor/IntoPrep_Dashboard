@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@/lib/domain";
 import { buildEasternRecurringSessions } from "@/lib/eastern-recurring-sessions";
@@ -414,6 +415,128 @@ describe("student import preview and commit operations", () => {
         ],
       }),
     ]);
+  });
+
+  it("previews the sanitized merged-header fixture with valid totals and isolated blockers", async () => {
+    const bytes = await readFile("src/test/fixtures/adaptive-score-import.xlsx");
+    const fixtureStudents = [
+      { ...existingDemoStudent, id: "student-maya-fixture", first_name: "Maya", last_name: "Fixture Demo" },
+      { ...existingDemoStudent, id: "student-rohan-fixture", first_name: "Rohan", last_name: "Fixture Demo" },
+      { ...existingDemoStudent, id: "student-total-mismatch", first_name: "Total", last_name: "Mismatch Demo" },
+      { ...existingDemoStudent, id: "student-text-score", first_name: "Text", last_name: "Score Demo" },
+      { ...existingDemoStudent, id: "student-jordan-a", first_name: "Jordan", last_name: "Ambiguous Demo" },
+      { ...existingDemoStudent, id: "student-jordan-b", first_name: "Jordan", last_name: "Ambiguous Demo" },
+    ];
+    const tthsCohort = {
+      ...existingMwfCohort,
+      id: "cohort-tths",
+      name: "TTHS",
+      cadence: "TTHS",
+      room_label: "202",
+    };
+    const assessmentTitles = [
+      "HW1 – PSAT",
+      "HW1 – BB07",
+      "HW2 – BB08",
+      "HW3 – BB08",
+    ];
+    const setup = {
+      cohorts: [],
+      assessmentDates: ["MWF", "TTHS"].flatMap((sourceClass) =>
+        assessmentTitles.map((assessmentTitle, index) => ({
+          sourceClass,
+          assessmentTitle,
+          date: `2026-07-${String(10 + index).padStart(2, "0")}`,
+        })),
+      ),
+    };
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "adaptive-score-import.xlsx",
+      bytes,
+      setup,
+      repository: makeRepository({
+        partition: {
+          families: [existingDemoFamily],
+          students: fixtureStudents,
+          cohorts: [existingMwfCohort, tthsCohort],
+        },
+      }),
+      createUuid: makeIds(),
+    });
+
+    expect(preview).toMatchObject({
+      profile: "wide",
+      targetDemo: true,
+      sheetNames: ["Camp Scores"],
+      selectedSheet: "Camp Scores",
+      blocking: true,
+      academic: {
+        requirements: { cohorts: [], assessmentDates: [] },
+        summary: {
+          resultCreates: 8,
+          resultUpdates: 0,
+          errors: 4,
+        },
+      },
+    });
+    expect(preview.mappingPlan.academic?.columns.filter((column) =>
+      column.kind === "score",
+    ).map((column) => column.assessmentTitle)).toEqual([
+      "HW1 – PSAT", "HW1 – PSAT", "HW1 – PSAT",
+      "HW1 – BB07", "HW1 – BB07", "HW1 – BB07",
+      "HW2 – BB08", "HW2 – BB08", "HW2 – BB08",
+      "HW3 – BB08", "HW3 – BB08", "HW3 – BB08",
+    ]);
+    expect(preview.academicSourceRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowNumber: 5,
+        studentName: "Maya Fixture Demo",
+        assessmentTitle: "HW1 – PSAT",
+        rw: 620,
+        math: 680,
+        total: 1300,
+        action: "Create assessment result.",
+        warnings: ["Total calculated from RW + Math."],
+        errors: [],
+      }),
+      expect.objectContaining({
+        rowNumber: 6,
+        studentName: "Rohan Fixture Demo",
+        assessmentTitle: "HW1 – PSAT",
+        total: 1250,
+        action: "Create assessment result.",
+        warnings: [],
+        errors: [],
+      }),
+      expect.objectContaining({
+        rowNumber: 7,
+        studentName: "Total Mismatch Demo",
+        action: "Blocked",
+        errors: ["HW1 – PSAT: Total must equal RW + Math."],
+      }),
+      expect.objectContaining({
+        rowNumber: 8,
+        studentName: "Text Score Demo",
+        action: "Blocked",
+        errors: ["HW1 – PSAT: RW must be a number."],
+      }),
+      expect.objectContaining({
+        rowNumber: 9,
+        studentName: "Missing Student Demo",
+        action: "Blocked",
+        errors: ['No Demo student exactly matches "Missing Student Demo".'],
+      }),
+      expect.objectContaining({
+        rowNumber: 10,
+        studentName: "Jordan Ambiguous Demo",
+        action: "Blocked",
+        errors: [
+          'More than one Demo student exactly matches "Jordan Ambiguous Demo". Disambiguate the directory data.',
+        ],
+      }),
+    ]));
   });
 
   it("previews normalized directory and score sheets from one workbook digest", async () => {
