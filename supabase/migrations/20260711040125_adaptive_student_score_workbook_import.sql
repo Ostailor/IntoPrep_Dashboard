@@ -412,6 +412,50 @@ begin
 
   if exists (
     select 1
+    from jsonb_array_elements(p_assessments) assessment
+    where jsonb_typeof(assessment->'sections') is distinct from 'array'
+  ) then
+    raise exception 'An assessment must declare exactly RW and Math sections.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_assessments) assessment
+    where jsonb_array_length(assessment->'sections') <> 2
+  ) then
+    raise exception 'An assessment must declare exactly RW and Math sections.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_assessments) assessment
+    cross join lateral jsonb_array_elements(assessment->'sections') section
+    where jsonb_typeof(section) is distinct from 'object'
+      or section->>'label' not in ('RW', 'Math')
+      or jsonb_typeof(section->'score') is distinct from 'number'
+      or coalesce(section->>'score', '') !~ '^[0-9]+$'
+  ) then
+    raise exception 'Assessment sections must be raw integer RW and Math objects.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_assessments) assessment
+    where 1 <> (
+      select count(*)
+      from jsonb_array_elements(assessment->'sections') section
+      where section->>'label' = 'RW'
+    ) or 1 <> (
+      select count(*)
+      from jsonb_array_elements(assessment->'sections') section
+      where section->>'label' = 'Math'
+    ) or exists (
+      select 1
+      from jsonb_array_elements(assessment->'sections') section
+      where (section->>'score')::integer <> 800
+    )
+  ) then
+    raise exception 'Assessment RW and Math sections must each declare a maximum of 800.';
+  end if;
+  if exists (
+    select 1
     from jsonb_to_recordset(p_assessments) as incoming(
       id text, cohort_id text, title text, date date, sections jsonb, demo boolean
     )
@@ -420,33 +464,9 @@ begin
       or nullif(btrim(incoming.title), '') is null
       or incoming.date is null
       or not isfinite(incoming.date)
-      or jsonb_typeof(incoming.sections) is distinct from 'array'
-      or jsonb_array_length(incoming.sections) = 0
-      or jsonb_array_length(incoming.sections) > 20
       or incoming.demo is distinct from p_target_demo
   ) then
     raise exception 'An assessment payload is invalid.';
-  end if;
-  if exists (
-    select 1
-    from jsonb_to_recordset(p_assessments) as incoming(sections jsonb)
-    cross join lateral jsonb_array_elements(incoming.sections) section
-    where jsonb_typeof(section) is distinct from 'object'
-      or nullif(btrim(section->>'label'), '') is null
-      or jsonb_typeof(section->'score') is distinct from 'number'
-      or coalesce(section->>'score', '') !~ '^[0-9]+$'
-  ) then
-    raise exception 'Assessment sections are invalid.';
-  end if;
-  if exists (
-    select 1
-    from jsonb_to_recordset(p_assessments) as incoming(sections jsonb)
-    where jsonb_array_length(incoming.sections) <> (
-      select count(distinct lower(btrim(section->>'label')))
-      from jsonb_array_elements(incoming.sections) section
-    )
-  ) then
-    raise exception 'Assessment section labels must be unique.';
   end if;
   if exists (
     select 1 from jsonb_to_recordset(p_assessments) as incoming(id text)
@@ -477,6 +497,59 @@ begin
 
   if exists (
     select 1
+    from jsonb_array_elements(p_results) result
+    where jsonb_typeof(result->'total_score') is distinct from 'number'
+      or coalesce(result->>'total_score', '') !~ '^[0-9]+$'
+      or jsonb_typeof(result->'delta_from_previous') is distinct from 'number'
+      or coalesce(result->>'delta_from_previous', '') !~ '^-?[0-9]+$'
+      or jsonb_typeof(result->'section_scores') is distinct from 'array'
+  ) then
+    raise exception 'Assessment result totals and sections must be raw integers.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_results) result
+    where jsonb_array_length(result->'section_scores') <> 2
+  ) then
+    raise exception 'Assessment results must contain exactly RW and Math scores.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_results) result
+    cross join lateral jsonb_array_elements(result->'section_scores') section
+    where jsonb_typeof(section) is distinct from 'object'
+      or section->>'label' not in ('RW', 'Math')
+      or jsonb_typeof(section->'score') is distinct from 'number'
+      or coalesce(section->>'score', '') !~ '^[0-9]+$'
+  ) then
+    raise exception 'Assessment result RW and Math scores must be raw integers.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_results) result
+    where 1 <> (
+      select count(*)
+      from jsonb_array_elements(result->'section_scores') section
+      where section->>'label' = 'RW'
+    ) or 1 <> (
+      select count(*)
+      from jsonb_array_elements(result->'section_scores') section
+      where section->>'label' = 'Math'
+    ) or (result->>'total_score')::integer not between 400 and 1600
+      or exists (
+        select 1
+        from jsonb_array_elements(result->'section_scores') section
+        where (section->>'score')::integer not between 200 and 800
+      )
+      or (result->>'total_score')::integer <> (
+        select sum((section->>'score')::integer)
+        from jsonb_array_elements(result->'section_scores') section
+      )
+  ) then
+    raise exception 'Assessment result scores are outside SAT bounds or do not add to Total.';
+  end if;
+  if exists (
+    select 1
     from jsonb_to_recordset(p_results) as incoming(
       id text, assessment_id text, student_id text, total_score integer,
       section_scores jsonb, delta_from_previous integer, demo boolean
@@ -486,47 +559,9 @@ begin
       or nullif(btrim(incoming.student_id), '') is null
       or incoming.total_score is null
       or incoming.delta_from_previous is null
-      or jsonb_typeof(incoming.section_scores) is distinct from 'array'
-      or jsonb_array_length(incoming.section_scores) <> 2
       or incoming.demo is distinct from p_target_demo
   ) then
     raise exception 'An assessment result payload is invalid.';
-  end if;
-  if exists (
-    select 1
-    from jsonb_to_recordset(p_results) as incoming(section_scores jsonb)
-    cross join lateral jsonb_array_elements(incoming.section_scores) section
-    where jsonb_typeof(section) is distinct from 'object'
-      or regexp_replace(lower(btrim(section->>'label')), '[^a-z]', '', 'g')
-        not in ('rw', 'math')
-      or jsonb_typeof(section->'score') is distinct from 'number'
-      or coalesce(section->>'score', '') !~ '^[0-9]+$'
-  ) or exists (
-    select 1
-    from jsonb_to_recordset(p_results) as incoming(section_scores jsonb)
-    where 1 <> (
-      select count(*)
-      from jsonb_array_elements(incoming.section_scores) section
-      where regexp_replace(lower(btrim(section->>'label')), '[^a-z]', '', 'g') = 'rw'
-    ) or 1 <> (
-      select count(*)
-      from jsonb_array_elements(incoming.section_scores) section
-      where regexp_replace(lower(btrim(section->>'label')), '[^a-z]', '', 'g') = 'math'
-    )
-  ) then
-    raise exception 'Assessment result RW and Math scores are invalid.';
-  end if;
-  if exists (
-    select 1
-    from jsonb_to_recordset(p_results) as incoming(
-      total_score integer, section_scores jsonb
-    )
-    where incoming.total_score <> (
-      select sum((section->>'score')::integer)
-      from jsonb_array_elements(incoming.section_scores) section
-    )
-  ) then
-    raise exception 'Assessment result Total must equal RW plus Math.';
   end if;
   if exists (
     select 1 from jsonb_to_recordset(p_results) as incoming(id text)
