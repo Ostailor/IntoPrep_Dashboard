@@ -138,6 +138,10 @@ npm run ci
 
 Use focused tests when iterating, then run the full gate before reporting completion for broad changes.
 
+### Portal performance verification (2026-07-11)
+
+The production-style local QA benchmark is recorded in `.superpowers/sdd/portal-performance-report.md`. With Next.js production mode on port 3002 and one warm-up plus five Chromium hard navigations per route, median load/FCP were: `/dashboard` 20.0/68 ms, `/students` 17.0/64 ms, `/calendar` 17.2/68 ms, and `/cohorts` 15.3/68 ms. Two idle seconds on `/students` produced zero sibling RSC requests; Calendar hover/focus produced only Calendar-specific RSC GETs. Lint, typecheck, and build passed; the full suite remained at the one known QuickBooks assertion (304/305 passed). Live portal SELECTs were previously measured around 1–15 ms, and migrations `20260627005833` and `20260627103752` plus their named indexes are live. These local-QA numbers do not include signed-in Supabase latency, Vercel cold starts, user-to-region latency, or first uncached fetches and are not a production sub-second guarantee. No valid pre-optimization browser baseline exists, so use this report's raw samples as the comparison baseline for future changes.
+
 ## Authentication And Roles
 
 Roles:
