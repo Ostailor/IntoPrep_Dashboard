@@ -294,6 +294,83 @@ describe("Task 7 UI state helpers", () => {
     )).toEqual(["MWF"]);
   });
 
+  it("keeps the Include checkbox name invariant across checked state", () => {
+    const reference = { sheetName: "Camp Scores", rowNumber: 5 };
+    const mappingPlan: PreviewTabsProps["mappingPlan"] = {
+      profile: "normalized",
+      directory: { sheetName: "Student Information", columns: [] },
+      academic: { sheetName: "Camp Scores", columns: [] },
+    };
+    const preview: PreviewTabsProps["preview"] = {
+      profile: "normalized",
+      targetDemo: true,
+      digest: "test-digest",
+      sheetNames: ["Student Information", "Camp Scores"],
+      selectedSheet: "Student Information",
+      headers: [],
+      mappings: [],
+      mappingPlan,
+      setup: { cohorts: [], assessmentDates: [] },
+      rows: [],
+      summary: { creates: 0, updates: 0, enrollments: 0, skips: 0, warnings: 0, errors: 0 },
+      definitions: [],
+      academic: {
+        rows: [],
+        requirements: { cohorts: [], assessmentDates: [] },
+        programs: [],
+        campuses: [],
+        terms: [],
+        cohorts: [],
+        sessions: [],
+        enrollments: [],
+        assessments: [],
+        results: [],
+        summary: {
+          programs: 0,
+          campuses: 0,
+          terms: 0,
+          cohorts: 0,
+          sessions: 0,
+          enrollments: 0,
+          assessments: 0,
+          resultCreates: 0,
+          resultUpdates: 0,
+          errors: 0,
+        },
+      },
+      academicSourceRows: [{
+        ...reference,
+        studentName: "Maya Demo",
+        cohortName: "MWF",
+        sessionTitle: "G4",
+        roomLabel: "201",
+        assessmentTitle: "HW1 – PSAT",
+        sourceAssessmentDate: "",
+        rw: 720,
+        math: 760,
+        total: 1480,
+        action: "Create assessment result.",
+        warnings: [],
+        errors: [],
+      }],
+      sourceAssessmentDateSuggestions: [],
+      options: { programs: [], campuses: [], terms: [], cohorts: [] },
+      blocking: false,
+    };
+    const render = (excludedRows: PreviewTabsProps["excludedRows"]) => renderToStaticMarkup(createElement(
+      tabsModule.StudentImportPreviewTabs,
+      { preview, mappingPlan, excludedRows, disabled: false, onToggleRow: () => undefined },
+    ));
+
+    const checkedMarkup = render([]);
+    const uncheckedMarkup = render([reference]);
+
+    expect(checkedMarkup).toContain('aria-label="Include Camp Scores row 5"');
+    expect(uncheckedMarkup).toContain('aria-label="Include Camp Scores row 5"');
+    expect(checkedMarkup).not.toContain('aria-label="Exclude Camp Scores row 5"');
+    expect(uncheckedMarkup).not.toContain('aria-label="Exclude Camp Scores row 5"');
+  });
+
   it("keeps mixed score actions attached to their own source score groups", () => {
     const build = tabHelpers.buildScoreRows as (preview: Record<string, unknown>) => Array<Record<string, unknown>>;
     expect(build).toBeTypeOf("function");
@@ -379,6 +456,8 @@ interface CatalogDraftHelpers {
 type StrictSetup = StudentWorkbookSetup & {
   catalog: NonNullable<StudentWorkbookSetup["catalog"]>;
 };
+
+type PreviewTabsProps = Parameters<typeof tabsModule.StudentImportPreviewTabs>[0];
 
 function setupWithClasses(...sourceClasses: string[]): StrictSetup {
   return {

@@ -313,7 +313,7 @@ function IncludeToggle({
       checked={included}
       disabled={disabled}
       onChange={(event) => onToggle(reference, event.target.checked)}
-      aria-label={`${included ? "Exclude" : "Include"} ${reference.sheetName} row ${reference.rowNumber}`}
+      aria-label={`Include ${reference.sheetName} row ${reference.rowNumber}`}
     />
   );
 }
