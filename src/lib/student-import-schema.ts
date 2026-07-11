@@ -69,12 +69,18 @@ export function normalizeStudentImportHeader(value: string): string {
   return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/[^\w\s/]/g, "").replace(/\s*\/\s*/g, "/").replace(/\s+/g, " ");
 }
 
-export function suggestStudentImportMapping(sourceHeader: string): StudentImportMapping {
+export function findStudentImportField(sourceHeader: string): StudentImportFieldKey | null {
   const normalizedHeader = normalizeStudentImportHeader(sourceHeader);
-  const knownField = (Object.entries(STUDENT_IMPORT_FIELD_ALIASES) as Array<[
+  return (Object.entries(STUDENT_IMPORT_FIELD_ALIASES) as Array<[
     StudentImportFieldKey,
     readonly string[],
-  ]>).find(([, aliases]) => aliases.some((alias) => normalizeStudentImportHeader(alias) === normalizedHeader))?.[0];
+  ]>).find(([, aliases]) => aliases.some(
+    (alias) => normalizeStudentImportHeader(alias) === normalizedHeader,
+  ))?.[0] ?? null;
+}
+
+export function suggestStudentImportMapping(sourceHeader: string): StudentImportMapping {
+  const knownField = findStudentImportField(sourceHeader);
 
   if (knownField) {
     return { sourceHeader, kind: "known", field: knownField };

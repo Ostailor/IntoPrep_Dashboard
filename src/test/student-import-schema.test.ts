@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findStudentImportField,
   normalizeStudentImportHeader,
   normalizeStudentImportRow,
   suggestStudentImportMapping,
@@ -18,6 +19,8 @@ describe("student import schema", () => {
       kind: "known",
       field: "parent1Email",
     });
+    expect(findStudentImportField(" Student Name ")).toBe("fullName");
+    expect(findStudentImportField("Unmapped score")).toBeNull();
   });
 
   it("defaults unknown headers to a sensitive custom field", () => {
