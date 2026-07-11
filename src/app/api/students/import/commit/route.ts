@@ -1,0 +1,192 @@
+import { NextResponse } from "next/server";
+import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { canRunStudentImports } from "@/lib/permissions";
+import {
+  commitStudentSpreadsheetImport,
+  parseExcludedStudentImportRows,
+  parseExcludedStudentWorkbookRows,
+  parseStudentImportMappings,
+  StudentImportInputError,
+  StudentImportPermissionError,
+} from "@/lib/student-import-operations";
+import {
+  readBoundedStudentImportFormData,
+  STUDENT_IMPORT_MAX_EXCLUDED_ROWS_BYTES,
+  STUDENT_IMPORT_MAX_MAPPING_PLAN_BYTES,
+  STUDENT_IMPORT_MAX_SETUP_BYTES,
+} from "@/lib/student-import-request";
+import { STUDENT_IMPORT_MAX_BYTES, readStudentSpreadsheet } from "@/lib/student-spreadsheet";
+import { detectStudentWorkbook } from "@/lib/student-workbook-profile";
+import {
+  parseStudentWorkbookMappings,
+  parseStudentWorkbookSetup,
+} from "@/lib/student-workbook-schema";
+const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
+
+export async function POST(request: Request) {
+  const viewer = await getAuthenticatedViewerForRequest();
+  if (
+    !viewer ||
+    viewer.mode !== "live" ||
+    viewer.accountStatus === "suspended" ||
+    viewer.mustChangePassword === true ||
+    !canRunStudentImports(viewer.user.role)
+  ) {
+    return NextResponse.json({ error: "You cannot import students." }, { status: 403 });
+  }
+
+  try {
+    const form = await readBoundedStudentImportFormData(request);
+    const file = getSpreadsheetFile(form);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const sheetName = getOptionalText(form, "sheetName", 200);
+    const expectedDigest = getRequiredText(form, "expectedDigest", 64);
+    if (!DIGEST_PATTERN.test(expectedDigest)) {
+      throw new StudentImportInputError("The student import digest is invalid.");
+    }
+    const mappings = parseJsonField(form, "mappings", 100_000, parseStudentImportMappings);
+    const mappingPlanText = getOptionalText(
+      form,
+      "mappingPlan",
+      STUDENT_IMPORT_MAX_MAPPING_PLAN_BYTES,
+    );
+    let mappingPlan;
+    if (mappingPlanText !== undefined) {
+      let spreadsheet;
+      try {
+        spreadsheet = await readStudentSpreadsheet({ filename: file.name, bytes, sheetName });
+      } catch (error) {
+        throw new StudentImportInputError(
+          error instanceof Error ? error.message : "The spreadsheet could not be read.",
+        );
+      }
+      let detected;
+      try {
+        detected = detectStudentWorkbook({
+          sheets: spreadsheet.sheets,
+          selectedSheet: spreadsheet.selectedSheet,
+        });
+      } catch (error) {
+        throw new StudentImportInputError(
+          error instanceof Error ? error.message : "The spreadsheet layout is invalid.",
+        );
+      }
+      mappingPlan = parseJsonText(
+        mappingPlanText,
+        "mappingPlan",
+        (value) => parseStudentWorkbookMappings(value, detected),
+      );
+    }
+    if (!mappings && !mappingPlan) {
+      throw new StudentImportInputError("Student import mappings are required before commit.");
+    }
+    const setup = parseJsonField(
+      form,
+      "setup",
+      STUDENT_IMPORT_MAX_SETUP_BYTES,
+      parseStudentWorkbookSetup,
+    );
+    const excludedRowNumbers = parseJsonField(
+      form,
+      "excludedRowNumbers",
+      20_000,
+      parseExcludedStudentImportRows,
+    ) ?? [];
+    const excludedRows = parseJsonField(
+      form,
+      "excludedRows",
+      STUDENT_IMPORT_MAX_EXCLUDED_ROWS_BYTES,
+      parseExcludedStudentWorkbookRows,
+    ) ?? [];
+    const result = await commitStudentSpreadsheetImport({
+      viewer: viewer.user,
+      filename: file.name,
+      bytes,
+      sheetName,
+      mappings,
+      mappingPlan,
+      setup,
+      excludedRowNumbers,
+      excludedRows,
+      requestedTarget: parseTarget(form),
+      expectedDigest,
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    return studentImportErrorResponse(error);
+  }
+}
+
+function getSpreadsheetFile(form: FormData) {
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    throw new StudentImportInputError("Attach an .xlsx or .csv student spreadsheet.");
+  }
+  if (file.size > STUDENT_IMPORT_MAX_BYTES) {
+    throw new StudentImportInputError("Spreadsheet files must be 4 MB or smaller.");
+  }
+  if (!file.name || file.name.length > 255) {
+    throw new StudentImportInputError("The spreadsheet filename is invalid.");
+  }
+  return file;
+}
+
+function getOptionalText(form: FormData, key: string, maxLength: number) {
+  const value = form.get(key);
+  if (value === null || value === "") return undefined;
+  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > maxLength) {
+    throw new StudentImportInputError(`Student import ${key} is invalid.`);
+  }
+  return value;
+}
+
+function getRequiredText(form: FormData, key: string, maxLength: number) {
+  const value = getOptionalText(form, key, maxLength);
+  if (!value) {
+    throw new StudentImportInputError(`Student import ${key} is required.`);
+  }
+  return value;
+}
+
+function parseJsonField<T>(
+  form: FormData,
+  key: string,
+  maxLength: number,
+  parse: (value: unknown) => T,
+): T | undefined {
+  const text = getOptionalText(form, key, maxLength);
+  if (text === undefined) return undefined;
+  return parseJsonText(text, key, parse);
+}
+
+function parseJsonText<T>(
+  text: string,
+  key: string,
+  parse: (value: unknown) => T,
+): T {
+  try {
+    return parse(JSON.parse(text));
+  } catch (error) {
+    if (error instanceof StudentImportInputError) throw error;
+    throw new StudentImportInputError(`Student import ${key} is invalid.`);
+  }
+}
+
+function parseTarget(form: FormData) {
+  const value = form.get("targetDemo");
+  if (value === null || value === "") return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new StudentImportInputError("Student import target is invalid.");
+}
+
+function studentImportErrorResponse(error: unknown) {
+  if (error instanceof StudentImportPermissionError) {
+    return NextResponse.json({ error: error.message }, { status: 403 });
+  }
+  if (error instanceof StudentImportInputError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  return NextResponse.json({ error: "Student import failed." }, { status: 500 });
+}

@@ -111,12 +111,19 @@ export interface StudentImportRunPayload {
   fileDigest: string;
   worksheet: string;
   mapping: StudentImportMapping[];
+  workbookProfile: StudentWorkbookProfile;
+  workbookMapping: StudentWorkbookMappingPlan;
+  workbookSetup: StudentWorkbookSetup;
   totalRows: number;
   createdCount: number;
   updatedCount: number;
   enrollmentCount: number;
   skippedCount: number;
   warningCount: number;
+  cohortCount: number;
+  sessionCount: number;
+  assessmentCount: number;
+  resultCount: number;
 }
 
 export interface StudentImportCommitPayload {
@@ -126,6 +133,10 @@ export interface StudentImportCommitPayload {
   families: Array<Record<string, unknown>>;
   students: Array<Record<string, unknown>>;
   enrollments: Array<Record<string, unknown>>;
+  cohorts: Array<Record<string, unknown>>;
+  sessions: Array<Record<string, unknown>>;
+  assessments: Array<Record<string, unknown>>;
+  results: Array<Record<string, unknown>>;
   importRun: StudentImportRunPayload;
 }
 
@@ -135,6 +146,10 @@ export interface StudentImportCommitResult {
   updated: number;
   enrolled: number;
   skipped: number;
+  cohorts: number;
+  sessions: number;
+  assessments: number;
+  results: number;
 }
 
 export interface FailedStudentImportRun {
@@ -149,6 +164,13 @@ export interface FailedStudentImportRun {
   enrollment_count: number;
   skipped_count: number;
   warning_count: number;
+  workbook_profile: StudentWorkbookProfile;
+  workbook_mapping: StudentWorkbookMappingPlan;
+  workbook_setup: StudentWorkbookSetup;
+  cohort_count: number;
+  session_count: number;
+  assessment_count: number;
+  result_count: number;
   error_samples: ["Student import failed."];
   demo: boolean;
   created_by: string | null;
@@ -239,6 +261,7 @@ export type StudentImportPreview = StudentWorkbookPreview;
 interface PreparedStudentImport {
   preview: StudentImportPreview;
   plan: StudentImportPlan;
+  partition: StudentImportPartitionData;
 }
 
 export function parseStudentImportMappings(value: unknown): StudentImportMapping[] | undefined {
@@ -354,7 +377,15 @@ export async function commitStudentSpreadsheetImport(
   if (prepared.preview.digest !== input.expectedDigest) {
     throw new StudentImportInputError("The uploaded file changed after preview. Preview it again.");
   }
-  if (prepared.plan.rows.some((row) => row.errors.length > 0)) {
+  if (
+    prepared.preview.profile !== "simple" &&
+    (!input.mappingPlan || !input.setup)
+  ) {
+    throw new StudentImportInputError(
+      "Preview the workbook mapping and setup again before importing.",
+    );
+  }
+  if (prepared.preview.blocking) {
     throw new StudentImportInputError("Fix or exclude every row with an error before importing.");
   }
 
@@ -368,12 +399,32 @@ export async function commitStudentSpreadsheetImport(
   }
 
   const repository = input.repository ?? createProductionStudentImportRepository();
+  const enrollments = mergePlannedEnrollments(
+    prepared.plan.enrollments,
+    prepared.preview.academic.enrollments,
+  );
+  const results = recalculateResultDeltas({
+    plannedResults: prepared.preview.academic.results,
+    plannedAssessments: prepared.preview.academic.assessments,
+    existingResults: prepared.partition.results,
+    existingAssessments: prepared.partition.assessments,
+  });
   const importRun = makeImportRun({
     filename: input.filename,
     digest: prepared.preview.digest,
     worksheet: prepared.preview.selectedSheet,
     mappings: prepared.preview.mappings,
+    workbookProfile: prepared.preview.profile,
+    workbookMapping: prepared.preview.mappingPlan,
+    workbookSetup: prepared.preview.setup,
     plan: prepared.plan,
+    enrollmentCount: enrollments.length,
+    academic: {
+      cohorts: prepared.preview.academic.cohorts.length,
+      sessions: prepared.preview.academic.sessions.length,
+      assessments: prepared.preview.academic.assessments.length,
+      results: results.length,
+    },
   });
   const payload: StudentImportCommitPayload = {
     actor: {
@@ -385,7 +436,11 @@ export async function commitStudentSpreadsheetImport(
     fieldDefinitions: prepared.plan.newFieldDefinitions,
     families: prepared.plan.families,
     students: prepared.plan.students,
-    enrollments: prepared.plan.enrollments,
+    enrollments,
+    cohorts: prepared.preview.academic.cohorts,
+    sessions: prepared.preview.academic.sessions,
+    assessments: prepared.preview.academic.assessments,
+    results,
     importRun,
   };
 
@@ -405,6 +460,13 @@ export async function commitStudentSpreadsheetImport(
       enrollment_count: importRun.enrollmentCount,
       skipped_count: importRun.skippedCount,
       warning_count: importRun.warningCount,
+      workbook_profile: importRun.workbookProfile,
+      workbook_mapping: importRun.workbookMapping,
+      workbook_setup: importRun.workbookSetup,
+      cohort_count: importRun.cohortCount,
+      session_count: importRun.sessionCount,
+      assessment_count: importRun.assessmentCount,
+      result_count: importRun.resultCount,
       error_samples: ["Student import failed."],
       demo: targetDemo,
       created_by: actorId,
@@ -480,6 +542,14 @@ async function prepareStudentImport(
         detected.directory.columns.map((column) => column.sourceHeader),
         suppliedMappings,
       );
+      if (
+        input.mappingPlan &&
+        !sameStudentImportMappings(mappingPlan.directory.columns, suppliedMappings)
+      ) {
+        throw new StudentImportInputError(
+          "Student workbook mappings changed. Preview the file again.",
+        );
+      }
       mappingPlan = {
         ...mappingPlan,
         directory: { ...mappingPlan.directory, columns: suppliedMappings },
@@ -578,6 +648,7 @@ async function prepareStudentImport(
 
   return {
     plan,
+    partition: data,
     preview: {
       profile: detected.profile,
       targetDemo,
@@ -834,24 +905,210 @@ function toNewFieldDefinitions(mappings: StudentImportMapping[]): NewImportField
   }] : []);
 }
 
+function sameStudentImportMappings(
+  left: StudentImportMapping[],
+  right: StudentImportMapping[],
+) {
+  return left.length === right.length && left.every(
+    (mapping, index) => {
+      const candidate = right[index];
+      if (
+        !candidate ||
+        mapping.sourceHeader !== candidate.sourceHeader ||
+        mapping.kind !== candidate.kind
+      ) return false;
+      if (mapping.kind === "ignore" || candidate.kind === "ignore") return true;
+      if (mapping.kind === "known" && candidate.kind === "known") {
+        return mapping.field === candidate.field;
+      }
+      if (mapping.kind === "custom-existing" && candidate.kind === "custom-existing") {
+        return mapping.key === candidate.key;
+      }
+      return mapping.kind === "custom-new" && candidate.kind === "custom-new" &&
+        mapping.key === candidate.key &&
+        mapping.label === candidate.label &&
+        mapping.dataType === candidate.dataType &&
+        mapping.sensitive === candidate.sensitive;
+    },
+  );
+}
+
+function mergePlannedEnrollments(
+  directory: Array<Record<string, unknown>>,
+  academic: Array<Record<string, unknown>>,
+) {
+  const enrollments = new Map<string, Record<string, unknown>>();
+  for (const enrollment of [...directory, ...academic]) {
+    const studentId = academicPlanString(enrollment, "student_id");
+    const cohortId = academicPlanString(enrollment, "cohort_id");
+    const key = `${studentId}\0${cohortId}`;
+    if (!enrollments.has(key)) enrollments.set(key, enrollment);
+  }
+  return [...enrollments.values()];
+}
+
+function recalculateResultDeltas(input: {
+  plannedResults: Array<Record<string, unknown>>;
+  plannedAssessments: Array<Record<string, unknown>>;
+  existingResults: StudentImportPartitionData["results"];
+  existingAssessments: StudentImportPartitionData["assessments"];
+}): Array<Record<string, unknown>> {
+  if (input.plannedResults.length > 2_000) {
+    throw new StudentImportInputError("An import cannot plan more than 2,000 results.");
+  }
+
+  const assessmentsById = new Map(input.existingAssessments.map((assessment) => [
+    assessment.id,
+    {
+      id: assessment.id,
+      cohortId: assessment.cohort_id,
+      date: assessment.date,
+    },
+  ]));
+  for (const assessment of input.plannedAssessments) {
+    const id = academicPlanString(assessment, "id");
+    assessmentsById.set(id, {
+      id,
+      cohortId: academicPlanString(assessment, "cohort_id"),
+      date: academicPlanString(assessment, "date"),
+    });
+  }
+
+  const planned = input.plannedResults.map((result, index) => {
+    const totalScore = result.total_score;
+    if (!Number.isInteger(totalScore)) {
+      throw new StudentImportInputError("The rebuilt academic import plan is invalid.");
+    }
+    return {
+      payload: result,
+      assessmentId: academicPlanString(result, "assessment_id"),
+      studentId: academicPlanString(result, "student_id"),
+      totalScore: totalScore as number,
+      index,
+    };
+  });
+  const effectiveResults = new Map<string, {
+    assessmentId: string;
+    studentId: string;
+    totalScore: number;
+  }>();
+  for (const result of input.existingResults) {
+    effectiveResults.set(`${result.student_id}\0${result.assessment_id}`, {
+      assessmentId: result.assessment_id,
+      studentId: result.student_id,
+      totalScore: result.total_score,
+    });
+  }
+  for (const result of planned) {
+    effectiveResults.set(`${result.studentId}\0${result.assessmentId}`, result);
+  }
+
+  const resultHistory = new Map<string, Array<{
+    assessmentId: string;
+    date: string;
+    totalScore: number;
+  }>>();
+  for (const result of effectiveResults.values()) {
+    const assessment = assessmentsById.get(result.assessmentId);
+    if (!assessment) {
+      throw new StudentImportInputError("The rebuilt academic import plan is invalid.");
+    }
+    const key = `${result.studentId}\0${assessment.cohortId}`;
+    const history = resultHistory.get(key) ?? [];
+    history.push({
+      assessmentId: assessment.id,
+      date: assessment.date,
+      totalScore: result.totalScore,
+    });
+    resultHistory.set(key, history);
+  }
+  for (const history of resultHistory.values()) {
+    history.sort((left, right) =>
+      left.date.localeCompare(right.date) || left.assessmentId.localeCompare(right.assessmentId));
+  }
+
+  const targetsByHistory = new Map<string, Array<typeof planned[number] & { date: string }>>();
+  for (const result of planned) {
+    const assessment = assessmentsById.get(result.assessmentId);
+    if (!assessment) {
+      throw new StudentImportInputError("The rebuilt academic import plan is invalid.");
+    }
+    const key = `${result.studentId}\0${assessment.cohortId}`;
+    const targets = targetsByHistory.get(key) ?? [];
+    targets.push({ ...result, date: assessment.date });
+    targetsByHistory.set(key, targets);
+  }
+
+  const deltas = new Array<number>(planned.length);
+  for (const [key, targets] of targetsByHistory) {
+    const history = resultHistory.get(key) ?? [];
+    targets.sort((left, right) =>
+      left.date.localeCompare(right.date) || left.assessmentId.localeCompare(right.assessmentId));
+    let historyIndex = 0;
+    let previousTotal = 0;
+    for (const target of targets) {
+      while (
+        historyIndex < history.length &&
+        history[historyIndex].date.localeCompare(target.date) < 0
+      ) {
+        previousTotal = history[historyIndex].totalScore;
+        historyIndex += 1;
+      }
+      deltas[target.index] = target.totalScore - previousTotal;
+    }
+  }
+
+  return planned.map((result) => {
+    return {
+      ...result.payload,
+      delta_from_previous: deltas[result.index],
+    };
+  });
+}
+
+function academicPlanString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new StudentImportInputError("The rebuilt academic import plan is invalid.");
+  }
+  return value;
+}
+
 function makeImportRun(input: {
   filename: string;
   digest: string;
   worksheet: string;
   mappings: StudentImportMapping[];
+  workbookProfile: StudentWorkbookProfile;
+  workbookMapping: StudentWorkbookMappingPlan;
+  workbookSetup: StudentWorkbookSetup;
   plan: StudentImportPlan;
+  enrollmentCount: number;
+  academic: {
+    cohorts: number;
+    sessions: number;
+    assessments: number;
+    results: number;
+  };
 }): StudentImportRunPayload {
   return {
     filename: boundedText(input.filename, 255, "student-import"),
     fileDigest: input.digest,
     worksheet: boundedText(input.worksheet, 200, "Sheet"),
     mapping: input.mappings,
+    workbookProfile: input.workbookProfile,
+    workbookMapping: input.workbookMapping,
+    workbookSetup: input.workbookSetup,
     totalRows: input.plan.rows.length,
     createdCount: input.plan.summary.creates,
     updatedCount: input.plan.summary.updates,
-    enrollmentCount: input.plan.summary.enrollments,
+    enrollmentCount: input.enrollmentCount,
     skippedCount: input.plan.summary.skips,
     warningCount: input.plan.summary.warnings,
+    cohortCount: input.academic.cohorts,
+    sessionCount: input.academic.sessions,
+    assessmentCount: input.academic.assessments,
+    resultCount: input.academic.results,
   };
 }
 
@@ -925,7 +1182,7 @@ export function createProductionStudentImportRepository(): StudentImportReposito
       };
     },
     async commitImport(payload) {
-      const { data, error } = await serviceClient.rpc("commit_student_spreadsheet_import", {
+      const baseArgs = {
         p_actor_id: payload.actor.id,
         p_actor_role: payload.actor.role,
         p_actor_demo: payload.actor.demo,
@@ -934,12 +1191,52 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         p_families: payload.families as Json,
         p_students: payload.students as Json,
         p_enrollments: payload.enrollments as Json,
-        p_import_run: payload.importRun as unknown as Json,
-      });
+      };
+      const hasAcademicPlan = payload.cohorts.length > 0 ||
+        payload.sessions.length > 0 ||
+        payload.assessments.length > 0 ||
+        payload.results.length > 0;
+      const useLegacyRpc = payload.importRun.workbookProfile === "simple" && !hasAcademicPlan;
+      const rpcResult = useLegacyRpc
+        ? await serviceClient.rpc("commit_student_spreadsheet_import", {
+            ...baseArgs,
+            p_import_run: payload.importRun as unknown as Json,
+          })
+        : await serviceClient.rpc("commit_student_workbook_import", {
+            ...baseArgs,
+            p_cohorts: payload.cohorts as Json,
+            p_sessions: payload.sessions as Json,
+            p_assessments: payload.assessments as Json,
+            p_results: payload.results as Json,
+            p_import_run: {
+              ...payload.importRun,
+              profile: payload.importRun.workbookProfile,
+            } as unknown as Json,
+          });
+      const { data, error } = rpcResult;
       if (error) {
         throw new Error(error.message);
       }
-      if (!isCommitResult(data)) {
+      if (useLegacyRpc) {
+        if (!isDirectoryCommitResult(data) || !directoryResultMatchesRun(data, payload.importRun)) {
+          throw new Error("The student import returned an invalid result.");
+        }
+        return {
+          ...data,
+          cohorts: 0,
+          sessions: 0,
+          assessments: 0,
+          results: 0,
+        };
+      }
+      if (
+        !isCommitResult(data) ||
+        !directoryResultMatchesRun(data, payload.importRun) ||
+        data.cohorts !== payload.importRun.cohortCount ||
+        data.sessions !== payload.importRun.sessionCount ||
+        data.assessments !== payload.importRun.assessmentCount ||
+        data.results !== payload.importRun.resultCount
+      ) {
         throw new Error("The student import returned an invalid result.");
       }
       return data;
@@ -948,6 +1245,8 @@ export function createProductionStudentImportRepository(): StudentImportReposito
       const { error } = await serviceClient.from("student_import_runs").insert({
         ...run,
         mapping: run.mapping as Json,
+        workbook_mapping: run.workbook_mapping as unknown as Json,
+        workbook_setup: run.workbook_setup as unknown as Json,
         error_samples: run.error_samples as Json,
       });
       if (error) {
@@ -978,13 +1277,38 @@ async function loadAllPages<T>(
   }
 }
 
-function isCommitResult(value: unknown): value is StudentImportCommitResult {
+function isDirectoryCommitResult(
+  value: unknown,
+): value is Omit<StudentImportCommitResult, "cohorts" | "sessions" | "assessments" | "results"> {
   return isPlainRecord(value) &&
-    typeof value.runId === "string" &&
-    typeof value.created === "number" &&
-    typeof value.updated === "number" &&
-    typeof value.enrolled === "number" &&
-    typeof value.skipped === "number";
+    typeof value.runId === "string" && UUID_PATTERN.test(value.runId) &&
+    isNonnegativeInteger(value.created) &&
+    isNonnegativeInteger(value.updated) &&
+    isNonnegativeInteger(value.enrolled) &&
+    isNonnegativeInteger(value.skipped);
+}
+
+function isCommitResult(value: unknown): value is StudentImportCommitResult {
+  if (!isDirectoryCommitResult(value)) return false;
+  const academicCounts = value as unknown as Record<string, unknown>;
+  return isNonnegativeInteger(academicCounts.cohorts) &&
+    isNonnegativeInteger(academicCounts.sessions) &&
+    isNonnegativeInteger(academicCounts.assessments) &&
+    isNonnegativeInteger(academicCounts.results);
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function directoryResultMatchesRun(
+  result: Omit<StudentImportCommitResult, "cohorts" | "sessions" | "assessments" | "results">,
+  run: StudentImportRunPayload,
+) {
+  return result.created === run.createdCount &&
+    result.updated === run.updatedCount &&
+    result.enrolled === run.enrollmentCount &&
+    result.skipped === run.skippedCount;
 }
 
 function isValidCustomKey(value: unknown): value is string {

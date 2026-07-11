@@ -5,6 +5,7 @@ import {
   commitStudentSpreadsheetImport,
   createProductionStudentImportRepository,
   previewStudentSpreadsheetImport,
+  StudentImportInputError,
   type StudentImportCommitPayload,
   type StudentImportFieldDefinitionRow,
   type StudentImportPartitionData,
@@ -178,6 +179,10 @@ function makeRepository(options: {
         updated: payload.importRun.updatedCount,
         enrolled: payload.importRun.enrollmentCount,
         skipped: payload.importRun.skippedCount,
+        cohorts: payload.importRun.cohortCount,
+        sessions: payload.importRun.sessionCount,
+        assessments: payload.importRun.assessmentCount,
+        results: payload.importRun.resultCount,
       };
     },
     async insertFailedRun(run) {
@@ -212,6 +217,19 @@ function setNormalizedOperationFixture(marker: string, sourceDates: string[] = [
       ],
     },
   ]);
+}
+
+function setWideOperationFixture(marker: string, total = 1480) {
+  xlsxFixtures.set(marker, [{
+    sheet: "Camp Scores",
+    data: [
+      ["SAT Summer Camp 2026"],
+      ["Name", "Class", "Level", "Room", "HW1", null, null],
+      [null, null, null, null, "PSAT", null, null],
+      [null, null, null, null, "RW", "Math", "Total"],
+      ["Maya Demo", "MWF", "G4", "201", 720, total - 720, total],
+    ],
+  }]);
 }
 
 function makeCommitInput(repository: StudentImportRepository, overrides: Record<string, unknown> = {}) {
@@ -687,6 +705,325 @@ describe("student import preview and commit operations", () => {
     expect(repository.insertedFailedRuns).toHaveLength(0);
   });
 
+  it("rebuilds a reviewed wide workbook plan and commits every academic collection", async () => {
+    const marker = "wide-operation-commit";
+    setWideOperationFixture(marker);
+    const previousAssessment = {
+      id: "assessment-previous",
+      cohort_id: existingMwfCohort.id,
+      title: "Diagnostic",
+      date: "2026-07-01",
+      sections: [{ label: "RW", score: 800 }, { label: "Math", score: 800 }],
+      demo: true,
+    };
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+        assessments: [previousAssessment],
+        results: [{
+          id: "result-previous",
+          assessment_id: previousAssessment.id,
+          student_id: existingDemoStudent.id,
+          total_score: 1400,
+          section_scores: [{ label: "RW", score: 700 }, { label: "Math", score: 700 }],
+          delta_from_previous: 1400,
+          demo: true,
+        }],
+      },
+    });
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    await commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: preview.mappingPlan,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+    }));
+
+    expect(repository.committedPayloads).toHaveLength(1);
+    expect(repository.committedPayloads[0]).toMatchObject({
+      targetDemo: true,
+      cohorts: [],
+      sessions: expect.any(Array),
+      enrollments: expect.any(Array),
+      assessments: [expect.objectContaining({
+        cohort_id: existingMwfCohort.id,
+        title: "HW1 – PSAT",
+        date: "2026-07-10",
+      })],
+      results: [expect.objectContaining({
+        student_id: existingDemoStudent.id,
+        total_score: 1480,
+        delta_from_previous: 80,
+      })],
+      importRun: expect.objectContaining({
+        workbookProfile: "wide",
+        workbookMapping: preview.mappingPlan,
+        workbookSetup: setup,
+        assessmentCount: 1,
+        resultCount: 1,
+      }),
+    });
+  });
+
+  it("requires the reviewed mapping plan for an academic workbook commit", async () => {
+    const marker = "wide-operation-missing-reviewed-mapping";
+    setWideOperationFixture(marker);
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+      },
+    });
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    await expect(commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: undefined,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+    }))).rejects.toThrow("Preview the workbook mapping and setup again before importing.");
+
+    expect(repository.committedPayloads).toHaveLength(0);
+  });
+
+  it("deduplicates directory and academic enrollments in a normalized commit", async () => {
+    const marker = "normalized-operation-duplicate-enrollment";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Student Email", "Cohort"],
+          ["Maya Demo", "maya@example.com", "MWF"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+      },
+    });
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    await commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: preview.mappingPlan,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+    }));
+
+    expect(repository.committedPayloads[0]?.enrollments).toEqual([
+      expect.objectContaining({
+        student_id: existingDemoStudent.id,
+        cohort_id: existingMwfCohort.id,
+      }),
+    ]);
+    expect(repository.committedPayloads[0]?.importRun.enrollmentCount).toBe(1);
+  });
+
+  it.each([
+    {
+      label: "mapping",
+      mutate: (preview: Awaited<ReturnType<typeof previewStudentSpreadsheetImport>>) => ({
+        mappingPlan: {
+          ...preview.mappingPlan,
+          directory: {
+            ...preview.mappingPlan.directory,
+            columns: preview.mappingPlan.directory.columns.map((column, index) =>
+              index === 0 ? { ...column, sourceHeader: "Changed Name" } : column),
+          },
+        },
+      }),
+    },
+    {
+      label: "setup date",
+      mutate: () => ({ setup: { cohorts: [], assessmentDates: [] } }),
+    },
+    {
+      label: "directory mapping assignment",
+      mutate: (preview: Awaited<ReturnType<typeof previewStudentSpreadsheetImport>>) => ({
+        mappings: preview.mappings.map((mapping, index) =>
+          index === 0
+            ? { sourceHeader: mapping.sourceHeader, kind: "known", field: "lastName" }
+            : mapping),
+      }),
+    },
+    {
+      label: "cohort selection",
+      mutate: () => ({
+        setup: {
+          cohorts: [{ sourceClass: "MWF", selectedCohortId: "missing-cohort" }],
+          assessmentDates: [{
+            sourceClass: "MWF",
+            assessmentTitle: "HW1 – PSAT",
+            date: "2026-07-10",
+          }],
+        },
+      }),
+    },
+  ])("blocks a changed reviewed wide $label before repository commit", async ({ label, mutate }) => {
+    const marker = `wide-stale-${label}`;
+    setWideOperationFixture(marker);
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+      },
+    });
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    await expect(commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: preview.mappingPlan,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+      ...mutate(preview),
+    }))).rejects.toBeInstanceOf(StudentImportInputError);
+
+    expect(repository.committedPayloads).toHaveLength(0);
+  });
+
+  it("blocks a changed assessment snapshot before repository commit", async () => {
+    const marker = "wide-stale-assessment-snapshot";
+    setWideOperationFixture(marker);
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const initialRepository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+      },
+    });
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository: initialRepository,
+      createUuid: makeIds(),
+    });
+    const duplicate = (id: string) => ({
+      id,
+      cohort_id: existingMwfCohort.id,
+      title: "HW1 – PSAT",
+      date: "2026-07-10",
+      sections: [{ label: "RW", score: 800 }, { label: "Math", score: 800 }],
+      demo: true,
+    });
+    const changedRepository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+        assessments: [duplicate("assessment-one"), duplicate("assessment-two")],
+      },
+    });
+
+    await expect(commitStudentSpreadsheetImport(makeCommitInput(changedRepository, {
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: preview.mappingPlan,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+    }))).rejects.toBeInstanceOf(StudentImportInputError);
+
+    expect(changedRepository.committedPayloads).toHaveLength(0);
+  });
+
   it("excludes blocking rows, rebuilds trusted counts, and calls the RPC once", async () => {
     const repository = makeRepository();
     const bytes = makeFile([
@@ -787,6 +1124,60 @@ describe("student import preview and commit operations", () => {
     expect(repository.insertedFailedRuns[0]!.filename.length).toBeLessThanOrEqual(255);
     expect(JSON.stringify(repository.insertedFailedRuns[0])).not.toContain("secret-student");
     expect(JSON.stringify(repository.insertedFailedRuns[0])).not.toContain("<script>");
+  });
+
+  it("records structured wide metadata without raw scores after an RPC rollback", async () => {
+    const marker = "wide-operation-failed-audit";
+    setWideOperationFixture(marker, 1481);
+    const repository = makeRepository({
+      rpcError: new Error("forced rollback for score 1481"),
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort],
+      },
+    });
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    await expect(commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "scores.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: preview.mappingPlan,
+      setup,
+      expectedDigest: preview.digest,
+      createUuid: makeIds(),
+    }))).rejects.toThrow("Student import failed.");
+
+    expect(repository.committedPayloads[0]?.results).toEqual([
+      expect.objectContaining({ total_score: 1481, delta_from_previous: 1481 }),
+    ]);
+    expect(repository.insertedFailedRuns).toHaveLength(1);
+    expect(repository.insertedFailedRuns[0]).toMatchObject({
+      workbook_profile: "wide",
+      workbook_mapping: preview.mappingPlan,
+      workbook_setup: setup,
+      cohort_count: 0,
+      assessment_count: 1,
+      result_count: 1,
+      error_samples: ["Student import failed."],
+    });
+    expect(JSON.stringify(repository.insertedFailedRuns[0])).not.toContain("1481");
   });
 
   it("returns the committed result when cache invalidation fails without writing a failed run", async () => {
@@ -925,7 +1316,7 @@ describe("student import preview and commit operations", () => {
     }
   });
 
-  it("calls the production RPC once with the exact trusted payload and validates its result", async () => {
+  it("keeps simple imports on the legacy RPC and adapts them to the stable result shape", async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: { runId: "50000000-0000-4000-8000-000000000001", created: 1, updated: 2, enrolled: 3, skipped: 4 },
       error: null,
@@ -939,21 +1330,46 @@ describe("student import preview and commit operations", () => {
       families: [{ id: "family" }],
       students: [{ id: "student" }],
       enrollments: [{ id: "enrollment" }],
+      cohorts: [],
+      sessions: [],
+      assessments: [],
+      results: [],
       importRun: {
         filename: "students.csv",
         fileDigest: "a".repeat(64),
         worksheet: "CSV",
         mapping: mappings,
+        workbookProfile: "simple",
+        workbookMapping: {
+          profile: "simple",
+          directory: { sheetName: "CSV", columns: mappings },
+          academic: null,
+        },
+        workbookSetup: { cohorts: [], assessmentDates: [] },
         totalRows: 3,
         createdCount: 1,
         updatedCount: 2,
         enrollmentCount: 3,
         skippedCount: 4,
         warningCount: 0,
+        cohortCount: 0,
+        sessionCount: 0,
+        assessmentCount: 0,
+        resultCount: 0,
       },
     };
 
-    await expect(repository.commitImport(payload)).resolves.toMatchObject({ created: 1, updated: 2 });
+    await expect(repository.commitImport(payload)).resolves.toEqual({
+      runId: "50000000-0000-4000-8000-000000000001",
+      created: 1,
+      updated: 2,
+      enrolled: 3,
+      skipped: 4,
+      cohorts: 0,
+      sessions: 0,
+      assessments: 0,
+      results: 0,
+    });
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("commit_student_spreadsheet_import", {
       p_actor_id: demoAdmin.id,
@@ -968,6 +1384,98 @@ describe("student import preview and commit operations", () => {
     });
 
     rpc.mockResolvedValueOnce({ data: { runId: "bad", created: "1" }, error: null });
+    await expect(repository.commitImport(payload)).rejects.toThrow(
+      "The student import returned an invalid result.",
+    );
+  });
+
+  it("dispatches wide plans through the exact workbook RPC and validates academic counts", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        runId: "50000000-0000-4000-8000-000000000001",
+        created: 0,
+        updated: 0,
+        enrolled: 1,
+        skipped: 0,
+        cohorts: 1,
+        sessions: 2,
+        assessments: 1,
+        results: 1,
+      },
+      error: null,
+    });
+    serviceMocks.createClient.mockReturnValue({ rpc });
+    const repository = createProductionStudentImportRepository();
+    const payload: StudentImportCommitPayload = {
+      actor: { id: demoAdmin.id, role: "admin", demo: true },
+      targetDemo: true,
+      fieldDefinitions: [],
+      families: [],
+      students: [],
+      enrollments: [{ id: "enrollment" }],
+      cohorts: [{ id: "cohort" }],
+      sessions: [{ id: "session-1" }, { id: "session-2" }],
+      assessments: [{ id: "assessment" }],
+      results: [{ id: "result", delta_from_previous: 1480 }],
+      importRun: {
+        filename: "scores.xlsx",
+        fileDigest: "a".repeat(64),
+        worksheet: "Camp Scores",
+        mapping: [],
+        workbookProfile: "wide",
+        workbookMapping: {
+          profile: "wide",
+          directory: { sheetName: "Camp Scores", columns: [] },
+          academic: { sheetName: "Camp Scores", columns: [] },
+        },
+        workbookSetup: { cohorts: [], assessmentDates: [] },
+        totalRows: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        enrollmentCount: 1,
+        skippedCount: 0,
+        warningCount: 0,
+        cohortCount: 1,
+        sessionCount: 2,
+        assessmentCount: 1,
+        resultCount: 1,
+      },
+    };
+
+    await expect(repository.commitImport(payload)).resolves.toMatchObject({ results: 1 });
+    expect(rpc).toHaveBeenCalledWith("commit_student_workbook_import", {
+      p_actor_id: demoAdmin.id,
+      p_actor_role: "admin",
+      p_actor_demo: true,
+      p_target_demo: true,
+      p_field_definitions: payload.fieldDefinitions,
+      p_families: payload.families,
+      p_students: payload.students,
+      p_enrollments: payload.enrollments,
+      p_cohorts: payload.cohorts,
+      p_sessions: payload.sessions,
+      p_assessments: payload.assessments,
+      p_results: payload.results,
+      p_import_run: {
+        ...payload.importRun,
+        profile: "wide",
+      },
+    });
+
+    rpc.mockResolvedValueOnce({
+      data: {
+        runId: "bad",
+        created: 0,
+        updated: 0,
+        enrolled: 0,
+        skipped: 0,
+        cohorts: 1,
+        sessions: 2,
+        assessments: 1,
+        results: "1",
+      },
+      error: null,
+    });
     await expect(repository.commitImport(payload)).rejects.toThrow(
       "The student import returned an invalid result.",
     );

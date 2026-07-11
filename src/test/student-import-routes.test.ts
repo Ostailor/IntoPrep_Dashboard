@@ -341,6 +341,64 @@ describe("student spreadsheet import routes", () => {
     expect(mocks.commit.mock.calls[0]![0]).not.toHaveProperty("counts");
   });
 
+  it("strictly parses the reviewed workbook plan and setup before commit", async () => {
+    const mappings = [
+      { sourceHeader: "First Name", kind: "known", field: "firstName" },
+      { sourceHeader: "Last Name", kind: "known", field: "lastName" },
+    ];
+    const mappingPlan = {
+      profile: "simple",
+      directory: { sheetName: "CSV", columns: mappings },
+      academic: null,
+    };
+    const setup = { cohorts: [], assessmentDates: [] };
+    const excludedRows = [{ sheetName: "CSV", rowNumber: 2 }];
+    const response = await commitPost(makeRequest("commit", {
+      expectedDigest: "b".repeat(64),
+      sheetName: "CSV",
+      mappings: JSON.stringify(mappings),
+      mappingPlan: JSON.stringify(mappingPlan),
+      setup: JSON.stringify(setup),
+      excludedRows: JSON.stringify(excludedRows),
+      targetDemo: "true",
+      normalizedRows: JSON.stringify([{ studentEmail: "untrusted@example.com" }]),
+      counts: JSON.stringify({ results: 500 }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({
+      viewer: admin,
+      filename: "students.csv",
+      sheetName: "CSV",
+      mappings,
+      mappingPlan,
+      setup,
+      excludedRows,
+      requestedTarget: true,
+      expectedDigest: "b".repeat(64),
+    }));
+    expect(mocks.commit.mock.calls[0]![0]).not.toHaveProperty("normalizedRows");
+    expect(mocks.commit.mock.calls[0]![0]).not.toHaveProperty("counts");
+  });
+
+  it.each([
+    ["mapping plan", { mappingPlan: "[]" }],
+    ["setup", { setup: "[]" }],
+    ["sheet-aware exclusions", { excludedRows: JSON.stringify([{ sheetName: "CSV", rowNumber: 2.5 }]) }],
+  ])("rejects an invalid reviewed commit %s", async (_label, invalidFields) => {
+    const response = await commitPost(makeRequest("commit", {
+      expectedDigest: "b".repeat(64),
+      mappings: JSON.stringify([
+        { sourceHeader: "First Name", kind: "known", field: "firstName" },
+        { sourceHeader: "Last Name", kind: "known", field: "lastName" },
+      ]),
+      ...invalidFields,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
+
   it("maps permission, data, and unexpected operation errors to 403, 400, and 500", async () => {
     mocks.preview.mockRejectedValueOnce(new StudentImportPermissionError("You cannot import students."));
     const forbidden = await previewPost(makeRequest("preview"));
