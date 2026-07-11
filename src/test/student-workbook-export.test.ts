@@ -9,6 +9,7 @@ import {
 import {
   createStudentWorkbookExportRepository,
   exportStudentWorkbook,
+  groupStudentWorkbookExportRows,
   STUDENT_WORKBOOK_EXPORT_LIMITS,
   StudentWorkbookExportLimitError,
   type StudentWorkbookExportDataSource,
@@ -479,6 +480,41 @@ describe("exportStudentWorkbook", () => {
       limits,
     })).rejects.toBeInstanceOf(StudentWorkbookExportLimitError);
   });
+
+  it("accepts the exact projected cell limit and rejects one cell over", async () => {
+    const exactLimits: StudentWorkbookExportLimits = {
+      ...STUDENT_WORKBOOK_EXPORT_LIMITS,
+      projectedCells: 18,
+    };
+
+    await expect(exportStudentWorkbook({
+      viewer: demoAdmin,
+      scope: "students",
+      repository: repository(),
+      limits: exactLimits,
+    })).resolves.toMatchObject({ sheetNames: ["Student Information"] });
+    await expect(exportStudentWorkbook({
+      viewer: demoAdmin,
+      scope: "students",
+      repository: repository(),
+      limits: { ...exactLimits, projectedCells: 17 },
+    })).rejects.toBeInstanceOf(StudentWorkbookExportLimitError);
+  });
+});
+
+describe("student workbook export row grouping", () => {
+  it("appends a concentrated 50,000-row bucket without replacing the bucket", () => {
+    const bucket = [{ id: -1 }];
+    const groups = new Map<string, Array<{ id: number }>>([["same", bucket]]);
+    const rows = Array.from({ length: 50_000 }, (_, id) => ({ id }));
+
+    const result = groupStudentWorkbookExportRows(rows, () => "same", groups);
+
+    expect(result).toBe(groups);
+    expect(result.get("same")).toBe(bucket);
+    expect(bucket).toHaveLength(50_001);
+    expect(bucket.at(-1)).toEqual({ id: 49_999 });
+  });
 });
 
 describe("student workbook export repository", () => {
@@ -529,6 +565,22 @@ describe("student workbook export repository", () => {
       .toMatchObject({ includeArchivedCohorts: true });
     expect(source.loadPage.mock.calls.find(([input]) => input.collection === "students")?.[0])
       .toMatchObject({ studentProjection: "score" });
+  });
+
+  it("loads every collection once for all scope with directory students and archived cohorts", async () => {
+    const source = dataSource();
+    const repository = createStudentWorkbookExportRepository(source, smallLimits);
+
+    await repository.loadPartition(true, "all");
+
+    expect(source.loadPage.mock.calls.map(([input]) => input.collection)).toEqual([
+      "families", "students", "fieldDefinitions", "enrollments",
+      "cohorts", "sessions", "assessments", "results",
+    ]);
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "students")?.[0])
+      .toMatchObject({ studentProjection: "directory" });
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "cohorts")?.[0])
+      .toMatchObject({ includeArchivedCohorts: true });
   });
 
   it("accepts an exact page boundary after a one-row overflow probe", async () => {

@@ -277,7 +277,7 @@ function projectStudentRows(
       .filter((cohort) => cohort.demo === targetDemo && !cohort.is_archived)
       .map((cohort) => [cohort.id, cohort]),
   );
-  const enrollmentsByStudent = groupBy(
+  const enrollmentsByStudent = groupStudentWorkbookExportRows(
     data.enrollments.filter((enrollment) => enrollment.demo === targetDemo),
     (enrollment) => enrollment.student_id,
   );
@@ -348,7 +348,7 @@ function projectScoreRows(
       .filter((assessment) => assessment.demo === targetDemo && cohorts.has(assessment.cohort_id))
       .map((assessment) => [assessment.id, assessment]),
   );
-  const sessionsByCohort = groupBy(
+  const sessionsByCohort = groupStudentWorkbookExportRows(
     data.sessions.filter((session) => session.demo === targetDemo && cohorts.has(session.cohort_id)),
     (session) => session.cohort_id,
   );
@@ -490,11 +490,19 @@ function normalizeSectionLabel(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function groupBy<T>(rows: T[], key: (row: T) => string) {
-  const grouped = new Map<string, T[]>();
+export function groupStudentWorkbookExportRows<T>(
+  rows: T[],
+  key: (row: T) => string,
+  grouped = new Map<string, T[]>(),
+) {
   for (const row of rows) {
     const value = key(row);
-    grouped.set(value, [...(grouped.get(value) ?? []), row]);
+    const bucket = grouped.get(value);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      grouped.set(value, [row]);
+    }
   }
   return grouped;
 }
