@@ -189,7 +189,7 @@ export interface Program {
   name: string;
   track: ProgramTrack;
   format: string;
-  tuition: number;
+  demo: boolean;
 }
 
 export interface Campus {
@@ -197,6 +197,7 @@ export interface Campus {
   name: string;
   location: string;
   modality: "In person" | "Hybrid" | "Online";
+  demo: boolean;
 }
 
 export interface Term {
@@ -204,6 +205,7 @@ export interface Term {
   name: string;
   startDate: string;
   endDate: string;
+  demo: boolean;
 }
 
 export interface Cohort {

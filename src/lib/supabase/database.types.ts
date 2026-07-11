@@ -135,7 +135,7 @@ export interface Database {
           name: string;
           location: string;
           modality: string;
-          demo?: boolean;
+          demo: boolean;
         }
       >;
       programs: Table<
@@ -144,7 +144,6 @@ export interface Database {
           name: string;
           track: string;
           format: string;
-          tuition: number;
           is_archived: boolean;
           archived_at: string | null;
           demo: boolean;
@@ -154,10 +153,9 @@ export interface Database {
           name: string;
           track: string;
           format: string;
-          tuition: number;
           is_archived?: boolean;
           archived_at?: string | null;
-          demo?: boolean;
+          demo: boolean;
         }
       >;
       terms: Table<
@@ -173,7 +171,7 @@ export interface Database {
           name: string;
           start_date: string;
           end_date: string;
-          demo?: boolean;
+          demo: boolean;
         }
       >;
       families: Table<

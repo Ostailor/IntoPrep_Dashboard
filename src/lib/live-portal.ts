@@ -356,7 +356,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       name: "SAT Weekend Intensive",
       track: "SAT",
       format: "Small group",
-      tuition: 1450,
+      demo: true,
     },
   ];
   const visibleCampuses: Campus[] = [
@@ -365,6 +365,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       name: "Westfield Learning Center",
       location: "Westfield, NJ",
       modality: "Hybrid",
+      demo: true,
     },
   ];
   const visibleTerms: Term[] = [
@@ -373,6 +374,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       name: "Summer 2026",
       startDate: "2026-06-15",
       endDate: "2026-08-15",
+      demo: true,
     },
   ];
   const visibleCohorts: Cohort[] = [
@@ -926,6 +928,13 @@ function filterDemoScopedRows<T extends DemoScopedRow>(
     : rows.filter((row) => isSameDemoPartition(viewer, row));
 }
 
+export function scopeArchivedProgramQuery<Query>(
+  query: Query,
+  viewer: Pick<User, "role" | "demo">,
+): Query {
+  return applyDemoScope(query, viewer);
+}
+
 function mapFallbackInstructorFollowUpFlags({
   escalationRows,
   sessionById,
@@ -1095,6 +1104,40 @@ function normalizeCampusModality(value: string): Campus["modality"] {
     default:
       return "Hybrid";
   }
+}
+
+export function mapLiveCatalogRows({
+  programs,
+  campuses,
+  terms,
+}: {
+  programs: readonly ProgramRow[];
+  campuses: readonly CampusRow[];
+  terms: readonly TermRow[];
+}): { programs: Program[]; campuses: Campus[]; terms: Term[] } {
+  return {
+    programs: programs.map((program) => ({
+      id: program.id,
+      name: program.name,
+      track: normalizeTrack(program.track),
+      format: program.format,
+      demo: program.demo,
+    })),
+    campuses: campuses.map((campus) => ({
+      id: campus.id,
+      name: campus.name,
+      location: campus.location,
+      modality: normalizeCampusModality(campus.modality),
+      demo: campus.demo,
+    })),
+    terms: terms.map((term) => ({
+      id: term.id,
+      name: term.name,
+      startDate: term.start_date,
+      endDate: term.end_date,
+      demo: term.demo,
+    })),
+  };
 }
 
 function parseScoreArray(value: Json): { label: string; score: number }[] {
@@ -2087,10 +2130,10 @@ async function loadLivePortalBundle(
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),
       loadPlan.archivedPrograms
-        ? serviceClient
-            .from("programs")
-            .select("*")
-            .eq("is_archived", true)
+        ? scopeArchivedProgramQuery(
+            serviceClient.from("programs").select("*").eq("is_archived", true),
+            viewer,
+          )
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),
     ]);
@@ -3270,6 +3313,16 @@ async function loadLivePortalBundle(
       },
     ];
   });
+  const mappedCatalogRows = mapLiveCatalogRows({
+    programs: programRows,
+    campuses: campusRows,
+    terms: termRows,
+  });
+  const mappedArchivedPrograms = mapLiveCatalogRows({
+    programs: archivedProgramRows,
+    campuses: [],
+    terms: [],
+  }).programs;
   const adminOps =
     viewer.role === "admin"
       ? {
@@ -3303,13 +3356,7 @@ async function loadLivePortalBundle(
             endDate: cohort.end_date,
             roomLabel: cohort.room_label,
           })),
-          archivedPrograms: archivedProgramRows.map((program) => ({
-            id: program.id,
-            name: program.name,
-            track: normalizeTrack(program.track),
-            format: program.format,
-            tuition: program.tuition,
-          })),
+          archivedPrograms: mappedArchivedPrograms,
           approvalRequests: mappedApprovalRequests,
           escalations: mappedEscalations,
         }
@@ -3357,25 +3404,9 @@ async function loadLivePortalBundle(
 
   return {
     currentDate,
-    visiblePrograms: programRows.map((program) => ({
-      id: program.id,
-      name: program.name,
-      track: normalizeTrack(program.track),
-      format: program.format,
-      tuition: program.tuition,
-    })),
-    visibleCampuses: campusRows.map((campus) => ({
-      id: campus.id,
-      name: campus.name,
-      location: campus.location,
-      modality: normalizeCampusModality(campus.modality),
-    })),
-    visibleTerms: termRows.map((term) => ({
-      id: term.id,
-      name: term.name,
-      startDate: term.start_date,
-      endDate: term.end_date,
-    })),
+    visiblePrograms: mappedCatalogRows.programs,
+    visibleCampuses: mappedCatalogRows.campuses,
+    visibleTerms: mappedCatalogRows.terms,
     visibleUsers: activeProfileRows.map((profile) => ({
       id: profile.id,
       name: profile.full_name ?? "IntoPrep User",

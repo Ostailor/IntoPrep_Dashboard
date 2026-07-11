@@ -146,7 +146,6 @@ export interface ProgramRow {
   programName: string;
   programTrack: string;
   programFormat: string;
-  tuition: number;
   campusName: string;
   campusModality: string;
   termName: string;
@@ -888,7 +887,6 @@ export const getProgramRowsFromContext = (context: PortalContext): ProgramRow[] 
       programName: program?.name ?? "Program unavailable",
       programTrack: program?.track ?? "Support",
       programFormat: program?.format ?? "Format unavailable",
-      tuition: program?.tuition ?? 0,
       campusName: campus?.name ?? "Campus unavailable",
       campusModality: campus?.modality ?? "Unspecified",
       termName: term?.name ?? "Term unavailable",
