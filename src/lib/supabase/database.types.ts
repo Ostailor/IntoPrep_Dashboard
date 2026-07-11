@@ -183,6 +183,58 @@ export interface Database {
         focus: string;
         demo?: boolean;
       }>;
+      student_import_runs: Table<
+        {
+          id: string;
+          filename: string;
+          file_digest: string;
+          worksheet: string;
+          status: "completed" | "failed";
+          mapping: Json;
+          total_rows: number;
+          created_count: number;
+          updated_count: number;
+          enrollment_count: number;
+          skipped_count: number;
+          warning_count: number;
+          error_samples: Json;
+          workbook_profile?: "simple" | "wide" | "normalized";
+          workbook_mapping?: Json;
+          workbook_setup?: Json;
+          cohort_count?: number;
+          session_count?: number;
+          assessment_count?: number;
+          result_count?: number;
+          demo: boolean;
+          created_by: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          filename: string;
+          file_digest: string;
+          worksheet: string;
+          status: "completed" | "failed";
+          mapping?: Json;
+          total_rows?: number;
+          created_count?: number;
+          updated_count?: number;
+          enrollment_count?: number;
+          skipped_count?: number;
+          warning_count?: number;
+          error_samples?: Json;
+          workbook_profile?: "simple" | "wide" | "normalized";
+          workbook_mapping?: Json;
+          workbook_setup?: Json;
+          cohort_count?: number;
+          session_count?: number;
+          assessment_count?: number;
+          result_count?: number;
+          demo: boolean;
+          created_by?: string | null;
+          created_at?: string;
+        }
+      >;
       cohorts: Table<
         {
           id: string;
@@ -1201,7 +1253,26 @@ export interface Database {
       >;
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      commit_student_workbook_import: {
+        Args: {
+          p_actor_id: string | null;
+          p_actor_role: string;
+          p_actor_demo: boolean;
+          p_target_demo: boolean;
+          p_field_definitions: Json;
+          p_families: Json;
+          p_students: Json;
+          p_enrollments: Json;
+          p_cohorts: Json;
+          p_sessions: Json;
+          p_assessments: Json;
+          p_results: Json;
+          p_import_run: Json;
+        };
+        Returns: Json;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
