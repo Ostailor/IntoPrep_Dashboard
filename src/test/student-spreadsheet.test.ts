@@ -173,13 +173,14 @@ describe("student spreadsheet decoding", () => {
     ]);
   });
 
-  it("persists a real G5 freeze pane in the sanitized workbook XML", async () => {
+  it("persists a namespaced G5 pane directly under the worksheet view", async () => {
     const bytes = await readFile("src/test/fixtures/adaptive-score-import.xlsx");
     const worksheetXml = readZipEntry(bytes, "xl/worksheets/sheet1.xml").toString("utf8");
-    const pane = worksheetXml.match(
-      /<(?:[A-Za-z_][\w.-]*:)?pane\b[^>]*\/?>(?:<\/(?:[A-Za-z_][\w.-]*:)?pane>)?/,
-    )?.[0];
+    const sheetView = worksheetXml.match(/<x:sheetView\b[^>]*>([\s\S]*?)<\/x:sheetView>/);
+    const pane = sheetView?.[1].trimStart().match(/^<x:pane\b[^>]*\/>/)?.[0];
 
+    expect(worksheetXml).not.toMatch(/<(?:sheetView|pane)\b/);
+    expect(sheetView).toBeDefined();
     expect(pane).toBeDefined();
     expect(pane).toContain('xSplit="6"');
     expect(pane).toContain('ySplit="4"');
