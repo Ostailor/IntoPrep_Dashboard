@@ -15,6 +15,7 @@ import type {
   UserRole,
 } from "@/lib/domain";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
+import { StudentWorkbookExportActions } from "@/components/portal/student-workbook-export-actions";
 
 type TrendMetric = "total" | "rw" | "math";
 type TrendFilter = "all" | "declining" | "plateauing" | "increasing";
@@ -450,15 +451,22 @@ export function StudentCohortAssignmentPanel({
             Search students, filter by cohort, class, or school, update placement, and review score trends.
           </p>
         </div>
-        {canEditStudents ? (
-          <button
-            type="button"
-            onClick={() => openStudentForm()}
-            disabled={readOnly}
-            className="rounded-full bg-[color:var(--navy)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            Add student
-          </button>
+        {canEditStudents || (["engineer", "admin", "staff"] as UserRole[]).includes(role) ? (
+          <div className="flex flex-wrap gap-2">
+            {viewerMode !== "live-role-preview" ? (
+              <StudentWorkbookExportActions role={role} />
+            ) : null}
+            {canEditStudents ? (
+              <button
+                type="button"
+                onClick={() => openStudentForm()}
+                disabled={readOnly}
+                className="rounded-full bg-[color:var(--navy)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Add student
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
