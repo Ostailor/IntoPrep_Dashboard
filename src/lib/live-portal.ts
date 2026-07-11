@@ -1327,7 +1327,7 @@ async function getAccessibleCohortIds(viewer: User) {
   );
 }
 
-function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
+export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
   const role = viewer.role;
   const isDashboard = section === "dashboard";
   const isAdmin = role === "admin";
@@ -1341,15 +1341,15 @@ function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
   return {
     section,
     sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "students", "programs", "academics"),
-    enrollments: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
-    students: isAnySection("dashboard", "cohorts", "attendance", "students", "families", "academics", "messaging", "billing"),
-    assessments: isAnySection("dashboard", "cohorts", "attendance", "students", "academics"),
+    enrollments: isAnySection("dashboard", "attendance", "students", "families", "academics", "messaging", "billing"),
+    students: isAnySection("dashboard", "attendance", "students", "families", "academics", "messaging", "billing"),
+    assessments: isAnySection("dashboard", "attendance", "students", "academics"),
     families: isAnySection("dashboard", "students", "families", "messaging", "billing"),
-    academicNotes: isAnySection("dashboard", "cohorts", "students", "academics"),
+    academicNotes: isAnySection("dashboard", "students", "academics"),
     sessionInstructionNotes: isAnySection("dashboard", "academics"),
     instructionalAccommodations:
       isInstructor && isAnySection("dashboard", "attendance", "academics"),
-    instructorFollowUpFlags: isAnySection("dashboard", "cohorts", "attendance", "academics"),
+    instructorFollowUpFlags: isAnySection("dashboard", "attendance", "academics"),
     resources: hasAnyRole("engineer", "admin", "staff", "ta") && isAnySection("dashboard", "academics"),
     invoices: hasAnyRole("engineer", "admin", "staff") && isAnySection("dashboard", "families", "billing"),
     messageThreads:
@@ -1359,31 +1359,29 @@ function getPortalLoadPlan(viewer: User, section: PortalSection = "dashboard") {
     integrations: canRunIntakeImports(role) && isAnySection("dashboard", "integrations"),
     allProfiles:
       (isEngineer || isAdmin) &&
-      isAnySection("dashboard", "cohorts", "settings", "integrations"),
+      isAnySection("dashboard", "settings", "integrations"),
     userTemplates: (isEngineer || isAdmin) && section === "settings",
     auditLogs: (isEngineer || isAdmin) && section === "settings",
     billingFollowUpNotes: (isAdmin || isStaff) && section === "billing",
     adminTasks:
-      isAdmin ||
+      (isAdmin && section !== "cohorts") ||
       (hasAnyRole("staff", "ta", "instructor") &&
-        isAnySection("dashboard", "cohorts", "billing", "attendance")),
+        isAnySection("dashboard", "billing", "attendance")),
     savedViews:
-      (isAdmin && isAnySection("dashboard", "cohorts", "billing")) ||
-      (isStaff && isAnySection("dashboard", "cohorts", "billing")),
+      (isAdmin && isAnySection("dashboard", "billing")) ||
+      (isStaff && isAnySection("dashboard", "billing")),
     familyContactEvents: (isAdmin || isStaff) && section === "families",
     adminAnnouncements: hasAnyRole("admin", "staff", "ta", "instructor"),
     sessionChecklists:
       hasAnyRole("admin", "staff", "ta") &&
-      isAnySection("dashboard", "cohorts", "attendance"),
+      isAnySection("dashboard", "attendance"),
     handoffNotes: hasAnyRole("ta", "instructor") && isAnySection("dashboard", "attendance"),
-    attendanceExceptionFlags:
-      ((isAdmin && section === "cohorts") || isTa) &&
-      isAnySection("dashboard", "cohorts", "attendance"),
+    attendanceExceptionFlags: isTa && isAnySection("dashboard", "attendance"),
     coverageFlags: isTa && isAnySection("dashboard", "attendance"),
     approvalRequests: hasAnyRole("admin", "staff") && isDashboard,
     escalations: hasAnyRole("admin", "staff", "ta", "instructor") && isDashboard,
     outreachTemplates: isStaff && section === "messaging",
-    archivedCohorts: isAdmin && section === "cohorts",
+    archivedCohorts: false,
     archivedPrograms: isAdmin && section === "programs",
     feedback: isEngineer && section === "settings",
     engineerConsole: isEngineer && isAnySection("dashboard", "integrations", "settings"),

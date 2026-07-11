@@ -247,7 +247,6 @@ export async function PortalShell({
   const needsTodaySessions = section === "dashboard" || section === "attendance";
   const needsTrendRows =
     section === "dashboard" ||
-    section === "cohorts" ||
     section === "attendance" ||
     section === "academics";
   const needsBillingRows =
@@ -294,10 +293,8 @@ export async function PortalShell({
   const intakeSyncSource = livePortal?.intakeSyncSource ?? null;
   const billingSyncSource = livePortal?.billingSyncSource ?? null;
   const visibleNotes =
-    section === "cohorts" || section === "students" || section === "academics"
-      ? livePortal
-        ? livePortal.visibleNotes
-        : getVisibleNotes(role)
+    section === "academics"
+      ? livePortal?.visibleNotes ?? getVisibleNotes(role)
       : [];
   const visibleResources =
     section === "academics"
