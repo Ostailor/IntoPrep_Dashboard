@@ -70,6 +70,7 @@ import { EngineerConsolePanels } from "@/components/portal/engineer-console-pane
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
 import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
+import { PortalNavLink } from "@/components/portal/portal-nav-link";
 import { PortalFeedbackButton } from "@/components/portal/portal-feedback-button";
 import { RoleManagementPanel } from "@/components/portal/role-management-panel";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
@@ -486,10 +487,9 @@ export async function PortalShell({
                 const Icon = sectionIcons[item];
                 const active = item === section;
                 return (
-                  <Link
+                  <PortalNavLink
                     key={item}
                     href={sectionHref(`/${item}`)}
-                    prefetch={false}
                     className={clsx(
                       "nav-pill flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold",
                       active ? "nav-pill-active" : "text-[color:var(--muted)] hover:bg-white",
@@ -500,7 +500,7 @@ export async function PortalShell({
                       {sectionMeta[item].title}
                     </span>
                     <ChevronRight className="h-4 w-4 opacity-55" />
-                  </Link>
+                  </PortalNavLink>
                 );
               })}
             </nav>
