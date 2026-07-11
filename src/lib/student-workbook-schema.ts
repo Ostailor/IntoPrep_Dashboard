@@ -19,6 +19,8 @@ export type AcademicColumnMapping =
   | { sourceHeader: string; columnIndex: number; kind: "cohort" }
   | { sourceHeader: string; columnIndex: number; kind: "session-title" }
   | { sourceHeader: string; columnIndex: number; kind: "room" }
+  | { sourceHeader: string; columnIndex: number; kind: "assessment-title" }
+  | { sourceHeader: string; columnIndex: number; kind: "assessment-date" }
   | { sourceHeader: string; columnIndex: number; kind: "score"; assessmentTitle: string; component: ScoreComponent }
   | { sourceHeader: string; columnIndex: number; kind: "ignore" };
 
@@ -48,6 +50,7 @@ export interface NormalizedAcademicRow {
   roomLabel: string;
   scores: Array<{
     assessmentTitle: string;
+    assessmentDate: string;
     rw: number;
     math: number;
     total: number;
@@ -123,12 +126,20 @@ function academicContextKind(
     return "session-title";
   }
   if (["room", "roomlabel", "classroom"].includes(leaf)) return "room";
+  if (["assessment", "assessmentname", "assessmenttitle", "testname"].includes(leaf)) {
+    return "assessment-title";
+  }
+  if (["assessmentdate", "testdate"].includes(leaf)) return "assessment-date";
   return null;
 }
 
-function assessmentTitleFor(column: WorkbookColumn): string {
+function assessmentTitleFor(
+  column: WorkbookColumn,
+  detected: DetectedStudentWorkbook,
+): string {
+  if (detected.profile === "normalized") return "";
   const labels = column.path.slice(0, -1).map((value) => value.trim()).filter(Boolean);
-  return labels.slice(-2).join(" – ") || "Assessment";
+  return labels.slice(-2).join(" – ");
 }
 
 function inferAcademicMappings(detected: DetectedStudentWorkbook): AcademicColumnMapping[] | null {
@@ -145,7 +156,7 @@ function inferAcademicMappings(detected: DetectedStudentWorkbook): AcademicColum
       return {
         ...base,
         kind: "score",
-        assessmentTitle: assessmentTitleFor(column),
+        assessmentTitle: assessmentTitleFor(column, detected),
         component,
       };
     }
@@ -261,6 +272,12 @@ export function normalizeAcademicRows(input: {
       errors: [],
     };
     const scoreGroups = new Map<string, Partial<Record<ScoreComponent, unknown>>>();
+    let rowAssessmentTitle = "";
+    let rowAssessmentDate = "";
+    let hasAssessmentTitleMapping = false;
+    let hasAssessmentDateMapping = false;
+    let invalidAssessmentTitle = false;
+    let invalidAssessmentDate = false;
 
     for (const mapping of input.mappings) {
       const cell = sourceRow.cells[mapping.columnIndex];
@@ -272,8 +289,21 @@ export function normalizeAcademicRows(input: {
         continue;
       }
 
+      if (mapping.kind === "assessment-date") {
+        hasAssessmentDateMapping = true;
+        const date = normalizeSourceDate(cell);
+        if (date === null) {
+          invalidAssessmentDate = true;
+          row.errors.push(`${mapping.sourceHeader} must be a valid date.`);
+        } else {
+          rowAssessmentDate = date;
+        }
+        continue;
+      }
+
       const value = cellText(cell);
       if (value.length > MAX_TEXT_LENGTH) {
+        if (mapping.kind === "assessment-title") invalidAssessmentTitle = true;
         row.errors.push(`${mapping.sourceHeader} must be ${MAX_TEXT_LENGTH} characters or fewer.`);
         continue;
       }
@@ -281,6 +311,10 @@ export function normalizeAcademicRows(input: {
       if (mapping.kind === "cohort") row.cohortName = value;
       if (mapping.kind === "session-title") row.sessionTitle = value;
       if (mapping.kind === "room") row.roomLabel = value;
+      if (mapping.kind === "assessment-title") {
+        hasAssessmentTitleMapping = true;
+        rowAssessmentTitle = value;
+      }
     }
 
     for (const [assessmentTitle, group] of scoreGroups) {
@@ -289,14 +323,33 @@ export function normalizeAcademicRows(input: {
       )) {
         continue;
       }
+      const usesRowAssessment = assessmentTitle === "";
+      const resolvedTitle = usesRowAssessment ? rowAssessmentTitle : assessmentTitle;
+      if (usesRowAssessment && !resolvedTitle) {
+        if (!invalidAssessmentTitle) row.errors.push("Test Name is required.");
+        continue;
+      }
+      if (usesRowAssessment && !hasAssessmentTitleMapping) {
+        row.errors.push("Test Name is required.");
+        continue;
+      }
+      if (usesRowAssessment && !hasAssessmentDateMapping) {
+        row.errors.push("Test Date is required.");
+        continue;
+      }
+      if (usesRowAssessment && (invalidAssessmentTitle || invalidAssessmentDate)) continue;
       try {
-        row.scores.push({ assessmentTitle, ...normalizeScoreGroup({
+        row.scores.push({
+          assessmentTitle: resolvedTitle,
+          assessmentDate: usesRowAssessment ? rowAssessmentDate : "",
+          ...normalizeScoreGroup({
           rw: group.rw,
           math: group.math,
           total: group.total,
-        }) });
+          }),
+        });
       } catch (error) {
-        row.errors.push(`${assessmentTitle}: ${error instanceof Error ? error.message : "Invalid scores."}`);
+        row.errors.push(`${resolvedTitle}: ${error instanceof Error ? error.message : "Invalid scores."}`);
       }
     }
     return row;
@@ -331,6 +384,7 @@ export function parseStudentWorkbookMappings(
       if (value.academic.columns.length !== detected.academic.columns.length) failMapping();
       const seenIndexes = new Set<number>();
       const seenScores = new Set<string>();
+      const seenSingletonKinds = new Set<"assessment-title" | "assessment-date">();
       const columns = value.academic.columns.map((entry) => {
         const parsed = parseAcademicMapping(entry);
         if (seenIndexes.has(parsed.columnIndex)) failMapping();
@@ -344,8 +398,20 @@ export function parseStudentWorkbookMappings(
           if (seenScores.has(key)) failMapping();
           seenScores.add(key);
         }
+        if (parsed.kind === "assessment-title" || parsed.kind === "assessment-date") {
+          if (seenSingletonKinds.has(parsed.kind)) failMapping();
+          seenSingletonKinds.add(parsed.kind);
+        }
         return parsed;
       });
+      const scoreColumns = columns.filter(
+        (mapping): mapping is Extract<AcademicColumnMapping, { kind: "score" }> => mapping.kind === "score",
+      );
+      if (detected.profile === "normalized" && scoreColumns.length > 0) {
+        if (!seenSingletonKinds.has("assessment-title") || !seenSingletonKinds.has("assessment-date")) failMapping();
+        if (scoreColumns.some((mapping) => mapping.assessmentTitle !== "")) failMapping();
+      }
+      if (detected.profile === "wide" && scoreColumns.some((mapping) => !mapping.assessmentTitle)) failMapping();
       academic = { sheetName: detected.academic.sheetName, columns };
     }
 
@@ -405,7 +471,10 @@ function parseAcademicMapping(value: unknown): AcademicColumnMapping {
   ) failMapping();
   const base = { sourceHeader: value.sourceHeader, columnIndex: value.columnIndex as number };
   if (
-    ["student-name", "cohort", "session-title", "room", "ignore"].includes(String(value.kind)) &&
+    [
+      "student-name", "cohort", "session-title", "room",
+      "assessment-title", "assessment-date", "ignore",
+    ].includes(String(value.kind)) &&
     hasOnlyKeys(value, ["sourceHeader", "columnIndex", "kind"])
   ) {
     return { ...base, kind: value.kind } as AcademicColumnMapping;
@@ -413,7 +482,7 @@ function parseAcademicMapping(value: unknown): AcademicColumnMapping {
   if (
     value.kind === "score" &&
     hasOnlyKeys(value, ["sourceHeader", "columnIndex", "kind", "assessmentTitle", "component"]) &&
-    boundedText(value.assessmentTitle) &&
+    typeof value.assessmentTitle === "string" && value.assessmentTitle.length <= MAX_TEXT_LENGTH &&
     typeof value.component === "string" && SCORE_COMPONENTS.has(value.component as ScoreComponent)
   ) {
     return {
@@ -424,6 +493,16 @@ function parseAcademicMapping(value: unknown): AcademicColumnMapping {
     };
   }
   failMapping();
+}
+
+function normalizeSourceDate(cell: StudentImportCell | undefined): string | null {
+  if (cell instanceof Date) {
+    if (Number.isNaN(cell.getTime())) return null;
+    return cell.toISOString().slice(0, 10);
+  }
+  if (typeof cell !== "string") return null;
+  const value = cell.trim();
+  return validIsoDate(value) ? value : null;
 }
 
 export function parseStudentWorkbookSetup(value: unknown): StudentWorkbookSetup {

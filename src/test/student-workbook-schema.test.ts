@@ -28,6 +28,36 @@ function wideWorkbook(columns: WorkbookColumn[]): DetectedStudentWorkbook {
   };
 }
 
+function normalizedWorkbook(): DetectedStudentWorkbook {
+  return {
+    profile: "normalized",
+    directory: {
+      sheetName: "Student Information",
+      headerRowNumbers: [1],
+      dataStartRow: 2,
+      columns: [column(0, "Student Name"), column(1, "School")],
+    },
+    academic: {
+      sheetName: "Scores",
+      headerRowNumbers: [1],
+      dataStartRow: 2,
+      columns: [
+        column(0, "Student Name"),
+        column(1, "Cohort"),
+        column(2, "Class"),
+        column(3, "Room"),
+        column(4, "Test Name"),
+        column(5, "Test Date"),
+        column(6, "RW"),
+        column(7, "Math"),
+        column(8, "Total"),
+        column(9, "Percentile"),
+      ],
+    },
+    sheetNames: ["Student Information", "Scores"],
+  };
+}
+
 const detectedWideWorkbook = wideWorkbook([
   column(0, "Name"),
   column(1, "Class"),
@@ -59,6 +89,25 @@ describe("student workbook schema", () => {
       sourceHeader: "HW1 / PSAT / RW",
       kind: "ignore",
     });
+  });
+
+  it("infers normalized per-row assessment title and date columns", () => {
+    const detected = normalizedWorkbook();
+    const mappings = inferStudentWorkbookMappings(detected);
+
+    expect(mappings.academic?.columns).toEqual([
+      expect.objectContaining({ sourceHeader: "Student Name", kind: "student-name" }),
+      expect.objectContaining({ sourceHeader: "Cohort", kind: "cohort" }),
+      expect.objectContaining({ sourceHeader: "Class", kind: "session-title" }),
+      expect.objectContaining({ sourceHeader: "Room", kind: "room" }),
+      expect.objectContaining({ sourceHeader: "Test Name", kind: "assessment-title" }),
+      expect.objectContaining({ sourceHeader: "Test Date", kind: "assessment-date" }),
+      expect.objectContaining({ sourceHeader: "RW", kind: "score", component: "rw" }),
+      expect.objectContaining({ sourceHeader: "Math", kind: "score", component: "math" }),
+      expect.objectContaining({ sourceHeader: "Total", kind: "score", component: "total" }),
+      expect.objectContaining({ sourceHeader: "Percentile", kind: "ignore" }),
+    ]);
+    expect(parseStudentWorkbookMappings(mappings, detected)).toEqual(mappings);
   });
 
   it.each([
@@ -149,6 +198,7 @@ describe("student workbook schema", () => {
         roomLabel: "201",
         scores: [{
           assessmentTitle: "HW1 – PSAT",
+          assessmentDate: "",
           rw: 720,
           math: 760,
           total: 1480,
@@ -160,6 +210,74 @@ describe("student workbook schema", () => {
         rowNumber: 6,
         scores: [],
         errors: ["HW1 – PSAT: RW must be a number."],
+      }),
+    ]);
+  });
+
+  it("normalizes each normalized score row under its own test name and source date", () => {
+    const mappings = inferStudentWorkbookMappings(normalizedWorkbook()).academic!.columns;
+    const rows: NumberedSpreadsheetRow[] = [
+      {
+        rowNumber: 2,
+        cells: ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", new Date("2026-07-10T00:00:00.000Z"), 720, 760, 1480, 98],
+      },
+      {
+        rowNumber: 3,
+        cells: ["Maya Demo", "MWF", "G4", "201", "HW2 – SAT", "2026-07-17", 730, 770, null, 99],
+      },
+    ];
+
+    expect(normalizeAcademicRows({ rows, mappings })).toEqual([
+      expect.objectContaining({
+        rowNumber: 2,
+        scores: [{
+          assessmentTitle: "HW1 – PSAT",
+          assessmentDate: "2026-07-10",
+          rw: 720,
+          math: 760,
+          total: 1480,
+          warnings: [],
+        }],
+        errors: [],
+      }),
+      expect.objectContaining({
+        rowNumber: 3,
+        scores: [{
+          assessmentTitle: "HW2 – SAT",
+          assessmentDate: "2026-07-17",
+          rw: 730,
+          math: 770,
+          total: 1500,
+          warnings: ["Total calculated from RW + Math."],
+        }],
+        errors: [],
+      }),
+    ]);
+  });
+
+  it("keeps missing or invalid normalized assessment metadata as row-local errors", () => {
+    const mappings = inferStudentWorkbookMappings(normalizedWorkbook()).academic!.columns;
+    const rows: NumberedSpreadsheetRow[] = [
+      { rowNumber: 4, cells: ["Missing Name", "MWF", "G4", "201", "", "2026-07-10", 720, 760, 1480] },
+      { rowNumber: 5, cells: ["Long Name", "MWF", "G4", "201", "x".repeat(201), "2026-07-10", 720, 760, 1480] },
+      { rowNumber: 6, cells: ["Bad Date", "MWF", "G4", "201", "HW1 – PSAT", "2026-02-30", 720, 760, 1480] },
+    ];
+
+    expect(normalizeAcademicRows({ rows, mappings })).toEqual([
+      expect.objectContaining({
+        rowNumber: 4,
+        scores: [],
+        errors: ["Test Name is required."],
+      }),
+      expect.objectContaining({
+        rowNumber: 5,
+        scores: [],
+        errors: ["Test Name must be 200 characters or fewer."],
+      }),
+      expect.objectContaining({
+        rowNumber: 6,
+        scores: [],
+        errors: ["Test Date must be a valid date."],
       }),
     ]);
   });
