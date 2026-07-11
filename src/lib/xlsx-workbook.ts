@@ -255,10 +255,10 @@ function worksheetColumnWidths(sheet: XlsxSheet, columnCount: number): number[] 
     const configuredWidth = sheet.columnWidths?.[columnIndex];
     if (configuredWidth !== undefined) return configuredWidth;
 
-    const contentLength = Math.max(
-      displayLength(sheet.headers[columnIndex]),
-      ...sheet.rows.map((row) => displayLength(row[columnIndex])),
-    );
+    let contentLength = displayLength(sheet.headers[columnIndex]);
+    for (const row of sheet.rows) {
+      contentLength = Math.max(contentLength, displayLength(row[columnIndex]));
+    }
     return Math.min(60, Math.max(10, contentLength + 2));
   });
 }

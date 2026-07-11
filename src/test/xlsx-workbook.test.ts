@@ -196,6 +196,19 @@ describe("createXlsxWorkbook", () => {
     }])).toThrow(/1,048,576 rows/i);
   });
 
+  it("infers widths for a large valid worksheet without exceeding V8 argument limits", () => {
+    const rows = new Array<XlsxCell[]>(150_000).fill([null]);
+    const bytes = createXlsxWorkbook([{
+      name: "Large",
+      headers: ["Name"],
+      rows,
+    }]);
+    const worksheetXml = readStoredZipEntries(bytes).get("xl/worksheets/sheet1.xml")?.contents ?? "";
+
+    expect(worksheetXml).toContain('<dimension ref="A1:A150001"/>');
+    expect(worksheetXml).toContain('<row r="150001"></row>');
+  });
+
   it("rejects a sheet count that would exceed the classic ZIP entry limit", () => {
     const tooManySheets = new Array(65_531) as XlsxSheet[];
     expect(() => createXlsxWorkbook(tooManySheets)).toThrow(/65,535 ZIP entries/i);
