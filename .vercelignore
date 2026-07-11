@@ -4,3 +4,5 @@ node_modules/
 .omx/
 coverage/
 src-tauri/target/
+.superpowers/
+.playwright-mcp/
