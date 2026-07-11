@@ -310,7 +310,7 @@ function referencedDraftKeys(
   field: "programDraftKey" | "campusDraftKey" | "termDraftKey",
 ): Set<string> {
   return new Set(setup.cohorts
-    .filter((entry) => sourceClasses.has(normalized(entry.sourceClass)))
+    .filter((entry) => !entry.selectedCohortId && sourceClasses.has(normalized(entry.sourceClass)))
     .map((entry) => entry[field])
     .filter((key): key is string => Boolean(key)));
 }

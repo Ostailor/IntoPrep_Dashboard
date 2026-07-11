@@ -29,6 +29,34 @@ describe("student import panel response guards", () => {
     })).toBe(false);
   });
 
+  it("requires exact planned Program, Campus, and Term response rows", () => {
+    const preview = validPreview();
+    const academic = {
+      ...preview.academic,
+      programs: [{ id: "program-new", name: "Summer SAT", track: "SAT", format: "Small group", demo: true }],
+      campuses: [{ id: "campus-new", name: "Westfield", location: "Westfield, NJ", modality: "In person", demo: true }],
+      terms: [{ id: "term-new", name: "Summer 2026", start_date: "2026-07-06", end_date: "2026-08-14", demo: true }],
+      summary: { ...preview.academic.summary, programs: 1, campuses: 1, terms: 1 },
+    };
+    expect(isStudentImportPreviewResponse({ ...preview, academic })).toBe(true);
+    expect(isStudentImportPreviewResponse({
+      ...preview,
+      academic: { ...academic, programs: [{ ...academic.programs[0], track: "GRE" }] },
+    })).toBe(false);
+    expect(isStudentImportPreviewResponse({
+      ...preview,
+      academic: { ...academic, campuses: [{ ...academic.campuses[0], modality: "Virtual" }] },
+    })).toBe(false);
+    expect(isStudentImportPreviewResponse({
+      ...preview,
+      academic: { ...academic, terms: [{ ...academic.terms[0], end_date: "not-a-date" }] },
+    })).toBe(false);
+    expect(isStudentImportPreviewResponse({
+      ...preview,
+      academic: { ...academic, terms: [{ ...academic.terms[0], demo: "true" }] },
+    })).toBe(false);
+  });
+
   it("rejects preview responses from an obsolete request or file", () => {
     const isCurrent = panelHelpers.isCurrentPreviewRequest as (
       requestId: number,

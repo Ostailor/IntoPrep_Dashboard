@@ -863,10 +863,11 @@ function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academ
   if (!isRecord(value) || !Array.isArray(value.rows) || !isRecord(value.requirements) ||
     !isStringArray(value.requirements.cohorts) || !Array.isArray(value.requirements.assessmentDates) ||
     !value.requirements.assessmentDates.every((entry) => isRecord(entry) && typeof entry.sourceClass === "string" && typeof entry.assessmentTitle === "string") ||
-    ![
-      value.programs, value.campuses, value.terms, value.cohorts,
-      value.sessions, value.enrollments, value.assessments, value.results,
-    ].every((rows) => Array.isArray(rows) && rows.every(isRecord)) ||
+    !Array.isArray(value.programs) || !value.programs.every(isPlannedProgram) ||
+    !Array.isArray(value.campuses) || !value.campuses.every(isPlannedCampus) ||
+    !Array.isArray(value.terms) || !value.terms.every(isPlannedTerm) ||
+    ![value.cohorts, value.sessions, value.enrollments, value.assessments, value.results]
+      .every((rows) => Array.isArray(rows) && rows.every(isRecord)) ||
     !isRecord(value.summary)) return false;
   return value.rows.every((row) => isRecord(row) && Number.isInteger(row.rowNumber) &&
     (row.studentId === null || typeof row.studentId === "string") &&
@@ -882,6 +883,36 @@ function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academ
       value.summary.assessments, value.summary.resultCreates, value.summary.resultUpdates,
       value.summary.errors,
     ].every(isNonNegativeInteger);
+}
+
+function isPlannedProgram(value: unknown) {
+  return isRecord(value) &&
+    hasOnlyKeys(value, ["id", "name", "track", "format", "demo"]) &&
+    isBoundedCatalogText(value.id) && isBoundedCatalogText(value.name) &&
+    ["SAT", "ACT", "Admissions", "Support"].includes(String(value.track)) &&
+    isBoundedCatalogText(value.format) && typeof value.demo === "boolean";
+}
+
+function isPlannedCampus(value: unknown) {
+  return isRecord(value) &&
+    hasOnlyKeys(value, ["id", "name", "location", "modality", "demo"]) &&
+    isBoundedCatalogText(value.id) && isBoundedCatalogText(value.name) &&
+    isBoundedCatalogText(value.location) &&
+    ["In person", "Hybrid", "Online"].includes(String(value.modality)) &&
+    typeof value.demo === "boolean";
+}
+
+function isPlannedTerm(value: unknown) {
+  return isRecord(value) &&
+    hasOnlyKeys(value, ["id", "name", "start_date", "end_date", "demo"]) &&
+    isBoundedCatalogText(value.id) && isBoundedCatalogText(value.name) &&
+    typeof value.start_date === "string" && isIsoDate(value.start_date) &&
+    typeof value.end_date === "string" && isIsoDate(value.end_date) &&
+    value.start_date <= value.end_date && typeof value.demo === "boolean";
+}
+
+function isBoundedCatalogText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 200;
 }
 
 function isSourceDateSuggestion(value: unknown): boolean {

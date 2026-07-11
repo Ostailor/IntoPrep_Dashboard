@@ -49,6 +49,85 @@ describe("Task 7 UI state helpers", () => {
     expect(removed.cohorts.map((entry) => entry.programDraftKey)).toEqual([undefined, undefined]);
   });
 
+  it("switches from catalog creation to one existing cohort without stale mode fields", () => {
+    const saveDraft = draftHelpers.saveCatalogDraft as CatalogDraftHelpers["saveDraft"];
+    const setCapacity = draftHelpers.applyCohortCapacity as CatalogDraftHelpers["setCapacity"];
+    const selectExistingCohort = draftHelpers.selectExistingCohort as CatalogDraftHelpers["selectExistingCohort"];
+    const summarize = draftHelpers.buildPlannedCatalogSummary as CatalogDraftHelpers["summarize"];
+    expect(setCapacity).toBeTypeOf("function");
+    expect(selectExistingCohort).toBeTypeOf("function");
+
+    let reviewed = saveDraft(setupWithClasses("MWF"), "MWF", "programs", {
+      name: "Summer SAT",
+      track: "SAT",
+      format: "Small group",
+    });
+    reviewed = saveDraft(reviewed, "MWF", "campuses", {
+      name: "Westfield",
+      location: "Westfield, NJ",
+      modality: "In person",
+    });
+    reviewed = saveDraft(reviewed, "MWF", "terms", {
+      name: "Summer 2026",
+      startDate: "2026-07-06",
+      endDate: "2026-08-14",
+    });
+    reviewed = setCapacity(reviewed, "MWF", 24);
+
+    const mixedLegacyState = {
+      ...reviewed,
+      cohorts: [{ ...reviewed.cohorts[0], selectedCohortId: "cohort-mwf-existing" }],
+    };
+    expect(summarize(mixedLegacyState)).toEqual({
+      programs: [],
+      campuses: [],
+      terms: [],
+      counts: { programs: 0, campuses: 0, terms: 0 },
+    });
+
+    const existingMode = selectExistingCohort(reviewed, "MWF", "cohort-mwf-existing");
+    expect(existingMode.cohorts).toEqual([{
+      sourceClass: "MWF",
+      selectedCohortId: "cohort-mwf-existing",
+    }]);
+    expect(summarize(existingMode)).toEqual({
+      programs: [],
+      campuses: [],
+      terms: [],
+      counts: { programs: 0, campuses: 0, terms: 0 },
+    });
+  });
+
+  it("switches from an existing cohort to metadata or capacity creation mode", () => {
+    const saveDraft = draftHelpers.saveCatalogDraft as CatalogDraftHelpers["saveDraft"];
+    const selectDraft = draftHelpers.applyCatalogSelection as CatalogDraftHelpers["selectDraft"];
+    const setCapacity = draftHelpers.applyCohortCapacity as CatalogDraftHelpers["setCapacity"];
+    const selectExistingCohort = draftHelpers.selectExistingCohort as CatalogDraftHelpers["selectExistingCohort"];
+
+    const withDraft = saveDraft(setupWithClasses("MWF"), "MWF", "programs", {
+      name: "Summer SAT",
+      track: "SAT",
+      format: "Small group",
+    });
+    const key = withDraft.catalog.programs[0].key;
+    const existingMode = selectExistingCohort(withDraft, "MWF", "cohort-mwf-existing");
+
+    const selectedPlanned = selectDraft(existingMode, "MWF", "programs", `planned:${key}`);
+    expect(selectedPlanned.cohorts[0]).toEqual({ sourceClass: "MWF", programDraftKey: key });
+
+    const selectedAgain = selectExistingCohort(selectedPlanned, "MWF", "cohort-mwf-existing");
+    const editedDraft = saveDraft(selectedAgain, "MWF", "programs", {
+      name: "Summer SAT Intensive",
+      track: "SAT",
+      format: "Small group",
+    }, key);
+    expect(editedDraft.cohorts[0]).toEqual({ sourceClass: "MWF", programDraftKey: key });
+
+    const selectedForCapacity = selectExistingCohort(editedDraft, "MWF", "cohort-mwf-existing");
+    const capacityMode = setCapacity(selectedForCapacity, "MWF", 28);
+    expect(capacityMode.cohorts[0]).toEqual({ sourceClass: "MWF", capacity: 28 });
+  });
+
   it("generates stable unique draft keys when names share a slug", () => {
     const saveDraft = draftHelpers.saveCatalogDraft as CatalogDraftHelpers["saveDraft"];
     expect(saveDraft).toBeTypeOf("function");
@@ -256,8 +335,11 @@ interface CatalogDraftHelpers {
   saveDraft: (
     setup: StudentWorkbookSetup,
     sourceClass: string,
-    kind: "programs",
-    draft: { name: string; track: "SAT"; format: string },
+    kind: "programs" | "campuses" | "terms",
+    draft:
+      | { name: string; track: "SAT"; format: string }
+      | { name: string; location: string; modality: "In person" }
+      | { name: string; startDate: string; endDate: string },
     editingKey?: string,
   ) => StrictSetup;
   selectDraft: (
@@ -270,6 +352,16 @@ interface CatalogDraftHelpers {
     setup: StrictSetup,
     kind: "programs",
     key: string,
+  ) => StrictSetup;
+  setCapacity: (
+    setup: StrictSetup,
+    sourceClass: string,
+    capacity: number | undefined,
+  ) => StrictSetup;
+  selectExistingCohort: (
+    setup: StrictSetup,
+    sourceClass: string,
+    cohortId: string | undefined,
   ) => StrictSetup;
   optionsFor: (
     existing: Array<{ id: string; name: string }>,

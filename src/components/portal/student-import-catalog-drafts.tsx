@@ -314,6 +314,7 @@ export function applyCatalogSelection(
 
   const cohorts = updateSourceCohort(current.cohorts, sourceClass, (cohort) => {
     const next = { ...cohort };
+    delete next.selectedCohortId;
     clearCatalogReference(next, kind);
     if (kind === "programs") {
       if (existingId) next.programId = existingId;
@@ -325,6 +326,38 @@ export function applyCatalogSelection(
       if (existingId) next.termId = existingId;
       if (plannedKey) next.termDraftKey = plannedKey;
     }
+    return next;
+  });
+  return toStrictStudentWorkbookSetup({ ...current, cohorts });
+}
+
+export function selectExistingCohort(
+  setup: StudentWorkbookSetup,
+  sourceClass: string,
+  cohortId: string | undefined,
+): ParsedStudentWorkbookSetup {
+  const current = toStrictStudentWorkbookSetup(setup);
+  const cohorts = updateSourceCohort(current.cohorts, sourceClass, (cohort) => {
+    const next = { ...cohort };
+    delete next.selectedCohortId;
+    clearCatalogCreationMode(next);
+    if (cohortId) next.selectedCohortId = cohortId;
+    return next;
+  });
+  return toStrictStudentWorkbookSetup({ ...current, cohorts });
+}
+
+export function applyCohortCapacity(
+  setup: StudentWorkbookSetup,
+  sourceClass: string,
+  capacity: number | undefined,
+): ParsedStudentWorkbookSetup {
+  const current = toStrictStudentWorkbookSetup(setup);
+  const cohorts = updateSourceCohort(current.cohorts, sourceClass, (cohort) => {
+    const next = { ...cohort };
+    delete next.selectedCohortId;
+    if (capacity === undefined) delete next.capacity;
+    else next.capacity = capacity;
     return next;
   });
   return toStrictStudentWorkbookSetup({ ...current, cohorts });
@@ -482,6 +515,18 @@ function clearCatalogReference(
   }
 }
 
+function clearCatalogCreationMode(
+  cohort: StudentWorkbookSetup["cohorts"][number],
+) {
+  delete cohort.programId;
+  delete cohort.programDraftKey;
+  delete cohort.campusId;
+  delete cohort.campusDraftKey;
+  delete cohort.termId;
+  delete cohort.termDraftKey;
+  delete cohort.capacity;
+}
+
 function summarizeDrafts<T extends { key: string; name: string }>(
   drafts: T[],
   cohorts: StudentWorkbookSetup["cohorts"],
@@ -493,7 +538,7 @@ function summarizeDrafts<T extends { key: string; name: string }>(
     : null;
   return drafts.flatMap((draft) => {
     const sourceCohorts = uniqueDisplayValues(cohorts
-      .filter((cohort) => cohort[field] === draft.key)
+      .filter((cohort) => !cohort.selectedCohortId && cohort[field] === draft.key)
       .map((cohort) => cohort.sourceClass));
     if (sourceCohorts.length === 0 || (plannedNames && !plannedNames.has(normalized(draft.name)))) {
       return [];

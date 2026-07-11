@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  applyCohortCapacity,
+  selectExistingCohort,
   sourceCohortLegend,
   StudentImportCatalogDraftSelect,
 } from "@/components/portal/student-import-catalog-drafts";
@@ -53,25 +55,6 @@ export function StudentImportAcademicSetup({
     ...value.assessmentDates,
   ]);
 
-  const updateCohort = (
-    sourceClass: string,
-    patch: Partial<StudentWorkbookSetup["cohorts"][number]>,
-  ) => {
-    const current = value.cohorts.find(
-      (entry) => normalized(entry.sourceClass) === normalized(sourceClass),
-    ) ?? { sourceClass };
-    const next = { ...current, ...patch, sourceClass };
-    onChange({
-      ...value,
-      cohorts: [
-        ...value.cohorts.filter(
-          (entry) => normalized(entry.sourceClass) !== normalized(sourceClass),
-        ),
-        next,
-      ],
-    });
-  };
-
   const updateDate = (sourceClass: string, assessmentTitle: string, date: string) => {
     const matching = (entry: StudentWorkbookSetup["assessmentDates"][number]) =>
       normalized(entry.sourceClass) === normalized(sourceClass) &&
@@ -110,9 +93,11 @@ export function StudentImportAcademicSetup({
                     Existing cohort
                     <select
                       value={setup?.selectedCohortId ?? ""}
-                      onChange={(event) => updateCohort(sourceClass, {
-                        selectedCohortId: event.target.value || undefined,
-                      })}
+                      onChange={(event) => onChange(selectExistingCohort(
+                        value,
+                        sourceClass,
+                        event.target.value || undefined,
+                      ))}
                       disabled={disabled}
                       className="mt-1 block w-full rounded border border-[color:var(--line)] bg-white px-2 py-2 text-sm font-normal text-[color:var(--navy-strong)]"
                     >
@@ -162,7 +147,7 @@ export function StudentImportAcademicSetup({
                         value={setup?.capacity ?? ""}
                         onChange={(event) => {
                           const capacity = event.target.value === "" ? undefined : Number(event.target.value);
-                          updateCohort(sourceClass, { capacity });
+                          onChange(applyCohortCapacity(value, sourceClass, capacity));
                         }}
                         disabled={disabled}
                         required
