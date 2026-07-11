@@ -79,6 +79,8 @@ The current importer behavior remains supported: one header row followed by one 
 
 This profile may contain a title row, multiple header rows, merged cells, fixed student/context columns, and repeated homework/test score groups. Detection looks for a compatible combination of student name, Class, Level, Room, and score labels rather than relying on a fixed row number or column letter.
 
+The required context labels do not need to appear on the same physical header row. In the photographed camp workbook, `Name` and `Class` appear in the upper header rows while `Level` and `Room` appear lower in the same merged header band. Detection reconstructs the complete band first and then validates the combined column paths. It must not require all four labels in the first row of the band.
+
 The parser scans a bounded header band above the first likely data row, expands merged/header group context horizontally and vertically, and builds a canonical path for each column. Example paths are:
 
 - `Student / Name`
@@ -91,6 +93,8 @@ The parser scans a bounded header band above the first likely data row, expands 
 - `HW2 / BB08 / RW`
 
 Repeated text and blank merge placeholders are collapsed without carrying a group value across a real group boundary. The parsed paths, confidence, and source header cells are returned to the preview so an administrator can correct an ambiguous interpretation before commit.
+
+The photographed format may also contain unrelated fixed columns such as `No`, `ID`, `PW`, `DoB`, student and parent contact subcolumns, policy-report values, level numbers, and resource links. Recognized student fields may be mapped through the directory registry; unknown or sensitive fixed columns default to ignored and never become scores. Unknown values inside homework score groups remain visible but ignored unless the administrator explicitly supplies a valid academic mapping.
 
 ### Normalized two-sheet workbook
 
@@ -126,6 +130,26 @@ Score aliases initially include:
 The registry separates label normalization from score-range profiles so later assessment types can add different valid ranges without rewriting the header resolver.
 
 Unknown fixed columns appear as unmapped student-information columns and can use the existing ignore/custom-field workflow. Unknown columns inside a detected score group appear as unmapped score columns and cannot silently become student custom fields.
+
+## Photographed-header compatibility acceptance
+
+The regression workbook uses synthetic Demo-only data and reproduces the visible structure without copying proprietary values:
+
+- a `SAT Summer Camp 2026` title row;
+- a multi-row merged header band containing `No`, `Class`, `ID`, `PW`, `Name`, `School`, `Gr`, `DoB`, grouped student/parent contact labels, and `Policy Report`;
+- `Level` and `Room` on a lower header row than `Name` and `Class`;
+- repeated `HW1`, `HW2`, and `HW3` groups with test identifiers such as `PSAT`, `BB07`, and `BB08`;
+- score leaves using both `RW` and the photographed `M` alias, plus `Total` where the source group supplies it.
+
+Acceptance requires all of the following:
+
+1. The workbook is detected as `wide` without fixed row or column assumptions.
+2. `Name`, `Class`, `Level`, and `Room` map to student match, cohort, website class/session, and classroom respectively.
+3. Homework sequence and test identifier remain combined in assessment titles.
+4. RW, Math, and Total remain academic score data and never enter student custom fields.
+5. Password, policy, link, and unrecognized diagnostic columns default to ignored.
+6. The normalized two-sheet export continues to import with its stable one-row headers and existing mappings.
+7. A signed-in Demo browser preview accepts both the synthetic photographed format and the exported normalized format without committing Main data.
 
 ## Score-group reconstruction
 
