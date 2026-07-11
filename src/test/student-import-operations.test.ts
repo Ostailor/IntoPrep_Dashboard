@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@/lib/domain";
 import { buildEasternRecurringSessions } from "@/lib/eastern-recurring-sessions";
 import {
+  createAdminCohort,
+  setOperationalRecordArchived,
+} from "@/lib/admin-operations";
+import {
   commitStudentSpreadsheetImport,
   createProductionStudentImportRepository,
   previewStudentSpreadsheetImport,
@@ -43,8 +47,25 @@ const serviceMocks = vi.hoisted(() => ({
   createClient: vi.fn(),
 }));
 
+const adminOperationMocks = vi.hoisted(() => ({
+  assertWritesAllowed: vi.fn().mockResolvedValue(undefined),
+  hasServiceRole: vi.fn(() => true),
+  recordAuditLog: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceClient: serviceMocks.createClient,
+}));
+vi.mock("@/lib/supabase/config", () => ({
+  hasSupabaseServiceRole: adminOperationMocks.hasServiceRole,
+}));
+vi.mock("@/lib/engineer-controls", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/engineer-controls")>()),
+  assertWritesAllowed: adminOperationMocks.assertWritesAllowed,
+}));
+vi.mock("@/lib/account-governance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/account-governance")>()),
+  recordAccountAuditLog: adminOperationMocks.recordAuditLog,
 }));
 
 const demoAdmin = {
@@ -752,6 +773,206 @@ describe("student import preview and commit operations", () => {
     expect(preview.academic.assessments).not.toEqual([
       expect.objectContaining({ date: "2026-07-09" }),
     ]);
+  });
+
+  it("keeps planned catalogs in write-free previews and carries the replayed rows and counts into commit", async () => {
+    const marker = "normalized-inline-catalog-replay";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Student Email"],
+          ["Maya Demo", "maya@example.com"],
+          ["Ada Lovelace", "ada@example.com"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-09", 720, 760, 1480],
+        ],
+      },
+    ]);
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [],
+        programs: [],
+        campuses: [],
+        terms: [],
+        defaultCampusId: "",
+      },
+    });
+    const setup = {
+      catalog: {
+        programs: [{
+          key: "program-summer-sat",
+          name: "Summer SAT",
+          track: "SAT" as const,
+          format: "Small group",
+        }],
+        campuses: [{
+          key: "campus-westfield",
+          name: "Westfield",
+          location: "Westfield, NJ",
+          modality: "In person" as const,
+        }],
+        terms: [{
+          key: "term-summer-2026",
+          name: "Summer 2026",
+          startDate: "2026-07-06",
+          endDate: "2026-07-11",
+        }],
+      },
+      cohorts: [{
+        sourceClass: "MWF",
+        programDraftKey: "program-summer-sat",
+        campusDraftKey: "campus-westfield",
+        termDraftKey: "term-summer-2026",
+        capacity: 24,
+      }],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+
+    const initialPreview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository,
+      createUuid: makeIds(),
+    });
+    const updatedPreview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      mappingPlan: initialPreview.mappingPlan,
+      setup: initialPreview.setup,
+      repository,
+      createUuid: makeIds(),
+    });
+
+    expect(updatedPreview.blocking).toBe(false);
+    expect(updatedPreview.academic).toMatchObject({
+      programs: [expect.objectContaining({ name: "Summer SAT", demo: true })],
+      campuses: [expect.objectContaining({ name: "Westfield", demo: true })],
+      terms: [expect.objectContaining({ name: "Summer 2026", demo: true })],
+      summary: { programs: 1, campuses: 1, terms: 1 },
+    });
+    expect(repository.committedPayloads).toHaveLength(0);
+    expect(repository.insertedFailedRuns).toHaveLength(0);
+
+    const result = await commitStudentSpreadsheetImport(makeCommitInput(repository, {
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      mappings: undefined,
+      mappingPlan: updatedPreview.mappingPlan,
+      setup: updatedPreview.setup,
+      expectedDigest: updatedPreview.digest,
+      createUuid: makeIds(),
+    }));
+
+    expect(repository.committedPayloads).toHaveLength(1);
+    expect(repository.committedPayloads[0]).toMatchObject({
+      programs: updatedPreview.academic.programs,
+      campuses: updatedPreview.academic.campuses,
+      terms: updatedPreview.academic.terms,
+    });
+    expect(repository.committedPayloads[0]?.families).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family_name: "Lovelace family",
+        preferred_campus_id: updatedPreview.academic.campuses[0]?.id,
+      }),
+    ]));
+    expect(repository.committedPayloads[0]?.families).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ preferred_campus_id: "" }),
+    ]));
+    expect(result).toMatchObject({
+      programsCreated: 1,
+      campusesCreated: 1,
+      termsCreated: 1,
+    });
+  });
+
+  it("blocks a new family when reviewed cohorts span multiple Campuses", async () => {
+    const marker = "normalized-ambiguous-family-campus";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Student Email"],
+          ["Maya Demo", "maya@example.com"],
+          ["Ada Lovelace", "ada@example.com"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-09", 720, 760, 1480],
+          ["Maya Demo", "TTHS", "G4", "301", "HW1 – PSAT", "2026-07-09", 720, 760, 1480],
+        ],
+      },
+    ]);
+    const tthsCohort = {
+      ...existingMwfCohort,
+      id: "cohort-tths",
+      name: "TTHS",
+      campus_id: "campus-second",
+      cadence: "TTHS",
+      room_label: "301",
+    };
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [existingDemoStudent],
+        cohorts: [existingMwfCohort, tthsCohort],
+        campuses: [
+          {
+            id: "campus-default",
+            name: "Main",
+            location: "Westfield, NJ",
+            modality: "In person",
+            demo: true,
+          },
+          {
+            id: "campus-second",
+            name: "Second",
+            location: "Paramus, NJ",
+            modality: "In person",
+            demo: true,
+          },
+        ],
+      },
+    });
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      setup: {
+        cohorts: [],
+        assessmentDates: [
+          { sourceClass: "MWF", assessmentTitle: "HW1 – PSAT", date: "2026-07-10" },
+          { sourceClass: "TTHS", assessmentTitle: "HW1 – PSAT", date: "2026-07-10" },
+        ],
+      },
+      repository,
+      createUuid: makeIds(),
+    });
+
+    expect(preview.blocking).toBe(true);
+    expect(preview.rows.find((row) => row.firstName === "Ada")?.errors).toEqual([
+      expect.stringContaining("Campus"),
+    ]);
+    expect(repository.committedPayloads).toHaveLength(0);
+    expect(repository.insertedFailedRuns).toHaveLength(0);
   });
 
   it("builds academic reuse and result updates from the one target partition snapshot", async () => {
@@ -1579,16 +1800,15 @@ describe("student import preview and commit operations", () => {
 
   it("applies the target partition and pagination to every import query", async () => {
     const calls: Array<[string, string, unknown]> = [];
+    const writes = {
+      insert: vi.fn(),
+      update: vi.fn(),
+      upsert: vi.fn(),
+      delete: vi.fn(),
+      rpc: vi.fn(),
+    };
     const makeQuery = (table: string) => {
-      const result = table === "campuses"
-        ? { data: [{
-            id: "campus-default",
-            name: "Main",
-            location: "Westfield, NJ",
-            modality: "In person",
-            demo: true,
-          }], error: null }
-        : { data: [], error: null };
+      const result = { data: [], error: null };
       const query = {
         select: vi.fn(() => query),
         eq: vi.fn((field: string, value: unknown) => {
@@ -1603,16 +1823,21 @@ describe("student import preview and commit operations", () => {
         }),
         limit: vi.fn(() => query),
         maybeSingle: vi.fn(async () => result),
+        insert: writes.insert,
+        update: writes.update,
+        upsert: writes.upsert,
+        delete: writes.delete,
         then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
       };
       return query;
     };
     serviceMocks.createClient.mockReturnValue({
       from: vi.fn((table: string) => makeQuery(table)),
+      rpc: writes.rpc,
     });
 
     const repository = createProductionStudentImportRepository();
-    await repository.loadPartition(true);
+    const partition = await repository.loadPartition(true);
 
     for (const table of [
       "families", "students", "enrollments", "cohorts", "student_field_definitions",
@@ -1621,6 +1846,94 @@ describe("student import preview and commit operations", () => {
       expect(calls).toContainEqual([table, "demo", true]);
       expect(calls).toContainEqual([table, "range", [0, 999]]);
     }
+    expect(partition).toMatchObject({
+      programs: [],
+      campuses: [],
+      terms: [],
+      defaultCampusId: "",
+    });
+    expect(writes.insert).not.toHaveBeenCalled();
+    expect(writes.update).not.toHaveBeenCalled();
+    expect(writes.upsert).not.toHaveBeenCalled();
+    expect(writes.delete).not.toHaveBeenCalled();
+    expect(writes.rpc).not.toHaveBeenCalled();
+  });
+
+  it("scopes admin catalog defaults, archive reads, reference checks, and mutations", async () => {
+    const calls: Array<[string, string, unknown]> = [];
+    const tableData: Record<string, unknown> = {
+      cohorts: null,
+      programs: {
+        id: "program-demo",
+        name: "Demo Program",
+        track: "SAT",
+        format: "Small group",
+        is_archived: false,
+        archived_at: null,
+        demo: true,
+      },
+      campuses: {
+        id: "campus-demo",
+        name: "Demo Campus",
+        location: "Westfield, NJ",
+        modality: "In person",
+        demo: true,
+      },
+      terms: {
+        id: "term-demo",
+        name: "Summer 2026",
+        start_date: "2026-07-06",
+        end_date: "2026-07-11",
+        demo: true,
+      },
+    };
+    const makeQuery = (table: string) => {
+      const result = { data: tableData[table] ?? null, error: null, count: 0 };
+      const query = {
+        select: vi.fn(() => query),
+        eq: vi.fn((field: string, value: unknown) => {
+          calls.push([table, field, value]);
+          return query;
+        }),
+        lte: vi.fn(() => query),
+        gte: vi.fn(() => query),
+        order: vi.fn(() => query),
+        limit: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => result),
+        insert: vi.fn(async () => ({ error: null })),
+        update: vi.fn(() => query),
+        then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
+      };
+      return query;
+    };
+    serviceMocks.createClient.mockReturnValue({
+      from: vi.fn((table: string) => makeQuery(table)),
+    });
+
+    await createAdminCohort({
+      viewer: demoAdmin,
+      name: "MWF",
+      cadence: "MWF",
+      cohortMode: "In person",
+      startDate: "2026-07-06",
+      endDate: "2026-07-11",
+    });
+    await setOperationalRecordArchived({
+      viewer: demoAdmin,
+      targetType: "program",
+      targetId: "program-demo",
+      archived: true,
+    });
+
+    expect(calls.filter(([table, field]) => table === "programs" && field === "demo"))
+      .toHaveLength(3);
+    expect(calls.filter(([table, field]) => table === "campuses" && field === "demo"))
+      .toHaveLength(1);
+    expect(calls.filter(([table, field]) => table === "terms" && field === "demo"))
+      .toHaveLength(1);
+    expect(calls.filter(([table, field]) => table === "cohorts" && field === "demo"))
+      .toHaveLength(2);
+    expect(adminOperationMocks.recordAuditLog).toHaveBeenCalledTimes(2);
   });
 
   it("keeps simple imports on the legacy RPC and adapts them to the stable result shape", async () => {
@@ -1695,6 +2008,47 @@ describe("student import preview and commit operations", () => {
       p_enrollments: payload.enrollments,
       p_import_run: payload.importRun,
     });
+
+    const catalogOnlyPayload: StudentImportCommitPayload = {
+      ...payload,
+      programs: [{
+        id: "program-inline",
+        name: "Inline SAT",
+        track: "SAT",
+        format: "Small group",
+        demo: true,
+      }],
+    };
+    rpc.mockResolvedValueOnce({
+      data: {
+        runId: "50000000-0000-4000-8000-000000000002",
+        created: 1,
+        updated: 2,
+        enrolled: 3,
+        skipped: 4,
+        programsCreated: 1,
+        campusesCreated: 0,
+        termsCreated: 0,
+        cohorts: 0,
+        sessions: 0,
+        assessments: 0,
+        results: 0,
+      },
+      error: null,
+    });
+
+    await expect(repository.commitImport(catalogOnlyPayload)).resolves.toMatchObject({
+      programsCreated: 1,
+    });
+    expect(rpc).toHaveBeenLastCalledWith("commit_student_workbook_import", expect.objectContaining({
+      p_programs: catalogOnlyPayload.programs,
+      p_campuses: [],
+      p_terms: [],
+      p_cohorts: [],
+      p_sessions: [],
+      p_assessments: [],
+      p_results: [],
+    }));
 
     rpc.mockResolvedValueOnce({ data: { runId: "bad", created: "1" }, error: null });
     await expect(repository.commitImport(payload)).rejects.toThrow(

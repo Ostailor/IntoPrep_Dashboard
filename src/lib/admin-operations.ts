@@ -1055,18 +1055,21 @@ export async function createAdminCohort({
       .from("programs")
       .select("*")
       .eq("is_archived", false)
+      .eq("demo", demo)
       .order("name", { ascending: true })
       .limit(1)
       .maybeSingle(),
     serviceClient
       .from("campuses")
       .select("*")
+      .eq("demo", demo)
       .order("name", { ascending: true })
       .limit(1)
       .maybeSingle(),
     serviceClient
       .from("terms")
       .select("*")
+      .eq("demo", demo)
       .lte("start_date", normalizedEndDate)
       .gte("end_date", normalizedStartDate)
       .order("start_date", { ascending: false })
@@ -1098,11 +1101,12 @@ export async function createAdminCohort({
     termData
       ? { data: termData, error: null }
       : await serviceClient
-          .from("terms")
-          .select("*")
-          .order("start_date", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        .from("terms")
+        .select("*")
+        .eq("demo", demo)
+        .order("start_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   if (fallbackTermResult.error) {
     throw new Error(fallbackTermResult.error.message);
@@ -1675,12 +1679,14 @@ export async function setOperationalRecordArchived({
 
   const serviceClient = createSupabaseServiceClient();
   const now = new Date().toISOString();
+  const demo = getDemoPartition(viewer);
 
   if (targetType === "cohort") {
     const { data, error } = await serviceClient
       .from("cohorts")
       .select("*")
       .eq("id", targetId)
+      .eq("demo", demo)
       .maybeSingle();
     const cohort = (data ?? null) as CohortRow | null;
 
@@ -1698,7 +1704,8 @@ export async function setOperationalRecordArchived({
         is_archived: archived,
         archived_at: archived ? now : null,
       })
-      .eq("id", targetId);
+      .eq("id", targetId)
+      .eq("demo", demo);
 
     if (updateError) {
       throw new Error(updateError.message);
@@ -1728,6 +1735,7 @@ export async function setOperationalRecordArchived({
     .from("programs")
     .select("*")
     .eq("id", targetId)
+    .eq("demo", demo)
     .maybeSingle();
   const program = (data ?? null) as ProgramRow | null;
 
@@ -1744,7 +1752,8 @@ export async function setOperationalRecordArchived({
       .from("cohorts")
       .select("id", { count: "exact", head: true })
       .eq("program_id", targetId)
-      .eq("is_archived", false);
+      .eq("is_archived", false)
+      .eq("demo", demo);
 
     if (activeCohortError) {
       throw new Error(activeCohortError.message);
@@ -1761,7 +1770,8 @@ export async function setOperationalRecordArchived({
       is_archived: archived,
       archived_at: archived ? now : null,
     })
-    .eq("id", targetId);
+    .eq("id", targetId)
+    .eq("demo", demo);
 
   if (updateError) {
     throw new Error(updateError.message);

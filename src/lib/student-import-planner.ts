@@ -104,7 +104,7 @@ export interface StudentImportPlannerInput {
   cohorts: ExistingImportCohort[];
   existingFieldDefinitions?: ExistingImportFieldDefinition[];
   newFieldDefinitions: NewImportFieldDefinition[];
-  defaultCampusId: string;
+  defaultCampusId: string | null;
   defaultRegisteredAt: string;
   createId: (prefix: "field" | "family" | "student" | "enrollment") => string;
 }
@@ -271,7 +271,19 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
     }
 
     if (!family) {
-      family = createFamilyPayload(row, input.createId("family"), input);
+      if (!input.defaultCampusId) {
+        planRow.errors.push(
+          "Choose one unambiguous Campus for new families before importing students.",
+        );
+        rows.push(planRow);
+        continue;
+      }
+      family = createFamilyPayload(
+        row,
+        input.createId("family"),
+        input.defaultCampusId,
+        input.targetDemo,
+      );
       familyById.set(family.id, family);
       addIndexValue(familyEmailIndex, familyParentEmail(family), family.id);
     }
@@ -484,7 +496,8 @@ function uniqueNormalizedValues(values: string[]): string[] {
 function createFamilyPayload(
   row: NormalizedStudentImportRow,
   id: string,
-  input: StudentImportPlannerInput,
+  defaultCampusId: string,
+  targetDemo: boolean,
 ): FamilyPayload {
   const guardianNames = [row.parent1Name, row.parent2Name].filter(Boolean);
   return {
@@ -493,7 +506,7 @@ function createFamilyPayload(
     guardian_names: guardianNames,
     email: row.parent1Email,
     phone: row.parent1Phone,
-    preferred_campus_id: input.defaultCampusId,
+    preferred_campus_id: defaultCampusId,
     notes: row.familyNotes,
     parent1_name: row.parent1Name || null,
     parent1_email: row.parent1Email || null,
@@ -501,7 +514,7 @@ function createFamilyPayload(
     parent2_name: row.parent2Name || null,
     parent2_email: row.parent2Email || null,
     parent2_phone: row.parent2Phone || null,
-    demo: input.targetDemo,
+    demo: targetDemo,
   };
 }
 

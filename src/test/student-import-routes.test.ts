@@ -144,6 +144,57 @@ describe("student spreadsheet import routes", () => {
     expect(mocks.preview.mock.calls[0]![0].bytes).toBeInstanceOf(Buffer);
   });
 
+  it("preserves reviewed catalog drafts across preview and commit replay", async () => {
+    const mappings = [
+      { sourceHeader: "First Name", kind: "known", field: "firstName" },
+      { sourceHeader: "Last Name", kind: "known", field: "lastName" },
+    ];
+    const setup = {
+      catalog: {
+        programs: [{
+          key: "program-summer-sat",
+          name: "Summer SAT",
+          track: "SAT",
+          format: "Small group",
+        }],
+        campuses: [{
+          key: "campus-westfield",
+          name: "Westfield",
+          location: "Westfield, NJ",
+          modality: "In person",
+        }],
+        terms: [{
+          key: "term-summer-2026",
+          name: "Summer 2026",
+          startDate: "2026-07-06",
+          endDate: "2026-07-11",
+        }],
+      },
+      cohorts: [{
+        sourceClass: "MWF",
+        programDraftKey: "program-summer-sat",
+        campusDraftKey: "campus-westfield",
+        termDraftKey: "term-summer-2026",
+        capacity: 24,
+      }],
+      assessmentDates: [],
+    };
+
+    const previewResponse = await previewPost(makeRequest("preview", {
+      setup: JSON.stringify(setup),
+    }));
+    const commitResponse = await commitPost(makeRequest("commit", {
+      expectedDigest: "b".repeat(64),
+      mappings: JSON.stringify(mappings),
+      setup: JSON.stringify(setup),
+    }));
+
+    expect(previewResponse.status).toBe(200);
+    expect(commitResponse.status).toBe(200);
+    expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ setup }));
+    expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ setup }));
+  });
+
   it("strictly parses and forwards sheet-aware excluded rows", async () => {
     const excludedRows = [
       { sheetName: "Student Information", rowNumber: 2 },

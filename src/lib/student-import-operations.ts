@@ -470,9 +470,9 @@ export async function commitStudentSpreadsheetImport(
     families: prepared.plan.families,
     students: prepared.plan.students,
     enrollments,
-    programs: [],
-    campuses: [],
-    terms: [],
+    programs: prepared.preview.academic.programs,
+    campuses: prepared.preview.academic.campuses,
+    terms: prepared.preview.academic.terms,
     cohorts: prepared.preview.academic.cohorts,
     sessions: prepared.preview.academic.sessions,
     assessments: prepared.preview.academic.assessments,
@@ -657,19 +657,6 @@ async function prepareStudentImport(
     : [];
   const createUuid = input.createUuid ?? randomUUID;
   const now = input.now ?? (() => new Date());
-  const plan = buildStudentImportPlan({
-    targetDemo,
-    rows: detected.profile === "wide" ? [] : normalizedRows,
-    existingStudents: data.students,
-    existingFamilies: data.families,
-    existingEnrollments: data.enrollments,
-    cohorts: data.cohorts,
-    existingFieldDefinitions: data.fieldDefinitions,
-    newFieldDefinitions: toNewFieldDefinitions(mappings),
-    defaultCampusId: data.defaultCampusId,
-    defaultRegisteredAt: now().toISOString().slice(0, 10),
-    createId: () => createUuid(),
-  });
   const academic = buildStudentAcademicImportPlan({
     targetDemo,
     rows: normalizedAcademicRows,
@@ -683,6 +670,23 @@ async function prepareStudentImport(
     programs: data.programs,
     campuses: data.campuses,
     terms: data.terms,
+    createId: () => createUuid(),
+  });
+  const plan = buildStudentImportPlan({
+    targetDemo,
+    rows: detected.profile === "wide" ? [] : normalizedRows,
+    existingStudents: data.students,
+    existingFamilies: data.families,
+    existingEnrollments: data.enrollments,
+    cohorts: data.cohorts,
+    existingFieldDefinitions: data.fieldDefinitions,
+    newFieldDefinitions: toNewFieldDefinitions(mappings),
+    defaultCampusId: resolveDirectoryCampusId({
+      targetDemo,
+      partition: data,
+      academic,
+    }),
+    defaultRegisteredAt: now().toISOString().slice(0, 10),
     createId: () => createUuid(),
   });
   const sourceAssessmentDateSuggestions = mappingPlan.academic
@@ -743,6 +747,46 @@ async function prepareStudentImport(
       blocking,
     },
   };
+}
+
+function resolveDirectoryCampusId({
+  targetDemo,
+  partition,
+  academic,
+}: {
+  targetDemo: boolean;
+  partition: StudentImportPartitionData;
+  academic: StudentAcademicImportPlan;
+}): string | null {
+  const cohortCampusById = new Map(
+    partition.cohorts
+      .filter((cohort) => cohort.demo === targetDemo)
+      .map((cohort) => [cohort.id, cohort.campus_id]),
+  );
+  for (const cohort of academic.cohorts) {
+    if (typeof cohort.id === "string" && typeof cohort.campus_id === "string") {
+      cohortCampusById.set(cohort.id, cohort.campus_id);
+    }
+  }
+
+  const reviewedCampusIds = new Set(
+    academic.rows.flatMap((row) => {
+      if (!row.cohortId) return [];
+      const campusId = cohortCampusById.get(row.cohortId);
+      return campusId ? [campusId] : [];
+    }),
+  );
+  if (reviewedCampusIds.size === 1) {
+    return reviewedCampusIds.values().next().value ?? null;
+  }
+  if (reviewedCampusIds.size > 1) {
+    return null;
+  }
+
+  const availableCampuses = partition.campuses.filter(
+    (campus) => campus.demo === targetDemo,
+  );
+  return availableCampuses.length === 1 ? availableCampuses[0].id : null;
 }
 
 function buildAcademicSourceRows(input: {
@@ -1291,10 +1335,6 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         loadAllPages<AssessmentRow>((from, to) => serviceClient.from("assessments").select("id,cohort_id,title,date,sections,demo").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
         loadAllPages<ResultRow>((from, to) => serviceClient.from("assessment_results").select("id,assessment_id,student_id,total_score,section_scores,delta_from_previous,demo").eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
       ]);
-      if (campuses.length === 0) {
-        throw new StudentImportInputError("Create a campus before importing students.");
-      }
-
       return {
         families: families as ExistingImportFamily[],
         students: students.map((student) => ({
@@ -1312,7 +1352,7 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         sessions,
         assessments,
         results,
-        defaultCampusId: campuses[0].id,
+        defaultCampusId: campuses[0]?.id ?? "",
       };
     },
     async commitImport(payload) {
