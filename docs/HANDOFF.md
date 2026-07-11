@@ -7,7 +7,7 @@ Use this as the first file to read in a new chat. It captures the operational co
 - Repo: `/Users/omtailor/IntoPrep_Dashboard`
 - App: Next.js App Router, TypeScript, Tailwind CSS
 - Production URL: `https://dashboard-alpha-nine-82.vercel.app`
-- Latest known production deployment URL: `https://dashboard-azw7axbi2-ostailors-projects.vercel.app`
+- Canonical production alias: `https://dashboard-alpha-nine-82.vercel.app`
 - Local dev URL: `http://localhost:3000`
 - Timezone for user-facing schedule logic: `America/New_York`
 
@@ -183,10 +183,12 @@ Recent issue fixed: demo students/families appeared in main/live. The code now c
   - **Normalized**: an `.xlsx` containing the stable `Student Information` and/or `Scores` sheets produced by the exports.
 - Wide semantics are exact: spreadsheet `Class` is the cohort name, `Level` is the website class/session title, and `Room` is the physical classroom label. Do not invent or normalize cohort abbreviations; match the `Class` value exactly inside the selected Demo/Main partition.
 - A missing exact cohort prompts once for Program, Campus, Term, and Capacity before preview. Zero or multiple exact student-name matches block that score row. Invalid numeric scores and mismatched totals also block until the row is fixed or explicitly excluded.
+- Missing Program, Campus, and Term values can be entered directly in that review. They appear as planned creations without writing during preview, are reused across every workbook cohort that selects the same draft, and are created atomically with the import only after commit. No tuition field exists on an import-created Program.
 - MWF cohorts generate Monday/Wednesday/Friday sessions; TTHS cohorts generate Tuesday/Thursday/Saturday sessions. Generated classes run 8:00 AM–3:30 PM in `America/New_York`. The operator enters one test date per cohort/test combination, so the date is shared by that cohort's students and may differ between MWF and TTHS.
 - Scores remain in `assessments` and `assessment_results`, separate from student information. RW and Math are stored separately; a blank Total is calculated, while a supplied Total must equal RW + Math.
 - The commit reparses the same file, verifies its digest plus reviewed mapping/setup, and uses `commit_student_workbook_import` for the expanded atomic transaction (`commit_student_spreadsheet_import` remains the directory-import layer). Runs are recorded in `student_import_runs`; custom labels remain in `student_field_definitions` and `students.custom_fields`.
-- Migrations: `supabase/migrations/20260710043252_student_spreadsheet_import.sql` and `supabase/migrations/20260711040125_adaptive_student_score_workbook_import.sql`.
+- Program, Campus, and Term are partitioned by `demo`, with partition-aware normalized uniqueness, foreign keys, and RLS. Catalog choices and planned creations must remain inside the import target partition.
+- Migrations: `supabase/migrations/20260710043252_student_spreadsheet_import.sql`, `supabase/migrations/20260711040125_adaptive_student_score_workbook_import.sql`, and `supabase/migrations/20260711172228_inline_import_catalog_creation.sql`.
 
 ### Student spreadsheet exports
 
@@ -208,7 +210,7 @@ Demo-only verification procedure:
 8. Verify every created family, student, cohort, enrollment, session, assessment, result, and import run has `demo = true`; assert captured identifiers have no `demo = false` matches.
 9. Recompute the seven main counts/hashes and require an exact match. Delete only the captured Demo IDs in dependency order, retain any pre-existing cohort, recompute its enrollment counter if needed, verify every captured ID is gone, and require the main fingerprints to match once more.
 
-Latest Demo E2E (2026-07-11): the actual photo-style merged-header XLSX committed and replayed successfully with exact RW/Math/Total values; the normalized export also re-previewed successfully. The wide run created 1 temporary cohort, 72 classes, 2 enrollments, 8 assessments, and 8 results; replay produced only 8 result updates. Guarded cleanup removed every captured Demo row and Main fingerprints remained unchanged. The earlier export/Sheets round trip also passed: all three exports, native Google Sheets conversion, visible two-tab inspection, visible Sheets `.xlsx` download, normalized Demo UI re-import, multi-cohort placement, and stored custom-field reuse. The preserved Sheets artifact is `.superpowers/sdd/task11-artifacts/sheets-roundtrip.xlsx`; see `.superpowers/sdd/task-11-report.md` for evidence.
+Latest Demo E2E (2026-07-11): the actual photo-style merged-header XLSX was uploaded through the production file chooser and committed with one Program, Campus, Term, and TTHS cohort planned in review. The run created 65 correctly scheduled classes, 2 enrollments, 8 assessments, and 8 results with the exact RW/Math/Total values; replay planned no catalog, cohort, class, enrollment, or assessment creates and only 8 result updates. Download Everything produced the two normalized sheets and its exact downloaded XLSX re-previewed as the Normalized profile. Guarded cleanup removed every captured Demo row, while complete Main fingerprints matched before import, after import/replay, and after cleanup. The earlier native Google Sheets conversion/visible two-tab/download round trip also passed. The preserved Sheets artifact is `.superpowers/sdd/task11-artifacts/sheets-roundtrip.xlsx`; see `.superpowers/sdd/task-11-report.md` for evidence.
 
 The unused QuickBooks implementation was intentionally left unchanged; the portal regression now correctly verifies that its hidden alert is omitted.
 
