@@ -1372,21 +1372,40 @@ export interface Database {
     Views: Record<string, never>;
     Functions: {
       commit_student_workbook_import: {
-        Args: {
-          p_actor_id: string | null;
-          p_actor_role: string;
-          p_actor_demo: boolean;
-          p_target_demo: boolean;
-          p_field_definitions: Json;
-          p_families: Json;
-          p_students: Json;
-          p_enrollments: Json;
-          p_cohorts: Json;
-          p_sessions: Json;
-          p_assessments: Json;
-          p_results: Json;
-          p_import_run: Json;
-        };
+        Args:
+          | {
+              p_actor_id: string | null;
+              p_actor_role: string;
+              p_actor_demo: boolean;
+              p_target_demo: boolean;
+              p_field_definitions: Json;
+              p_families: Json;
+              p_students: Json;
+              p_enrollments: Json;
+              p_cohorts: Json;
+              p_sessions: Json;
+              p_assessments: Json;
+              p_results: Json;
+              p_import_run: Json;
+            }
+          | {
+              p_actor_id: string | null;
+              p_actor_role: string;
+              p_actor_demo: boolean;
+              p_target_demo: boolean;
+              p_field_definitions: Json;
+              p_families: Json;
+              p_students: Json;
+              p_enrollments: Json;
+              p_programs: Json;
+              p_campuses: Json;
+              p_terms: Json;
+              p_cohorts: Json;
+              p_sessions: Json;
+              p_assessments: Json;
+              p_results: Json;
+              p_import_run: Json;
+            };
         Returns: Json;
       };
       commit_student_spreadsheet_import: {

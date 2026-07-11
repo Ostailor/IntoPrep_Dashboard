@@ -10,6 +10,9 @@ import {
   type AcademicProgram,
   type AcademicTerm,
   type ExistingAcademicCohort,
+  type PlannedAcademicCampus,
+  type PlannedAcademicProgram,
+  type PlannedAcademicTerm,
   type StudentAcademicImportPlan,
 } from "@/lib/student-academic-import-planner";
 import {
@@ -139,6 +142,9 @@ export interface StudentImportCommitPayload {
   families: Array<Record<string, unknown>>;
   students: Array<Record<string, unknown>>;
   enrollments: Array<Record<string, unknown>>;
+  programs: PlannedAcademicProgram[];
+  campuses: PlannedAcademicCampus[];
+  terms: PlannedAcademicTerm[];
   cohorts: Array<Record<string, unknown>>;
   sessions: Array<Record<string, unknown>>;
   assessments: Array<Record<string, unknown>>;
@@ -152,6 +158,9 @@ export interface StudentImportCommitResult {
   updated: number;
   enrolled: number;
   skipped: number;
+  programsCreated: number;
+  campusesCreated: number;
+  termsCreated: number;
   cohorts: number;
   sessions: number;
   assessments: number;
@@ -461,6 +470,9 @@ export async function commitStudentSpreadsheetImport(
     families: prepared.plan.families,
     students: prepared.plan.students,
     enrollments,
+    programs: [],
+    campuses: [],
+    terms: [],
     cohorts: prepared.preview.academic.cohorts,
     sessions: prepared.preview.academic.sessions,
     assessments: prepared.preview.academic.assessments,
@@ -1314,7 +1326,10 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         p_students: payload.students as Json,
         p_enrollments: payload.enrollments as Json,
       };
-      const hasAcademicPlan = payload.cohorts.length > 0 ||
+      const hasAcademicPlan = payload.programs.length > 0 ||
+        payload.campuses.length > 0 ||
+        payload.terms.length > 0 ||
+        payload.cohorts.length > 0 ||
         payload.sessions.length > 0 ||
         payload.assessments.length > 0 ||
         payload.results.length > 0;
@@ -1326,6 +1341,9 @@ export function createProductionStudentImportRepository(): StudentImportReposito
           })
         : await serviceClient.rpc("commit_student_workbook_import", {
             ...baseArgs,
+            p_programs: payload.programs as unknown as Json,
+            p_campuses: payload.campuses as unknown as Json,
+            p_terms: payload.terms as unknown as Json,
             p_cohorts: payload.cohorts as Json,
             p_sessions: payload.sessions as Json,
             p_assessments: payload.assessments as Json,
@@ -1345,6 +1363,9 @@ export function createProductionStudentImportRepository(): StudentImportReposito
         }
         return {
           ...data,
+          programsCreated: 0,
+          campusesCreated: 0,
+          termsCreated: 0,
           cohorts: 0,
           sessions: 0,
           assessments: 0,
@@ -1354,6 +1375,9 @@ export function createProductionStudentImportRepository(): StudentImportReposito
       if (
         !isCommitResult(data) ||
         !directoryResultMatchesRun(data, payload.importRun) ||
+        data.programsCreated > payload.programs.length ||
+        data.campusesCreated > payload.campuses.length ||
+        data.termsCreated > payload.terms.length ||
         data.cohorts !== payload.importRun.cohortCount ||
         data.sessions !== payload.importRun.sessionCount ||
         data.assessments !== payload.importRun.assessmentCount ||
@@ -1401,7 +1425,11 @@ async function loadAllPages<T>(
 
 function isDirectoryCommitResult(
   value: unknown,
-): value is Omit<StudentImportCommitResult, "cohorts" | "sessions" | "assessments" | "results"> {
+): value is Omit<
+  StudentImportCommitResult,
+  "programsCreated" | "campusesCreated" | "termsCreated" |
+  "cohorts" | "sessions" | "assessments" | "results"
+> {
   return isPlainRecord(value) &&
     typeof value.runId === "string" && UUID_PATTERN.test(value.runId) &&
     isNonnegativeInteger(value.created) &&
@@ -1413,7 +1441,10 @@ function isDirectoryCommitResult(
 function isCommitResult(value: unknown): value is StudentImportCommitResult {
   if (!isDirectoryCommitResult(value)) return false;
   const academicCounts = value as unknown as Record<string, unknown>;
-  return isNonnegativeInteger(academicCounts.cohorts) &&
+  return isNonnegativeInteger(academicCounts.programsCreated) &&
+    isNonnegativeInteger(academicCounts.campusesCreated) &&
+    isNonnegativeInteger(academicCounts.termsCreated) &&
+    isNonnegativeInteger(academicCounts.cohorts) &&
     isNonnegativeInteger(academicCounts.sessions) &&
     isNonnegativeInteger(academicCounts.assessments) &&
     isNonnegativeInteger(academicCounts.results);
@@ -1424,7 +1455,11 @@ function isNonnegativeInteger(value: unknown): value is number {
 }
 
 function directoryResultMatchesRun(
-  result: Omit<StudentImportCommitResult, "cohorts" | "sessions" | "assessments" | "results">,
+  result: Omit<
+    StudentImportCommitResult,
+    "programsCreated" | "campusesCreated" | "termsCreated" |
+    "cohorts" | "sessions" | "assessments" | "results"
+  >,
   run: StudentImportRunPayload,
 ) {
   return result.created === run.createdCount &&

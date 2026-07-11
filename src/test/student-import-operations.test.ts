@@ -199,6 +199,9 @@ function makeRepository(options: {
         updated: payload.importRun.updatedCount,
         enrolled: payload.importRun.enrollmentCount,
         skipped: payload.importRun.skippedCount,
+        programsCreated: payload.programs.length,
+        campusesCreated: payload.campuses.length,
+        termsCreated: payload.terms.length,
         cohorts: payload.importRun.cohortCount,
         sessions: payload.importRun.sessionCount,
         assessments: payload.importRun.assessmentCount,
@@ -1634,6 +1637,9 @@ describe("student import preview and commit operations", () => {
       families: [{ id: "family" }],
       students: [{ id: "student" }],
       enrollments: [{ id: "enrollment" }],
+      programs: [],
+      campuses: [],
+      terms: [],
       cohorts: [],
       sessions: [],
       assessments: [],
@@ -1669,6 +1675,9 @@ describe("student import preview and commit operations", () => {
       updated: 2,
       enrolled: 3,
       skipped: 4,
+      programsCreated: 0,
+      campusesCreated: 0,
+      termsCreated: 0,
       cohorts: 0,
       sessions: 0,
       assessments: 0,
@@ -1701,6 +1710,9 @@ describe("student import preview and commit operations", () => {
         updated: 0,
         enrolled: 1,
         skipped: 0,
+        programsCreated: 1,
+        campusesCreated: 1,
+        termsCreated: 1,
         cohorts: 1,
         sessions: 2,
         assessments: 1,
@@ -1717,6 +1729,27 @@ describe("student import preview and commit operations", () => {
       families: [],
       students: [],
       enrollments: [{ id: "enrollment" }],
+      programs: [{
+        id: "program-new",
+        name: "Summer SAT",
+        track: "SAT",
+        format: "Small group",
+        demo: true,
+      }],
+      campuses: [{
+        id: "campus-new",
+        name: "Westfield",
+        location: "Westfield, NJ",
+        modality: "In person",
+        demo: true,
+      }],
+      terms: [{
+        id: "term-new",
+        name: "Summer 2026",
+        start_date: "2026-07-06",
+        end_date: "2026-07-11",
+        demo: true,
+      }],
       cohorts: [{ id: "cohort" }],
       sessions: [{ id: "session-1" }, { id: "session-2" }],
       assessments: [{ id: "assessment" }],
@@ -1746,7 +1779,12 @@ describe("student import preview and commit operations", () => {
       },
     };
 
-    await expect(repository.commitImport(payload)).resolves.toMatchObject({ results: 1 });
+    await expect(repository.commitImport(payload)).resolves.toMatchObject({
+      programsCreated: 1,
+      campusesCreated: 1,
+      termsCreated: 1,
+      results: 1,
+    });
     expect(rpc).toHaveBeenCalledWith("commit_student_workbook_import", {
       p_actor_id: demoAdmin.id,
       p_actor_role: "admin",
@@ -1756,6 +1794,9 @@ describe("student import preview and commit operations", () => {
       p_families: payload.families,
       p_students: payload.students,
       p_enrollments: payload.enrollments,
+      p_programs: payload.programs,
+      p_campuses: payload.campuses,
+      p_terms: payload.terms,
       p_cohorts: payload.cohorts,
       p_sessions: payload.sessions,
       p_assessments: payload.assessments,
@@ -1765,6 +1806,10 @@ describe("student import preview and commit operations", () => {
         profile: "wide",
       },
     });
+    const rpcArgs = rpc.mock.calls[0]![1] as Record<string, unknown>;
+    expect(Object.keys(rpcArgs).indexOf("p_programs")).toBeLessThan(
+      Object.keys(rpcArgs).indexOf("p_cohorts"),
+    );
 
     rpc.mockResolvedValueOnce({
       data: {

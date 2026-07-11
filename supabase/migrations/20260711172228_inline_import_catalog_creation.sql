@@ -411,3 +411,416 @@ using (
 );
 
 alter table public.programs drop column tuition;
+
+grant select, insert on table public.programs to service_role;
+grant select, insert on table public.campuses to service_role;
+grant select, insert on table public.terms to service_role;
+grant select on table public.profiles to service_role;
+grant select, insert, update on table public.cohorts to service_role;
+grant select, insert, update on table public.families to service_role;
+grant select, insert, update on table public.students to service_role;
+grant select, insert, update on table public.enrollments to service_role;
+grant select, insert on table public.sessions to service_role;
+grant select, insert on table public.assessments to service_role;
+grant select, insert, update on table public.assessment_results to service_role;
+
+create or replace function public.commit_student_workbook_import(
+  p_actor_id uuid,
+  p_actor_role text,
+  p_actor_demo boolean,
+  p_target_demo boolean,
+  p_field_definitions jsonb,
+  p_families jsonb,
+  p_students jsonb,
+  p_enrollments jsonb,
+  p_programs jsonb,
+  p_campuses jsonb,
+  p_terms jsonb,
+  p_cohorts jsonb,
+  p_sessions jsonb,
+  p_assessments jsonb,
+  p_results jsonb,
+  p_import_run jsonb
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  workbook_result jsonb;
+  programs_created integer := 0;
+  campuses_created integer := 0;
+  terms_created integer := 0;
+begin
+  if p_actor_role is null
+    or p_actor_role not in ('engineer', 'admin', 'staff') then
+    raise exception 'This role cannot import students.';
+  end if;
+  if p_actor_demo is null or p_target_demo is null then
+    raise exception 'The actor and target partitions are required.';
+  end if;
+  if p_actor_role <> 'engineer' and p_actor_demo is distinct from p_target_demo then
+    raise exception 'The import target does not match the actor partition.';
+  end if;
+  if p_actor_id is null and (
+    p_actor_role <> 'admin'
+    or p_actor_demo is distinct from true
+    or p_target_demo is distinct from true
+  ) then
+    raise exception 'Only the local demo admin may import without a persisted actor id.';
+  end if;
+  if p_actor_id is not null and not exists (
+    select 1
+    from public.profiles profile
+    where profile.id = p_actor_id
+      and profile.role::text = p_actor_role
+      and profile.demo is not distinct from p_actor_demo
+      and profile.account_status = 'active'
+      and profile.must_change_password = false
+      and profile.deleted_at is null
+  ) then
+    raise exception 'The import actor is not active.';
+  end if;
+
+  if jsonb_typeof(p_programs) is distinct from 'array'
+    or jsonb_typeof(p_campuses) is distinct from 'array'
+    or jsonb_typeof(p_terms) is distinct from 'array'
+    or jsonb_typeof(p_cohorts) is distinct from 'array' then
+    raise exception 'Catalog and cohort payloads must be JSON arrays.';
+  end if;
+  if jsonb_array_length(p_programs) > 100
+    or jsonb_array_length(p_campuses) > 100
+    or jsonb_array_length(p_terms) > 100 then
+    raise exception 'Catalog payload exceeds server bounds.';
+  end if;
+  if exists (
+    select 1
+    from (
+      select value from jsonb_array_elements(p_programs)
+      union all select value from jsonb_array_elements(p_campuses)
+      union all select value from jsonb_array_elements(p_terms)
+    ) payload
+    where jsonb_typeof(payload.value) is distinct from 'object'
+  ) then
+    raise exception 'Every catalog payload item must be a JSON object.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_programs) item
+    where jsonb_typeof(item->'id') is distinct from 'string'
+      or jsonb_typeof(item->'name') is distinct from 'string'
+      or jsonb_typeof(item->'track') is distinct from 'string'
+      or jsonb_typeof(item->'format') is distinct from 'string'
+      or jsonb_typeof(item->'demo') is distinct from 'boolean'
+      or exists (
+        select 1 from jsonb_object_keys(item) key
+        where key not in ('id', 'name', 'track', 'format', 'demo')
+      )
+  ) then
+    raise exception 'A Program payload has invalid field types.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_campuses) item
+    where jsonb_typeof(item->'id') is distinct from 'string'
+      or jsonb_typeof(item->'name') is distinct from 'string'
+      or jsonb_typeof(item->'location') is distinct from 'string'
+      or jsonb_typeof(item->'modality') is distinct from 'string'
+      or jsonb_typeof(item->'demo') is distinct from 'boolean'
+      or exists (
+        select 1 from jsonb_object_keys(item) key
+        where key not in ('id', 'name', 'location', 'modality', 'demo')
+      )
+  ) then
+    raise exception 'A Campus payload has invalid field types.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(p_terms) item
+    where jsonb_typeof(item->'id') is distinct from 'string'
+      or jsonb_typeof(item->'name') is distinct from 'string'
+      or jsonb_typeof(item->'start_date') is distinct from 'string'
+      or jsonb_typeof(item->'end_date') is distinct from 'string'
+      or jsonb_typeof(item->'demo') is distinct from 'boolean'
+      or exists (
+        select 1 from jsonb_object_keys(item) key
+        where key not in ('id', 'name', 'start_date', 'end_date', 'demo')
+      )
+  ) then
+    raise exception 'A Term payload has invalid field types.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_programs) as incoming(
+      id text, name text, track text, format text, demo boolean
+    )
+    where nullif(btrim(incoming.id), '') is null
+      or length(incoming.id) > 200
+      or nullif(btrim(incoming.name), '') is null
+      or length(incoming.name) > 200
+      or incoming.track is null
+      or incoming.track not in ('SAT', 'ACT', 'Admissions', 'Support')
+      or nullif(btrim(incoming.format), '') is null
+      or length(incoming.format) > 200
+      or incoming.demo is distinct from p_target_demo
+  ) then
+    raise exception 'A Program payload is invalid.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_programs) as incoming(id text)
+    group by incoming.id having count(*) > 1
+  ) or exists (
+    select 1
+    from jsonb_to_recordset(p_programs) as incoming(name text)
+    group by lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+    having count(*) > 1
+  ) then
+    raise exception 'Program ids and normalized names must be unique in the payload.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_campuses) as incoming(
+      id text, name text, location text, modality text, demo boolean
+    )
+    where nullif(btrim(incoming.id), '') is null
+      or length(incoming.id) > 200
+      or nullif(btrim(incoming.name), '') is null
+      or length(incoming.name) > 200
+      or nullif(btrim(incoming.location), '') is null
+      or length(incoming.location) > 200
+      or incoming.modality is null
+      or incoming.modality not in ('In person', 'Hybrid', 'Online')
+      or incoming.demo is distinct from p_target_demo
+  ) then
+    raise exception 'A Campus payload is invalid.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_campuses) as incoming(id text)
+    group by incoming.id having count(*) > 1
+  ) or exists (
+    select 1
+    from jsonb_to_recordset(p_campuses) as incoming(name text)
+    group by lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+    having count(*) > 1
+  ) then
+    raise exception 'Campus ids and normalized names must be unique in the payload.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_terms) as incoming(
+      id text, name text, start_date date, end_date date, demo boolean
+    )
+    where nullif(btrim(incoming.id), '') is null
+      or length(incoming.id) > 200
+      or nullif(btrim(incoming.name), '') is null
+      or length(incoming.name) > 200
+      or incoming.start_date is null
+      or incoming.end_date is null
+      or not isfinite(incoming.start_date)
+      or not isfinite(incoming.end_date)
+      or incoming.end_date < incoming.start_date
+      or incoming.demo is distinct from p_target_demo
+  ) then
+    raise exception 'A Term payload is invalid.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_terms) as incoming(id text)
+    group by incoming.id having count(*) > 1
+  ) or exists (
+    select 1
+    from jsonb_to_recordset(p_terms) as incoming(name text)
+    group by lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+    having count(*) > 1
+  ) then
+    raise exception 'Term ids and normalized names must be unique in the payload.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_programs) as incoming(
+      id text, name text, track text, format text
+    )
+    join public.programs existing on existing.id = incoming.id
+    where existing.demo is distinct from p_target_demo
+      or existing.is_archived
+      or lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        is distinct from lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      or existing.track is distinct from incoming.track
+      or lower(regexp_replace(btrim(existing.format), '[[:space:]]+', ' ', 'g'))
+        is distinct from lower(regexp_replace(btrim(incoming.format), '[[:space:]]+', ' ', 'g'))
+  ) then
+    raise exception 'A Program id belongs to another partition or has conflicting fields.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_programs) as incoming(id text, name text)
+    join public.programs existing
+      on existing.demo = p_target_demo
+      and lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        = lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      and existing.id <> incoming.id
+  ) then
+    raise exception 'A Program normalized name conflicts with another id.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_campuses) as incoming(
+      id text, name text, location text, modality text
+    )
+    join public.campuses existing on existing.id = incoming.id
+    where existing.demo is distinct from p_target_demo
+      or lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        is distinct from lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      or lower(regexp_replace(btrim(existing.location), '[[:space:]]+', ' ', 'g'))
+        is distinct from lower(regexp_replace(btrim(incoming.location), '[[:space:]]+', ' ', 'g'))
+      or existing.modality is distinct from incoming.modality
+  ) then
+    raise exception 'A Campus id belongs to another partition or has conflicting fields.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_campuses) as incoming(id text, name text)
+    join public.campuses existing
+      on existing.demo = p_target_demo
+      and lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        = lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      and existing.id <> incoming.id
+  ) then
+    raise exception 'A Campus normalized name conflicts with another id.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_terms) as incoming(
+      id text, name text, start_date date, end_date date
+    )
+    join public.terms existing on existing.id = incoming.id
+    where existing.demo is distinct from p_target_demo
+      or lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        is distinct from lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      or existing.start_date is distinct from incoming.start_date
+      or existing.end_date is distinct from incoming.end_date
+  ) then
+    raise exception 'A Term id belongs to another partition or has conflicting fields.';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_terms) as incoming(id text, name text)
+    join public.terms existing
+      on existing.demo = p_target_demo
+      and lower(regexp_replace(btrim(existing.name), '[[:space:]]+', ' ', 'g'))
+        = lower(regexp_replace(btrim(incoming.name), '[[:space:]]+', ' ', 'g'))
+      and existing.id <> incoming.id
+  ) then
+    raise exception 'A Term normalized name conflicts with another id.';
+  end if;
+
+  insert into public.programs (id, name, track, format, is_archived, archived_at, demo)
+  select
+    incoming.id,
+    btrim(incoming.name),
+    incoming.track,
+    btrim(incoming.format),
+    false,
+    null,
+    p_target_demo
+  from jsonb_to_recordset(p_programs) as incoming(
+    id text, name text, track text, format text
+  )
+  where not exists (
+    select 1 from public.programs existing where existing.id = incoming.id
+  );
+  get diagnostics programs_created = row_count;
+
+  insert into public.campuses (id, name, location, modality, demo)
+  select
+    incoming.id,
+    btrim(incoming.name),
+    btrim(incoming.location),
+    incoming.modality,
+    p_target_demo
+  from jsonb_to_recordset(p_campuses) as incoming(
+    id text, name text, location text, modality text
+  )
+  where not exists (
+    select 1 from public.campuses existing where existing.id = incoming.id
+  );
+  get diagnostics campuses_created = row_count;
+
+  insert into public.terms (id, name, start_date, end_date, demo)
+  select
+    incoming.id,
+    btrim(incoming.name),
+    incoming.start_date,
+    incoming.end_date,
+    p_target_demo
+  from jsonb_to_recordset(p_terms) as incoming(
+    id text, name text, start_date date, end_date date
+  )
+  where not exists (
+    select 1 from public.terms existing where existing.id = incoming.id
+  );
+  get diagnostics terms_created = row_count;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_cohorts) as incoming(
+      program_id text, campus_id text, term_id text
+    )
+    left join public.programs program
+      on program.id = incoming.program_id
+      and program.demo = p_target_demo
+      and not program.is_archived
+    left join public.campuses campus
+      on campus.id = incoming.campus_id
+      and campus.demo = p_target_demo
+    left join public.terms term
+      on term.id = incoming.term_id
+      and term.demo = p_target_demo
+    where program.id is null or campus.id is null or term.id is null
+  ) then
+    raise exception 'A cohort references catalog metadata outside the target partition.';
+  end if;
+
+  workbook_result := public.commit_student_workbook_import(
+    p_actor_id,
+    p_actor_role,
+    p_actor_demo,
+    p_target_demo,
+    p_field_definitions,
+    p_families,
+    p_students,
+    p_enrollments,
+    p_cohorts,
+    p_sessions,
+    p_assessments,
+    p_results,
+    p_import_run
+  );
+
+  return workbook_result || jsonb_build_object(
+    'programsCreated', programs_created,
+    'campusesCreated', campuses_created,
+    'termsCreated', terms_created
+  );
+end;
+$$;
+
+revoke all on function public.commit_student_workbook_import(
+  uuid, text, boolean, boolean,
+  jsonb, jsonb, jsonb, jsonb, jsonb, jsonb,
+  jsonb, jsonb, jsonb, jsonb, jsonb, jsonb
+) from public, anon, authenticated;
+
+grant execute on function public.commit_student_workbook_import(
+  uuid, text, boolean, boolean,
+  jsonb, jsonb, jsonb, jsonb, jsonb, jsonb,
+  jsonb, jsonb, jsonb, jsonb, jsonb, jsonb
+) to service_role;
