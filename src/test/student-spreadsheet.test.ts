@@ -151,13 +151,20 @@ describe("student spreadsheet decoding", () => {
         dataStartRow: 5,
       },
     });
-    expect(detected.academic?.columns.map((column) => column.sourceHeader)).toEqual([
+    const sourceHeaders = detected.academic?.columns.map((column) => column.sourceHeader) ?? [];
+    expect(sourceHeaders).toHaveLength(32);
+    expect(sourceHeaders).toEqual(expect.arrayContaining([
+      "No",
+      "Class",
+      "PW",
       "Name",
       "School",
-      "Grade",
-      "Class",
-      "Level",
-      "Room",
+      "Gr",
+      "DoB",
+      "Student / Cell",
+      "Student / E-Mail",
+      "Parent / E-Mail 1",
+      "Resource / Link",
       "HW1 / PSAT / RW",
       "HW1 / PSAT / M",
       "HW1 / PSAT / Total",
@@ -167,10 +174,10 @@ describe("student spreadsheet decoding", () => {
       "HW2 / BB08 / RW",
       "HW2 / BB08 / M",
       "HW2 / BB08 / Total",
-      "HW3 / BB08 / RW",
-      "HW3 / BB08 / M",
-      "HW3 / BB08 / Total",
-    ]);
+      "HW3 / BB09 / RW",
+      "HW3 / BB09 / M",
+      "HW3 / BB09 / Total",
+    ]));
   });
 
   it("persists a namespaced G5 pane directly under the worksheet view", async () => {

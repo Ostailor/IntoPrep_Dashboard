@@ -1,3 +1,4 @@
+-- Keep this filename aligned with the migration version already recorded in production.
 alter table public.students
   add column if not exists external_id text,
   add column if not exists custom_fields jsonb not null default '{}'::jsonb;

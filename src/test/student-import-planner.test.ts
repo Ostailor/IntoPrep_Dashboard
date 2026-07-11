@@ -154,6 +154,37 @@ describe("student import planner", () => {
     expect(plan.enrollments).toHaveLength(0);
   });
 
+  it("round-trips an exported list of active cohorts into separate enrollments", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      cohorts: [
+        makeCohort({ id: "cohort-mwf", name: "MWF" }),
+        makeCohort({ id: "cohort-tths", name: "TTHS" }),
+      ],
+      rows: [makeRow({ cohortName: "MWF; TTHS" })],
+    }));
+
+    expect(plan.rows[0]?.errors).toEqual([]);
+    expect(plan.enrollments.map((enrollment) => enrollment.cohort_id)).toEqual([
+      "cohort-mwf",
+      "cohort-tths",
+    ]);
+    expect(plan.summary.enrollments).toBe(2);
+  });
+
+  it("blocks the whole row when one exported cohort name has no exact match", () => {
+    const plan = buildStudentImportPlan(makeInput({
+      cohorts: [makeCohort({ id: "cohort-mwf", name: "MWF" })],
+      rows: [makeRow({ cohortName: "MWF; Missing cohort" })],
+    }));
+
+    expect(plan.rows[0]?.errors).toContain(
+      'Cohort name "Missing cohort" does not match a demo cohort.',
+    );
+    expect(plan.families).toHaveLength(0);
+    expect(plan.students).toHaveLength(0);
+    expect(plan.enrollments).toHaveLength(0);
+  });
+
   it("preserves stored values when update cells are blank", () => {
     const plan = buildStudentImportPlan(makeInput({
       existingFamilies: [makeFamily()],

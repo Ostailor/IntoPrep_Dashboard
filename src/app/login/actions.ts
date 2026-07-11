@@ -81,7 +81,7 @@ export async function signInAction(formData: FormData) {
     const [{ data: profile }, { data: template }] = await Promise.all([
       serviceClient
         .from("profiles")
-        .select("must_change_password")
+        .select("must_change_password,last_signed_in_at")
         .eq("id", data.user.id)
         .maybeSingle(),
       normalizedEmail
@@ -94,7 +94,8 @@ export async function signInAction(formData: FormData) {
     ]);
 
     const mustChangePassword =
-      template?.must_change_password ?? profile?.must_change_password ?? false;
+      template?.must_change_password ??
+      (profile?.must_change_password === true || !profile?.last_signed_in_at);
 
     if (mustChangePassword) {
       redirect(`/reset-password?mode=required&next=${encodeURIComponent(next)}`);

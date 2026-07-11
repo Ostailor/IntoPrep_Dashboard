@@ -55,6 +55,42 @@ function shouldRefreshLastSignedInAt(lastSignedInAt: string | null) {
   );
 }
 
+function getAccessTokenIssuedAt(accessToken?: string | null) {
+  if (!accessToken) {
+    return null;
+  }
+
+  const [, payload] = accessToken.split(".");
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const parsed = JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as {
+      iat?: number;
+    };
+
+    return typeof parsed.iat === "number" ? parsed.iat * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSessionRevoked(profile: ProfileRow | null | undefined, accessToken?: string | null) {
+  const sessionRevokedAt = profile?.session_revoked_at ?? null;
+
+  if (!sessionRevokedAt) {
+    return false;
+  }
+
+  const tokenIssuedAt = getAccessTokenIssuedAt(accessToken);
+
+  return tokenIssuedAt !== null && tokenIssuedAt <= new Date(sessionRevokedAt).getTime();
+}
+
 async function loadLiveProfile(
   authUser: AuthUserCacheFields,
 ): Promise<{ profile: ProfileRow | null; assignedCohortIds: string[] } | null> {
@@ -64,20 +100,21 @@ async function loadLiveProfile(
 
   const serviceClient = createSupabaseServiceClient();
   const normalizedEmail = authUser.email?.toLowerCase();
-  const existingProfileResult = await serviceClient
-    .from("profiles")
-    .select("*")
-    .eq("id", authUser.id)
-    .maybeSingle();
-  const existingProfile = (existingProfileResult.data ?? null) as ProfileRow | null;
-  const templateResult =
+  const [existingProfileResult, templateResult] = await Promise.all([
+    serviceClient
+      .from("profiles")
+      .select("*")
+      .eq("id", authUser.id)
+      .maybeSingle(),
     normalizedEmail
-      ? await serviceClient
+      ? serviceClient
           .from("user_templates")
           .select("*")
           .eq("email", normalizedEmail)
           .maybeSingle()
-      : { data: null };
+      : Promise.resolve({ data: null }),
+  ]);
+  const existingProfile = (existingProfileResult.data ?? null) as ProfileRow | null;
   const template = (templateResult.data ?? null) as UserTemplateRow | null;
   const email = normalizedEmail ?? null;
 
@@ -100,8 +137,13 @@ async function loadLiveProfile(
     (authUser.user_metadata.role as UserRole | undefined) ??
     "instructor";
   const accountStatus = template?.account_status ?? existingProfile?.account_status ?? "active";
+  const firstPortalSignIn = !existingProfile?.last_signed_in_at;
+  const metadataMustChangePassword = authUser.user_metadata.must_change_password === true;
   const mustChangePassword =
-    template?.must_change_password ?? existingProfile?.must_change_password ?? false;
+    template?.must_change_password ??
+    (existingProfile?.must_change_password === true ||
+      metadataMustChangePassword ||
+      firstPortalSignIn);
   const demo =
     template?.demo ??
     existingProfile?.demo ??
@@ -120,32 +162,36 @@ async function loadLiveProfile(
     existingProfile?.last_signed_in_at ?? null,
   );
 
-  if (needsProfileUpsert) {
-    await serviceClient.from("profiles").upsert({
-      id: authUser.id,
-      email,
-      full_name: fullName,
-      role,
-      title,
-      account_status: accountStatus,
-      must_change_password: mustChangePassword,
-      demo,
-      last_signed_in_at: lastSignedInAt,
-    });
-  } else if (needsLastSignedInRefresh) {
-    await serviceClient
-      .from("profiles")
-      .update({ last_signed_in_at: lastSignedInAt })
-      .eq("id", authUser.id);
-  }
-
-  if (template) {
-    const currentAssignmentsResult = await serviceClient
+  const profileWrite = needsProfileUpsert
+    ? serviceClient.from("profiles").upsert({
+        id: authUser.id,
+        email,
+        full_name: fullName,
+        role,
+        title,
+        account_status: accountStatus,
+        must_change_password: mustChangePassword,
+        demo,
+        last_signed_in_at: lastSignedInAt,
+      })
+    : needsLastSignedInRefresh
+      ? serviceClient
+          .from("profiles")
+          .update({ last_signed_in_at: lastSignedInAt })
+          .eq("id", authUser.id)
+      : Promise.resolve();
+  const [currentAssignmentsResult] = await Promise.all([
+    serviceClient
       .from("cohort_assignments")
       .select("cohort_id,role")
-      .eq("user_id", authUser.id);
-    const currentAssignments =
-      (currentAssignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id" | "role">[];
+      .eq("user_id", authUser.id),
+    profileWrite,
+  ]);
+  const currentAssignments =
+    (currentAssignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id" | "role">[];
+  let assignedCohortIds = currentAssignments.map((assignment) => assignment.cohort_id);
+
+  if (template) {
     const desiredAssignmentIds = new Set(template.assigned_cohort_ids);
     const assignmentsToUpsert = template.assigned_cohort_ids
       .filter((cohortId) => {
@@ -161,25 +207,33 @@ async function loadLiveProfile(
       .filter((assignment) => !desiredAssignmentIds.has(assignment.cohort_id))
       .map((assignment) => assignment.cohort_id);
 
-    if (assignmentsToUpsert.length > 0) {
-      await serviceClient
-        .from("cohort_assignments")
-        .upsert(assignmentsToUpsert, { onConflict: "user_id,cohort_id" });
-    }
+    const mutationResults = await Promise.all([
+      assignmentsToUpsert.length > 0
+        ? serviceClient
+            .from("cohort_assignments")
+            .upsert(assignmentsToUpsert, { onConflict: "user_id,cohort_id" })
+        : Promise.resolve({ error: null }),
+      assignmentsToDelete.length > 0
+        ? serviceClient
+            .from("cohort_assignments")
+            .delete()
+            .eq("user_id", authUser.id)
+            .in("cohort_id", assignmentsToDelete)
+        : Promise.resolve({ error: null }),
+    ]);
 
-    if (assignmentsToDelete.length > 0) {
-      await serviceClient
+    if (mutationResults.some((result) => result.error)) {
+      const assignmentsResult = await serviceClient
         .from("cohort_assignments")
-        .delete()
-        .eq("user_id", authUser.id)
-        .in("cohort_id", assignmentsToDelete);
+        .select("cohort_id")
+        .eq("user_id", authUser.id);
+      const assignments =
+        (assignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[];
+      assignedCohortIds = assignments.map((assignment) => assignment.cohort_id);
+    } else {
+      assignedCohortIds = template.assigned_cohort_ids;
     }
   }
-  const assignmentsResult = await serviceClient
-    .from("cohort_assignments")
-    .select("cohort_id")
-    .eq("user_id", authUser.id);
-  const assignments = (assignmentsResult.data ?? []) as Pick<CohortAssignmentRow, "cohort_id">[];
   const hydratedProfile =
     needsProfileUpsert
       ? ({
@@ -198,7 +252,7 @@ async function loadLiveProfile(
 
   return {
     profile: hydratedProfile,
-    assignedCohortIds: assignments?.map((assignment) => assignment.cohort_id) ?? [],
+    assignedCohortIds,
   };
 }
 
@@ -327,15 +381,33 @@ export async function resolvePortalViewer({
   }
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  const [userResult, sessionResult] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+  const authUser = userResult.data.user;
+  const session = sessionResult.data.session;
 
   if (!authUser) {
     redirect(`/login?next=${encodeURIComponent(path)}`);
   }
 
   const liveProfile = await ensureLiveProfile(authUser);
+  const deletedAt = liveProfile?.profile?.deleted_at ?? null;
+  const accountStatus = liveProfile?.profile?.account_status ?? "active";
+
+  if (isSessionRevoked(liveProfile?.profile, session?.access_token)) {
+    redirect("/login?error=Your%20session%20was%20revoked.%20Sign%20in%20again.");
+  }
+
+  if (deletedAt || accountStatus === "suspended") {
+    redirect(
+      deletedAt
+        ? "/login?error=This%20IntoPrep%20portal%20account%20is%20no%20longer%20active."
+        : "/login?error=Your%20IntoPrep%20portal%20account%20is%20suspended.",
+    );
+  }
+
   const role = liveProfile?.profile?.role ?? "instructor";
   const title = liveProfile?.profile?.title ?? "Portal User";
   const fullName =
@@ -362,7 +434,11 @@ export async function resolvePortalViewer({
   };
 }
 
-export async function getAuthenticatedViewerForRequest() {
+export async function getAuthenticatedViewerForRequest({
+  allowPasswordChangeRequired = false,
+}: {
+  allowPasswordChangeRequired?: boolean;
+} = {}) {
   if (isLocalQaMode()) {
     const cookieStore = await cookies();
     const role = getLocalQaRole(cookieStore.get(LOCAL_QA_COOKIE)?.value);
@@ -385,21 +461,35 @@ export async function getAuthenticatedViewerForRequest() {
   }
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  const [userResult, sessionResult] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+  const authUser = userResult.data.user;
+  const session = sessionResult.data.session;
 
   if (!authUser) {
     return null;
   }
 
   const liveProfile = await ensureLiveProfile(authUser);
+  const accountStatus = liveProfile?.profile?.account_status ?? "active";
+  const mustChangePassword = liveProfile?.profile?.must_change_password ?? false;
+
+  if (
+    liveProfile?.profile?.deleted_at ||
+    accountStatus === "suspended" ||
+    (!allowPasswordChangeRequired && mustChangePassword) ||
+    isSessionRevoked(liveProfile?.profile, session?.access_token)
+  ) {
+    return null;
+  }
 
   return {
     mode: "live" as const,
     email: authUser.email,
     accountStatus: liveProfile?.profile?.account_status ?? "active",
-    mustChangePassword: liveProfile?.profile?.must_change_password ?? false,
+    mustChangePassword,
     user: {
       id: authUser.id,
       name:

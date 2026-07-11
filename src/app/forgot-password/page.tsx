@@ -19,7 +19,7 @@ export default async function ForgotPasswordPage({
     redirect("/dashboard?role=admin");
   }
 
-  const viewer = await getAuthenticatedViewerForRequest();
+  const viewer = await getAuthenticatedViewerForRequest({ allowPasswordChangeRequired: true });
 
   if (viewer?.accountStatus === "suspended") {
     redirect(

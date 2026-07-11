@@ -91,6 +91,53 @@ describe("student workbook schema", () => {
     });
   });
 
+  it("maps photographed grouped contacts and ignores sensitive fixed columns by default", () => {
+    const detected = wideWorkbook([
+      column(0, "No"),
+      column(1, "Class"),
+      column(2, "ID"),
+      column(3, "PW"),
+      column(4, "Name"),
+      column(5, "School"),
+      column(6, "Gr"),
+      column(7, "DoB"),
+      column(8, "Student", "Cell"),
+      column(9, "Student", "E-Mail"),
+      column(10, "Parent", "Cell 1"),
+      column(11, "Parent", "Cell 2"),
+      column(12, "Parent", "E-Mail 1"),
+      column(13, "Parent", "E-Mail 2"),
+      column(14, "Policy Report"),
+      column(15, "Resource Link"),
+      column(16, "Level"),
+      column(17, "Room"),
+      column(18, "HW1", "PSAT", "RW"),
+      column(19, "HW1", "PSAT", "M"),
+      column(20, "HW1", "PSAT", "Total"),
+    ]);
+
+    const directory = new Map(
+      inferStudentWorkbookMappings(detected).directory.columns.map((mapping) => [
+        mapping.sourceHeader,
+        mapping,
+      ]),
+    );
+
+    expect(directory.get("Name")).toMatchObject({ kind: "known", field: "fullName" });
+    expect(directory.get("Class")).toMatchObject({ kind: "known", field: "cohortName" });
+    expect(directory.get("School")).toMatchObject({ kind: "known", field: "school" });
+    expect(directory.get("Gr")).toMatchObject({ kind: "known", field: "gradeLevel" });
+    expect(directory.get("Student / Cell")).toMatchObject({ kind: "known", field: "studentPhone" });
+    expect(directory.get("Student / E-Mail")).toMatchObject({ kind: "known", field: "studentEmail" });
+    expect(directory.get("Parent / Cell 1")).toMatchObject({ kind: "known", field: "parent1Phone" });
+    expect(directory.get("Parent / Cell 2")).toMatchObject({ kind: "known", field: "parent2Phone" });
+    expect(directory.get("Parent / E-Mail 1")).toMatchObject({ kind: "known", field: "parent1Email" });
+    expect(directory.get("Parent / E-Mail 2")).toMatchObject({ kind: "known", field: "parent2Email" });
+    for (const sourceHeader of ["No", "ID", "PW", "DoB", "Policy Report", "Resource Link"]) {
+      expect(directory.get(sourceHeader)).toEqual({ sourceHeader, kind: "ignore" });
+    }
+  });
+
   it("infers normalized per-row assessment title and date columns", () => {
     const detected = normalizedWorkbook();
     const mappings = inferStudentWorkbookMappings(detected);

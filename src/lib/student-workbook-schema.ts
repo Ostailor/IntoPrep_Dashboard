@@ -175,6 +175,45 @@ function inferAcademicMappings(detected: DetectedStudentWorkbook): AcademicColum
   });
 }
 
+const WIDE_GROUPED_DIRECTORY_FIELDS = new Map<string, StudentImportFieldKey>([
+  ["student/cell", "studentPhone"],
+  ["student/email", "studentEmail"],
+  ["parent/cell1", "parent1Phone"],
+  ["parent/cell2", "parent2Phone"],
+  ["parent/email1", "parent1Email"],
+  ["parent/email2", "parent2Email"],
+]);
+
+function inferWideDirectoryMapping(
+  column: WorkbookColumn,
+  academic: AcademicColumnMapping | undefined,
+): StudentImportMapping {
+  if (academic?.kind === "student-name") {
+    return { sourceHeader: column.sourceHeader, kind: "known", field: "fullName" };
+  }
+  if (academic?.kind === "cohort") {
+    return { sourceHeader: column.sourceHeader, kind: "known", field: "cohortName" };
+  }
+  if (academic && academic.kind !== "ignore") {
+    return { sourceHeader: column.sourceHeader, kind: "ignore" };
+  }
+
+  const normalizedPath = column.path.map(normalizedContextHeader);
+  const groupedField = WIDE_GROUPED_DIRECTORY_FIELDS.get(normalizedPath.join("/"));
+  if (groupedField) {
+    return { sourceHeader: column.sourceHeader, kind: "known", field: groupedField };
+  }
+
+  if (column.path.length === 1) {
+    const knownField = findStudentImportField(column.sourceHeader);
+    if (knownField) {
+      return { sourceHeader: column.sourceHeader, kind: "known", field: knownField };
+    }
+  }
+
+  return { sourceHeader: column.sourceHeader, kind: "ignore" };
+}
+
 export function inferStudentWorkbookMappings(
   detected: DetectedStudentWorkbook,
 ): StudentWorkbookMappingPlan {
@@ -184,23 +223,7 @@ export function inferStudentWorkbookMappings(
       return suggestStudentImportMapping(column.sourceHeader);
     }
 
-    const academic = academicColumns[index];
-    if (academic?.kind === "student-name") {
-      return { sourceHeader: column.sourceHeader, kind: "known", field: "fullName" };
-    }
-    if (academic?.kind === "cohort") {
-      const field = findStudentImportField(column.sourceHeader);
-      return field
-        ? { sourceHeader: column.sourceHeader, kind: "known", field }
-        : { sourceHeader: column.sourceHeader, kind: "ignore" };
-    }
-    if (academic && academic.kind !== "ignore") {
-      return { sourceHeader: column.sourceHeader, kind: "ignore" };
-    }
-    if (column.path.length > 1) {
-      return { sourceHeader: column.sourceHeader, kind: "ignore" };
-    }
-    return suggestStudentImportMapping(column.sourceHeader);
+    return inferWideDirectoryMapping(column, academicColumns[index]);
   });
 
   return {

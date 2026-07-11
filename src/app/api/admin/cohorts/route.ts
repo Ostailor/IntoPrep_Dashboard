@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { createAdminCohort } from "@/lib/admin-operations";
+import { revalidatePortalLiveCache } from "@/lib/cache-invalidation";
 
 export async function POST(request: NextRequest) {
   const viewer = await getAuthenticatedViewerForRequest();
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
       startDate: body?.startDate,
       endDate: body?.endDate,
     });
+    revalidatePortalLiveCache();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(

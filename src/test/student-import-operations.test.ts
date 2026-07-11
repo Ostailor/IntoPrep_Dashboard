@@ -438,7 +438,7 @@ describe("student import preview and commit operations", () => {
       "HW1 – PSAT",
       "HW1 – BB07",
       "HW2 – BB08",
-      "HW3 – BB08",
+      "HW3 – BB09",
     ];
     const setup = {
       cohorts: [],
@@ -487,8 +487,14 @@ describe("student import preview and commit operations", () => {
       "HW1 – PSAT", "HW1 – PSAT", "HW1 – PSAT",
       "HW1 – BB07", "HW1 – BB07", "HW1 – BB07",
       "HW2 – BB08", "HW2 – BB08", "HW2 – BB08",
-      "HW3 – BB08", "HW3 – BB08", "HW3 – BB08",
+      "HW3 – BB09", "HW3 – BB09", "HW3 – BB09",
     ]);
+    expect(preview.mappingPlan.directory.columns).toEqual(expect.arrayContaining([
+      { sourceHeader: "PW", kind: "ignore" },
+      { sourceHeader: "Student / E-Mail", kind: "known", field: "studentEmail" },
+      { sourceHeader: "Parent / E-Mail 1", kind: "known", field: "parent1Email" },
+      { sourceHeader: "Resource / Link", kind: "ignore" },
+    ]));
     expect(preview.academicSourceRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
         rowNumber: 5,
@@ -589,6 +595,87 @@ describe("student import preview and commit operations", () => {
       }),
     ]);
     expect(preview.sheetNames).toEqual(["Student Information", "Scores"]);
+  });
+
+  it("reuses an existing custom field when replaying a normalized export", async () => {
+    const marker = "normalized-existing-custom-field";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Graduation Year"],
+          ["Maya Demo", 2028],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+    const repository = makeRepository({
+      fieldDefinitions: [{
+        id: "40000000-0000-4000-8000-000000000002",
+        key: "graduation_year",
+        label: "Graduation Year",
+        data_type: "number",
+        header_aliases: ["Grad year"],
+        required: false,
+        sensitive: true,
+        sort_order: 10,
+        demo: true,
+      }],
+    });
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      repository,
+      createUuid: makeIds(),
+    });
+
+    expect(preview.mappingPlan.directory.columns[1]).toEqual({
+      sourceHeader: "Graduation Year",
+      kind: "custom-existing",
+      key: "graduation_year",
+    });
+  });
+
+  it("maps the normalized Cohorts export column back to cohort placement", async () => {
+    const marker = "normalized-cohorts-column";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Cohorts"],
+          ["Maya Demo", "MWF"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      repository: makeRepository(),
+      createUuid: makeIds(),
+    });
+
+    expect(preview.mappingPlan.directory.columns[1]).toEqual({
+      sourceHeader: "Cohorts",
+      kind: "known",
+      field: "cohortName",
+    });
   });
 
   it("exposes conflicting normalized source dates as suggestions while setup stays authoritative", async () => {
@@ -1011,14 +1098,14 @@ describe("student import preview and commit operations", () => {
     expect(repository.committedPayloads).toHaveLength(0);
   });
 
-  it("deduplicates directory and academic enrollments in a normalized commit", async () => {
+  it("round-trips multiple exported cohorts and deduplicates the academic enrollment", async () => {
     const marker = "normalized-operation-duplicate-enrollment";
     xlsxFixtures.set(marker, [
       {
         sheet: "Student Information",
         data: [
-          ["Student Name", "Student Email", "Cohort"],
-          ["Maya Demo", "maya@example.com", "MWF"],
+          ["Student Name", "Student Email", "Cohorts"],
+          ["Maya Demo", "maya@example.com", "MWF; TTHS"],
         ],
       },
       {
@@ -1033,7 +1120,10 @@ describe("student import preview and commit operations", () => {
       partition: {
         families: [existingDemoFamily],
         students: [existingDemoStudent],
-        cohorts: [existingMwfCohort],
+        cohorts: [
+          existingMwfCohort,
+          { ...existingMwfCohort, id: "cohort-tths", name: "TTHS", cadence: "TTHS" },
+        ],
       },
     });
     const setup = {
@@ -1063,13 +1153,18 @@ describe("student import preview and commit operations", () => {
       createUuid: makeIds(),
     }));
 
-    expect(repository.committedPayloads[0]?.enrollments).toEqual([
+    expect(repository.committedPayloads[0]?.enrollments).toEqual(expect.arrayContaining([
       expect.objectContaining({
         student_id: existingDemoStudent.id,
         cohort_id: existingMwfCohort.id,
       }),
-    ]);
-    expect(repository.committedPayloads[0]?.importRun.enrollmentCount).toBe(1);
+      expect.objectContaining({
+        student_id: existingDemoStudent.id,
+        cohort_id: "cohort-tths",
+      }),
+    ]));
+    expect(repository.committedPayloads[0]?.enrollments).toHaveLength(2);
+    expect(repository.committedPayloads[0]?.importRun.enrollmentCount).toBe(2);
   });
 
   it.each([

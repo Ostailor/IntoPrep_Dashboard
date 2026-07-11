@@ -128,6 +128,12 @@ export interface Family {
   id: string;
   familyName: string;
   guardianNames: string[];
+  parent1Name?: string | null;
+  parent1Email?: string | null;
+  parent1Phone?: string | null;
+  parent2Name?: string | null;
+  parent2Email?: string | null;
+  parent2Phone?: string | null;
   email: string;
   phone: string;
   preferredCampusId: string;
@@ -140,11 +146,42 @@ export interface Student {
   familyId: string;
   firstName: string;
   lastName: string;
+  email?: string | null;
+  phone?: string | null;
   gradeLevel: string;
   school: string;
   targetTest: ProgramTrack;
   focus: string;
+  externalId?: string | null;
+  customFields: Record<string, string | number | boolean>;
+  demo: boolean;
   sensitiveAccessGranted?: boolean;
+}
+
+export interface StudentFieldDefinition {
+  id: string;
+  key: string;
+  label: string;
+  dataType: "text" | "number" | "date" | "boolean";
+  headerAliases: string[];
+  required: boolean;
+  sensitive: boolean;
+  sortOrder: number;
+  demo: boolean;
+}
+
+export interface StudentImportRun {
+  id: string;
+  filename: string;
+  worksheet: string;
+  status: "completed" | "failed";
+  createdCount: number;
+  updatedCount: number;
+  enrollmentCount: number;
+  skippedCount: number;
+  warningCount: number;
+  demo: boolean;
+  createdAt: string;
 }
 
 export interface Program {
@@ -211,6 +248,19 @@ export interface Session {
   roomLabel: string;
 }
 
+export interface SessionInstructionBlock {
+  id: string;
+  sessionId: string;
+  instructorId: string;
+  instructorName?: string | null;
+  title: string;
+  startAt: string;
+  endAt: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AttendanceRecord {
   id: string;
   sessionId: string;
@@ -233,6 +283,7 @@ export interface AssessmentResult {
   totalScore: number;
   sectionScores: { label: string; score: number }[];
   deltaFromPrevious: number;
+  notes?: string | null;
 }
 
 export interface ScoreTrendSnapshot {

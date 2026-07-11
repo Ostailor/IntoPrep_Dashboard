@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { revalidatePortalLiveCache } from "@/lib/cache-invalidation";
 import { moveSingleEnrollment } from "@/lib/staff-operations";
 
 export async function POST(request: NextRequest) {
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
       studentId: body?.studentId,
       targetCohortId: body?.targetCohortId,
     });
+    revalidatePortalLiveCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

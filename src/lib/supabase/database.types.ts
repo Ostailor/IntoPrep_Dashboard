@@ -162,27 +162,104 @@ export interface Database {
           end_date: string;
         }
       >;
-      families: Table<{
-        id: string;
-        family_name: string;
-        guardian_names: string[];
-        email: string;
-        phone: string;
-        preferred_campus_id: string;
-        notes: string;
-        demo?: boolean;
-      }>;
-      students: Table<{
-        id: string;
-        family_id: string;
-        first_name: string;
-        last_name: string;
-        grade_level: string;
-        school: string;
-        target_test: string;
-        focus: string;
-        demo?: boolean;
-      }>;
+      families: Table<
+        {
+          id: string;
+          family_name: string;
+          guardian_names: string[];
+          parent1_name: string | null;
+          parent1_email: string | null;
+          parent1_phone: string | null;
+          parent2_name: string | null;
+          parent2_email: string | null;
+          parent2_phone: string | null;
+          email: string;
+          phone: string;
+          preferred_campus_id: string;
+          notes: string;
+          demo: boolean;
+        },
+        {
+          id: string;
+          family_name: string;
+          guardian_names: string[];
+          parent1_name?: string | null;
+          parent1_email?: string | null;
+          parent1_phone?: string | null;
+          parent2_name?: string | null;
+          parent2_email?: string | null;
+          parent2_phone?: string | null;
+          email: string;
+          phone: string;
+          preferred_campus_id: string;
+          notes: string;
+          demo?: boolean;
+        }
+      >;
+      students: Table<
+        {
+          id: string;
+          family_id: string;
+          first_name: string;
+          last_name: string;
+          email: string | null;
+          phone: string | null;
+          grade_level: string;
+          school: string;
+          target_test: string;
+          focus: string;
+          external_id: string | null;
+          custom_fields: Json;
+          demo: boolean;
+        },
+        {
+          id: string;
+          family_id: string;
+          first_name: string;
+          last_name: string;
+          email?: string | null;
+          phone?: string | null;
+          grade_level: string;
+          school: string;
+          target_test: string;
+          focus: string;
+          external_id?: string | null;
+          custom_fields?: Json;
+          demo?: boolean;
+        }
+      >;
+      student_field_definitions: Table<
+        {
+          id: string;
+          key: string;
+          label: string;
+          data_type: "text" | "number" | "date" | "boolean";
+          header_aliases: string[];
+          required: boolean;
+          sensitive: boolean;
+          sort_order: number;
+          demo: boolean;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          archived_at: string | null;
+        },
+        {
+          id?: string;
+          key: string;
+          label: string;
+          data_type: "text" | "number" | "date" | "boolean";
+          header_aliases?: string[];
+          required?: boolean;
+          sensitive?: boolean;
+          sort_order?: number;
+          demo?: boolean;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          archived_at?: string | null;
+        }
+      >;
       student_import_runs: Table<
         {
           id: string;
@@ -313,6 +390,32 @@ export interface Database {
           demo?: boolean;
         }
       >;
+      session_instruction_blocks: Table<
+        {
+          id: string;
+          session_id: string;
+          instructor_id: string;
+          title: string;
+          start_at: string;
+          end_at: string;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          demo: boolean;
+        },
+        {
+          id: string;
+          session_id: string;
+          instructor_id: string;
+          title: string;
+          start_at: string;
+          end_at: string;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          demo?: boolean;
+        }
+      >;
       attendance_records: Table<
         {
           id: string;
@@ -361,6 +464,7 @@ export interface Database {
           total_score: number;
           section_scores: Json;
           delta_from_previous: number;
+          notes: string | null;
           demo: boolean;
         },
         {
@@ -370,6 +474,7 @@ export interface Database {
           total_score: number;
           section_scores: Json;
           delta_from_previous: number;
+          notes?: string | null;
           demo?: boolean;
         }
       >;
@@ -1268,6 +1373,20 @@ export interface Database {
           p_sessions: Json;
           p_assessments: Json;
           p_results: Json;
+          p_import_run: Json;
+        };
+        Returns: Json;
+      };
+      commit_student_spreadsheet_import: {
+        Args: {
+          p_actor_id: string | null;
+          p_actor_role: string;
+          p_actor_demo: boolean;
+          p_target_demo: boolean;
+          p_field_definitions: Json;
+          p_families: Json;
+          p_students: Json;
+          p_enrollments: Json;
           p_import_run: Json;
         };
         Returns: Json;

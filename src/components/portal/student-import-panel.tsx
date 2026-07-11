@@ -29,6 +29,7 @@ import type {
 interface StudentImportPanelProps {
   role: UserRole;
   onImported: () => void;
+  defaultOpen?: boolean;
 }
 
 export interface PreviewSnapshot {
@@ -50,14 +51,14 @@ const ACADEMIC_MAPPING_LABELS: Record<Exclude<AcademicColumnMapping["kind"], "sc
   ignore: "Ignore this column",
 };
 
-export function StudentImportPanel({ role, onImported }: StudentImportPanelProps) {
+export function StudentImportPanel({ role, onImported, defaultOpen = false }: StudentImportPanelProps) {
   const engineer = role === "engineer";
   const dialogRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const previewRequestIdRef = useRef(0);
   const selectedFileRef = useRef<File | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [file, setFile] = useState<File | null>(null);
   const [targetDemo, setTargetDemo] = useState<boolean | undefined>(undefined);
   const [preview, setPreview] = useState<StudentWorkbookPreview | null>(null);

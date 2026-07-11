@@ -111,7 +111,7 @@ export interface StudentImportPlannerInput {
 
 type StudentPayload = ExistingImportStudent;
 type FamilyPayload = ExistingImportFamily;
-type CohortResolution = { cohort: ExistingImportCohort | null; error: string | null };
+type CohortResolution = { cohorts: ExistingImportCohort[]; error: string | null };
 type StudentResolution = { student: StudentPayload | null; error: string | null };
 type IdIndex = Map<string, Set<string>>;
 
@@ -235,7 +235,7 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
       rows.push(planRow);
       continue;
     }
-    planRow.cohortId = cohortResolution.cohort?.id ?? null;
+    planRow.cohortId = cohortResolution.cohorts[0]?.id ?? null;
 
     const matchedStudent = studentResolution.student;
     const finalFirstName = valueAfterMerge(matchedStudent?.first_name ?? "", row, "firstName");
@@ -323,19 +323,21 @@ export function buildStudentImportPlan(input: StudentImportPlannerInput): Studen
     }
 
     let enrollmentAdded = false;
-    if (cohortResolution.cohort && planRow.studentId) {
-      const key = enrollmentKey(planRow.studentId, cohortResolution.cohort.id);
-      if (!enrollmentKeys.has(key)) {
-        enrollmentAdded = true;
-        enrollmentKeys.add(key);
-        enrollmentPayloads.set(key, {
-          id: input.createId("enrollment"),
-          student_id: planRow.studentId,
-          cohort_id: cohortResolution.cohort.id,
-          status: "active",
-          registered_at: row.registeredAt || input.defaultRegisteredAt,
-          demo: input.targetDemo,
-        });
+    if (planRow.studentId) {
+      for (const cohort of cohortResolution.cohorts) {
+        const key = enrollmentKey(planRow.studentId, cohort.id);
+        if (!enrollmentKeys.has(key)) {
+          enrollmentAdded = true;
+          enrollmentKeys.add(key);
+          enrollmentPayloads.set(key, {
+            id: input.createId("enrollment"),
+            student_id: planRow.studentId,
+            cohort_id: cohort.id,
+            status: "active",
+            registered_at: row.registeredAt || input.defaultRegisteredAt,
+            demo: input.targetDemo,
+          });
+        }
       }
     }
 
@@ -431,28 +433,52 @@ function resolveCohort(
   if (normalizeKey(row.cohortId)) {
     const matches = indexes.ids.get(row.cohortId.trim()) ?? new Set<string>();
     if (matches.size > 1) {
-      return { cohort: null, error: `Cohort ID matches more than one ${partitionLabel} cohort.` };
+      return { cohorts: [], error: `Cohort ID matches more than one ${partitionLabel} cohort.` };
     }
     const cohortId = firstSetValue(matches);
     if (!cohortId) {
-      return { cohort: null, error: `Cohort ID does not match a ${partitionLabel} cohort.` };
+      return { cohorts: [], error: `Cohort ID does not match a ${partitionLabel} cohort.` };
     }
-    return { cohort: indexes.byId.get(cohortId) ?? null, error: null };
+    const cohort = indexes.byId.get(cohortId);
+    return { cohorts: cohort ? [cohort] : [], error: null };
   }
 
   if (normalizeKey(row.cohortName)) {
-    const matches = indexes.names.get(normalizeKey(row.cohortName)) ?? new Set<string>();
-    if (matches.size > 1) {
-      return { cohort: null, error: `Cohort name matches more than one ${partitionLabel} cohort.` };
+    const cohortNames = uniqueNormalizedValues(row.cohortName.split(";"));
+    const cohorts: ExistingImportCohort[] = [];
+    for (const cohortName of cohortNames) {
+      const matches = indexes.names.get(normalizeKey(cohortName)) ?? new Set<string>();
+      if (matches.size > 1) {
+        const detail = cohortNames.length > 1 ? ` "${cohortName}"` : "";
+        return { cohorts: [], error: `Cohort name${detail} matches more than one ${partitionLabel} cohort.` };
+      }
+      const cohortId = firstSetValue(matches);
+      if (!cohortId) {
+        const detail = cohortNames.length > 1 ? ` "${cohortName}"` : "";
+        return { cohorts: [], error: `Cohort name${detail} does not match a ${partitionLabel} cohort.` };
+      }
+      const cohort = indexes.byId.get(cohortId);
+      if (cohort) {
+        cohorts.push(cohort);
+      }
     }
-    const cohortId = firstSetValue(matches);
-    if (!cohortId) {
-      return { cohort: null, error: `Cohort name does not match a ${partitionLabel} cohort.` };
-    }
-    return { cohort: indexes.byId.get(cohortId) ?? null, error: null };
+    return { cohorts, error: null };
   }
 
-  return { cohort: null, error: null };
+  return { cohorts: [], error: null };
+}
+
+function uniqueNormalizedValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    const normalized = normalizeKey(trimmed);
+    if (!normalized || seen.has(normalized)) {
+      return [];
+    }
+    seen.add(normalized);
+    return [trimmed];
+  });
 }
 
 function createFamilyPayload(

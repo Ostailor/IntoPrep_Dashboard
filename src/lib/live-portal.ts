@@ -42,12 +42,15 @@ import {
   type SessionChecklist,
   type SessionCoverageFlag,
   type SessionHandoffNote,
+  type SessionInstructionBlock,
   type SessionInstructionNote,
   type SensitiveAccessGrant,
   type SyncStatus,
   type SyncJob,
   type SchemaInspectorRow,
   type Student,
+  type StudentFieldDefinition,
+  type StudentImportRun,
   type AttendanceExceptionFlag,
   type TaskActivity,
   type Term,
@@ -100,6 +103,9 @@ type CohortRow = Database["public"]["Tables"]["cohorts"]["Row"];
 type SessionRow = Database["public"]["Tables"]["sessions"]["Row"];
 type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
+type StudentFieldDefinitionRow =
+  Database["public"]["Tables"]["student_field_definitions"]["Row"];
+type StudentImportRunRow = Database["public"]["Tables"]["student_import_runs"]["Row"];
 type FamilyRow = Database["public"]["Tables"]["families"]["Row"];
 type CampusRow = Database["public"]["Tables"]["campuses"]["Row"];
 type ProgramRow = Database["public"]["Tables"]["programs"]["Row"];
@@ -109,6 +115,8 @@ type AssessmentResultRow = Database["public"]["Tables"]["assessment_results"]["R
 type AcademicNoteRow = Database["public"]["Tables"]["academic_notes"]["Row"];
 type SessionInstructionNoteRow =
   Database["public"]["Tables"]["session_instruction_notes"]["Row"];
+type SessionInstructionBlockRow =
+  Database["public"]["Tables"]["session_instruction_blocks"]["Row"];
 type InstructionalAccommodationRow =
   Database["public"]["Tables"]["instructional_accommodations"]["Row"];
 type InstructorFollowUpFlagRow =
@@ -209,6 +217,7 @@ export interface LiveStaffOpsBundle {
 
 export interface LiveTaOpsBundle {
   taskActivities: TaskActivity[];
+  familyContactEvents: FamilyContactEvent[];
   sessionChecklists: SessionChecklist[];
   handoffNotes: SessionHandoffNote[];
   attendanceExceptionFlags: AttendanceExceptionFlag[];
@@ -229,8 +238,11 @@ export interface LivePortalBundle {
   visibleUsers: User[];
   visibleCohorts: Cohort[];
   visibleSessions: Session[];
+  visibleSessionInstructionBlocks: SessionInstructionBlock[];
   visibleEnrollments: Enrollment[];
   visibleStudents: Student[];
+  studentFieldDefinitions: StudentFieldDefinition[];
+  studentImportRuns: StudentImportRun[];
   visibleFamilies: Family[];
   visibleAssessments: Assessment[];
   visibleResults: AssessmentResult[];
@@ -268,8 +280,11 @@ function createEmptyLivePortalBundle(currentDate: string): LivePortalBundle {
     visibleUsers: [],
     visibleCohorts: [],
     visibleSessions: [],
+    visibleSessionInstructionBlocks: [],
     visibleEnrollments: [],
     visibleStudents: [],
+    studentFieldDefinitions: [],
+    studentImportRuns: [],
     visibleFamilies: [],
     visibleAssessments: [],
     visibleResults: [],
@@ -383,6 +398,12 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       id: "qa-family-patel",
       familyName: "Patel Family",
       guardianNames: ["Mina Patel", "Raj Patel"],
+      parent1Name: "Mina Patel",
+      parent1Email: "mina.patel@example.com",
+      parent1Phone: "(555) 014-2026",
+      parent2Name: "Raj Patel",
+      parent2Email: "raj.patel@example.com",
+      parent2Phone: "(555) 014-2027",
       email: "patel.family@example.com",
       phone: "(555) 014-2026",
       preferredCampusId: "qa-west-campus",
@@ -396,10 +417,15 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       familyId: "qa-family-patel",
       firstName: "Anika",
       lastName: "Patel",
+      email: "anika.patel@example.com",
+      phone: "(555) 014-2028",
       gradeLevel: "11",
       school: "Westfield High",
       targetTest: "SAT",
       focus: "Reading timing and algebra accuracy",
+      externalId: "QA-100",
+      customFields: { graduation_year: 2027 },
+      demo: true,
       sensitiveAccessGranted: true,
     },
     {
@@ -407,10 +433,15 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       familyId: "qa-family-patel",
       firstName: "Leo",
       lastName: "Patel",
+      email: "leo.patel@example.com",
+      phone: "(555) 014-2029",
       gradeLevel: "10",
       school: "Westfield High",
       targetTest: "SAT",
       focus: "Grammar rules and data analysis",
+      externalId: "QA-200",
+      customFields: { graduation_year: 2028 },
+      demo: true,
       sensitiveAccessGranted: true,
     },
   ];
@@ -441,6 +472,20 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       roomLabel: "Room 204",
     },
   ];
+  const visibleSessionInstructionBlocks: SessionInstructionBlock[] = [
+    {
+      id: "qa-instruction-block-reading",
+      sessionId: "qa-session-today",
+      instructorId: instructorUser.id,
+      instructorName: instructorUser.name,
+      title: "Reading pacing drills",
+      startAt: `${currentDate}T09:00:00.000-04:00`,
+      endAt: `${currentDate}T10:00:00.000-04:00`,
+      createdBy: adminUser.id,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
   const visibleAssessments: Assessment[] = [
     {
       id: "qa-assessment-baseline",
@@ -464,6 +509,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
         { label: "Math", score: 670 },
       ],
       deltaFromPrevious: 40,
+      notes: "Strong algebra recovery after targeted drill set; keep pacing work in reading.",
     },
     {
       id: "qa-result-leo",
@@ -475,6 +521,7 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
         { label: "Math", score: 620 },
       ],
       deltaFromPrevious: 30,
+      notes: "Needs another pass on systems of equations before the next full practice test.",
     },
   ];
   const visibleInvoices: Invoice[] = [
@@ -634,8 +681,23 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     visibleUsers,
     visibleCohorts,
     visibleSessions,
+    visibleSessionInstructionBlocks,
     visibleEnrollments,
     visibleStudents,
+    studentFieldDefinitions: [
+      {
+        id: "qa-field-graduation-year",
+        key: "graduation_year",
+        label: "Graduation year",
+        dataType: "number",
+        headerAliases: ["Grad year"],
+        required: false,
+        sensitive: true,
+        sortOrder: 10,
+        demo: true,
+      },
+    ],
+    studentImportRuns: [],
     visibleFamilies,
     visibleAssessments,
     visibleResults,
@@ -745,7 +807,19 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       taskActivities: [],
       billingFollowUpNotes: [],
       savedViews: [],
-      familyContactEvents: [],
+      familyContactEvents: [
+        {
+          id: "qa-family-contact-patel",
+          familyId: "qa-family-patel",
+          contactSource: "phone",
+          summary: "Confirmed Saturday attendance",
+          outcome: "Mina confirmed both students will attend and asked for the reading drill afterward.",
+          actorId: staffUser.id,
+          actorName: staffUser.name,
+          contactAt: now,
+          createdAt: now,
+        },
+      ],
       capacityForecastRows: [
         {
           cohortId: "qa-sat-weekend",
@@ -767,7 +841,19 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
       taskActivities: [],
       savedViews: [],
       billingFollowUpNotes: [],
-      familyContactEvents: [],
+      familyContactEvents: [
+        {
+          id: "qa-family-contact-patel",
+          familyId: "qa-family-patel",
+          contactSource: "phone",
+          summary: "Confirmed Saturday attendance",
+          outcome: "Mina confirmed both students will attend and asked for the reading drill afterward.",
+          actorId: staffUser.id,
+          actorName: staffUser.name,
+          contactAt: now,
+          createdAt: now,
+        },
+      ],
       sessionChecklists: [],
       approvalRequests: [],
       escalations: [],
@@ -775,6 +861,19 @@ function getLocalQaLivePortalBundle(viewer: User): LivePortalBundle {
     },
     taOps: {
       taskActivities: [],
+      familyContactEvents: [
+        {
+          id: "qa-family-contact-patel",
+          familyId: "qa-family-patel",
+          contactSource: "phone",
+          summary: "Confirmed Saturday attendance",
+          outcome: "Mina confirmed both students will attend and asked for the reading drill afterward.",
+          actorId: staffUser.id,
+          actorName: staffUser.name,
+          contactAt: now,
+          createdAt: now,
+        },
+      ],
       sessionChecklists: [],
       handoffNotes: [],
       attendanceExceptionFlags: [],
@@ -887,6 +986,82 @@ function normalizeTrack(value: string): ProgramTrack {
     default:
       return "Support";
   }
+}
+
+function parseStudentCustomFields(value: Json) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string | number | boolean] =>
+        typeof entry[1] === "string" ||
+        typeof entry[1] === "number" ||
+        typeof entry[1] === "boolean",
+    ),
+  );
+}
+
+export function mapStudentDirectoryRow(
+  student: StudentRow,
+  canViewSensitive: boolean,
+): Student {
+  return {
+    id: student.id,
+    familyId: student.family_id,
+    firstName: student.first_name,
+    lastName: student.last_name,
+    email: canViewSensitive ? student.email : "Protected",
+    phone: canViewSensitive ? student.phone : "Protected",
+    gradeLevel: canViewSensitive ? student.grade_level : "Protected",
+    school: canViewSensitive ? student.school : "Protected",
+    targetTest: normalizeTrack(student.target_test),
+    focus: student.focus,
+    externalId: canViewSensitive ? student.external_id : null,
+    customFields: canViewSensitive ? parseStudentCustomFields(student.custom_fields) : {},
+    demo: student.demo,
+    sensitiveAccessGranted: canViewSensitive,
+  };
+}
+
+export function mapStudentImportMetadataRows({
+  viewer,
+  definitions,
+  runs,
+}: {
+  viewer: Pick<User, "role" | "demo">;
+  definitions: StudentFieldDefinitionRow[];
+  runs: StudentImportRunRow[];
+}) {
+  const visibleDefinitions = filterDemoScopedRows(definitions, viewer)
+    .filter((definition) => definition.archived_at === null)
+    .map((definition) => ({
+      id: definition.id,
+      key: definition.key,
+      label: definition.label,
+      dataType: definition.data_type,
+      headerAliases: definition.header_aliases,
+      required: definition.required,
+      sensitive: definition.sensitive,
+      sortOrder: definition.sort_order,
+      demo: definition.demo,
+    } satisfies StudentFieldDefinition));
+  const visibleRuns = filterDemoScopedRows(runs, viewer).map((run) => ({
+    id: run.id,
+    filename: run.filename,
+    worksheet: run.worksheet,
+    status: run.status,
+    createdCount: run.created_count,
+    updatedCount: run.updated_count,
+    enrollmentCount: run.enrollment_count,
+    skippedCount: run.skipped_count,
+    warningCount: run.warning_count,
+    demo: run.demo,
+    createdAt: run.created_at,
+  } satisfies StudentImportRun));
+
+  return { definitions: visibleDefinitions, runs: visibleRuns };
 }
 
 function normalizeMode(value: string): Session["mode"] {
@@ -1341,11 +1516,13 @@ export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashbo
   return {
     section,
     sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "students", "programs", "academics"),
-    enrollments: isAnySection("dashboard", "attendance", "students", "families", "academics", "messaging", "billing"),
-    students: isAnySection("dashboard", "attendance", "students", "families", "academics", "messaging", "billing"),
+    enrollments: isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
+    students: isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
+    studentImportMetadata:
+      hasAnyRole("engineer", "admin", "staff") && section === "students",
     assessments: isAnySection("dashboard", "attendance", "students", "academics"),
     families: isAnySection("dashboard", "students", "families", "messaging", "billing"),
-    academicNotes: isAnySection("dashboard", "students", "academics"),
+    academicNotes: !isInstructor && isAnySection("dashboard", "students", "academics"),
     sessionInstructionNotes: isAnySection("dashboard", "academics"),
     instructionalAccommodations:
       isInstructor && isAnySection("dashboard", "attendance", "academics"),
@@ -1358,8 +1535,9 @@ export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashbo
     leads: hasAnyRole("engineer", "admin", "staff") && isDashboard,
     integrations: canRunIntakeImports(role) && isAnySection("dashboard", "integrations"),
     allProfiles:
-      (isEngineer || isAdmin) &&
-      isAnySection("dashboard", "settings", "integrations"),
+      ((isEngineer || isAdmin) &&
+        isAnySection("dashboard", "calendar", "settings", "integrations")) ||
+      (isAnySection("calendar") && hasAnyRole("staff", "ta")),
     userTemplates: (isEngineer || isAdmin) && section === "settings",
     auditLogs: (isEngineer || isAdmin) && section === "settings",
     billingFollowUpNotes: (isAdmin || isStaff) && section === "billing",
@@ -1370,7 +1548,8 @@ export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashbo
     savedViews:
       (isAdmin && isAnySection("dashboard", "billing")) ||
       (isStaff && isAnySection("dashboard", "billing")),
-    familyContactEvents: (isAdmin || isStaff) && section === "families",
+    familyContactEvents: (isAdmin || isStaff || isTa) && section === "families",
+    sessionInstructionBlocks: section === "calendar",
     adminAnnouncements: hasAnyRole("admin", "staff", "ta", "instructor"),
     sessionChecklists:
       hasAnyRole("admin", "staff", "ta") &&
@@ -1400,35 +1579,55 @@ async function loadLivePortalBundle(
   const currentDate = getNewYorkDate();
   const accessibleCohortIds = await getAccessibleCohortIds(viewer);
   const loadPlan = getPortalLoadPlan(viewer, section);
+  const instructorTeachingBlocksResult =
+    viewer.role === "instructor"
+      ? await serviceClient
+          .from("session_instruction_blocks")
+          .select("session_id")
+          .eq("instructor_id", viewer.id)
+          .order("start_at", { ascending: true })
+          .limit(600)
+      : { data: [] };
+  const instructorTeachingSessionIds = unique(
+    ((instructorTeachingBlocksResult.data ?? []) as Pick<SessionInstructionBlockRow, "session_id">[])
+      .map((block) => block.session_id),
+  );
+  const instructorTeachingSessionsResult =
+    viewer.role === "instructor" && instructorTeachingSessionIds.length > 0
+      ? await serviceClient
+          .from("sessions")
+          .select("*")
+          .in("id", instructorTeachingSessionIds)
+          .order("start_at", { ascending: true })
+      : { data: [] };
+  const instructorTeachingSessionRows =
+    viewer.role === "instructor"
+      ? filterDemoScopedRows((instructorTeachingSessionsResult.data ?? []) as SessionRow[], viewer)
+      : [];
+  const instructorTeachingCohortIds = unique(
+    instructorTeachingSessionRows.map((session) => session.cohort_id),
+  );
 
   if (
     section === "dashboard" &&
     viewer.role === "instructor"
   ) {
     const baseBundle = createEmptyLivePortalBundle(currentDate);
-    const cohortQuery = serviceClient
+    const cohortQuery = applyDemoScope(serviceClient
       .from("cohorts")
       .select("*")
-      .eq("is_archived", false)
+      .eq("is_archived", false), viewer)
       .order("name", { ascending: true });
     const scopedCohortQuery =
-      accessibleCohortIds && accessibleCohortIds.length > 0
-        ? cohortQuery.in("id", accessibleCohortIds)
-        : accessibleCohortIds?.length === 0
-          ? null
-          : cohortQuery;
+      instructorTeachingCohortIds.length > 0
+        ? cohortQuery.in("id", instructorTeachingCohortIds)
+        : null;
     const cohortsResult = scopedCohortQuery ? await scopedCohortQuery : { data: [] };
     const cohortRows = filterDemoScopedRows((cohortsResult.data ?? []) as CohortRow[], viewer);
     const cohortIds = cohortRows.map((cohort) => cohort.id);
     const [sessionsResult, assignmentsResult, syncJobsResult] =
       await Promise.all([
-        cohortIds.length > 0
-          ? serviceClient
-              .from("sessions")
-              .select("*")
-              .in("cohort_id", cohortIds)
-              .order("start_at", { ascending: true })
-          : Promise.resolve({ data: [] }),
+        Promise.resolve({ data: instructorTeachingSessionRows }),
         cohortIds.length > 0
           ? serviceClient
               .from("cohort_assignments")
@@ -1459,15 +1658,15 @@ async function loadLivePortalBundle(
             .in("cohort_id", cohortIds)
             .order("date", { ascending: true })
         : Promise.resolve({ data: [] }),
-      serviceClient
+      applyDemoScope(serviceClient
         .from("admin_tasks")
         .select("*")
-        .eq("assigned_to", viewer.id)
+        .eq("assigned_to", viewer.id), viewer)
         .order("due_at", { ascending: true, nullsFirst: false }),
-      serviceClient
+      applyDemoScope(serviceClient
         .from("admin_announcements")
         .select("*")
-        .eq("is_active", true)
+        .eq("is_active", true), viewer)
         .order("starts_at", { ascending: false }),
       cohortIds.length > 0
         ? serviceClient
@@ -1722,10 +1921,15 @@ async function loadLivePortalBundle(
         familyId: student.family_id,
         firstName: student.first_name,
         lastName: student.last_name,
+        email: student.email,
+        phone: student.phone,
         gradeLevel: student.grade_level,
         school: student.school,
         targetTest: normalizeTrack(student.target_test),
         focus: student.focus,
+        externalId: null,
+        customFields: {},
+        demo: student.demo,
       })),
       visibleAssessments: assessmentRows.map((assessment) => ({
         id: assessment.id,
@@ -1741,6 +1945,7 @@ async function loadLivePortalBundle(
         totalScore: result.total_score,
         sectionScores: parseScoreArray(result.section_scores),
         deltaFromPrevious: result.delta_from_previous,
+        notes: result.notes,
       })),
       visibleInstructorFollowUpFlags,
       visibleAdminTasks: adminTaskRows.flatMap((task) => {
@@ -1797,17 +2002,21 @@ async function loadLivePortalBundle(
     };
   }
 
-  const cohortQuery = serviceClient
+  const cohortQuery = applyDemoScope(serviceClient
     .from("cohorts")
     .select("*")
-    .eq("is_archived", false)
+    .eq("is_archived", false), viewer)
     .order("name", { ascending: true });
   const scopedCohortQuery =
-    accessibleCohortIds && accessibleCohortIds.length > 0
-      ? cohortQuery.in("id", accessibleCohortIds)
-      : accessibleCohortIds?.length === 0
-        ? null
-        : cohortQuery;
+    viewer.role === "instructor"
+      ? instructorTeachingCohortIds.length > 0
+        ? cohortQuery.in("id", instructorTeachingCohortIds)
+        : null
+      : accessibleCohortIds && accessibleCohortIds.length > 0
+        ? cohortQuery.in("id", accessibleCohortIds)
+        : accessibleCohortIds?.length === 0
+          ? null
+          : cohortQuery;
   const cohortsResult = scopedCohortQuery ? await scopedCohortQuery : { data: [] };
   const cohortRows = filterDemoScopedRows((cohortsResult.data ?? []) as CohortRow[], viewer);
   const cohortIds = cohortRows.map((cohort) => cohort.id);
@@ -1816,13 +2025,15 @@ async function loadLivePortalBundle(
   const termIds = unique(cohortRows.map((cohort) => cohort.term_id));
   const [sessionsResult, enrollmentsResult, assessmentsResult, assignmentsResult, programsResult, campusesResult, termsResult, archivedCohortsResult, archivedProgramsResult] =
     await Promise.all([
-      loadPlan.sessions && cohortIds.length > 0
-        ? serviceClient
-            .from("sessions")
-            .select("*")
-            .in("cohort_id", cohortIds)
-            .order("start_at", { ascending: true })
-        : Promise.resolve({ data: [] }),
+      viewer.role === "instructor"
+        ? Promise.resolve({ data: loadPlan.sessions ? instructorTeachingSessionRows : [] })
+        : loadPlan.sessions && cohortIds.length > 0
+          ? serviceClient
+              .from("sessions")
+              .select("*")
+              .in("cohort_id", cohortIds)
+              .order("start_at", { ascending: true })
+          : Promise.resolve({ data: [] }),
       loadPlan.enrollments && cohortIds.length > 0
         ? serviceClient
             .from("enrollments")
@@ -1896,10 +2107,14 @@ async function loadLivePortalBundle(
   const sessionIds = sessionRows.map((session) => session.id);
 
   const shouldLoadAllDirectoryStudents =
-    loadPlan.section === "students" && (viewer.role === "admin" || viewer.role === "staff");
+    (loadPlan.section === "students" || loadPlan.section === "calendar") &&
+    (viewer.role === "engineer" || viewer.role === "admin" || viewer.role === "staff");
   const studentsResult = loadPlan.students
     ? shouldLoadAllDirectoryStudents
-      ? await serviceClient.from("students").select("*").order("last_name", { ascending: true })
+      ? await applyDemoScope(serviceClient.from("students").select("*"), viewer).order(
+          "last_name",
+          { ascending: true },
+        )
       : studentIds.length > 0
         ? await serviceClient
             .from("students")
@@ -1915,22 +2130,22 @@ async function loadLivePortalBundle(
       ? unique(studentRows.map((student) => student.family_id))
       : [];
 
-  const [familiesResult, resultsResult, notesResult, sessionNotesResult, accommodationsResult, followUpFlagsResult, resourcesResult, invoicesResult, threadsResult, leadsResult, syncJobsResult, importRunsResult, syncSourceResult, billingSyncSourceResult, profilesResult, templatesResult, auditLogsResult, billingFollowUpNotesResult, adminTasksResult, savedViewsResult, contactEventsResult, adminAnnouncementsResult, sessionChecklistsResult, handoffNotesResult, attendanceFlagsResult, coverageFlagsResult, approvalRequestsResult, escalationsResult, outreachTemplatesResult] = await Promise.all([
+  const [familiesResult, resultsResult, notesResult, sessionNotesResult, instructionBlocksResult, accommodationsResult, followUpFlagsResult, resourcesResult, invoicesResult, threadsResult, leadsResult, syncJobsResult, importRunsResult, syncSourceResult, billingSyncSourceResult, profilesResult, templatesResult, auditLogsResult, billingFollowUpNotesResult, adminTasksResult, savedViewsResult, contactEventsResult, adminAnnouncementsResult, sessionChecklistsResult, handoffNotesResult, attendanceFlagsResult, coverageFlagsResult, approvalRequestsResult, escalationsResult, outreachTemplatesResult, studentFieldDefinitionsResult, studentImportRunsResult] = await Promise.all([
     loadPlan.families && familyIds.length > 0
-      ? serviceClient.from("families").select("*").in("id", familyIds)
+      ? applyDemoScope(serviceClient.from("families").select("*").in("id", familyIds), viewer)
       : Promise.resolve({ data: [] }),
     loadPlan.assessments && assessmentIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("assessment_results")
           .select("*")
-          .in("assessment_id", assessmentIds)
+          .in("assessment_id", assessmentIds), viewer)
       : Promise.resolve({ data: [] }),
     loadPlan.academicNotes
       ? studentIds.length > 0
-        ? serviceClient
+        ? applyDemoScope(serviceClient
             .from("academic_notes")
             .select("*")
-            .in("student_id", studentIds)
+            .in("student_id", studentIds), viewer)
             .order("created_at", { ascending: false })
             .limit(600)
         : Promise.resolve({ data: [] })
@@ -1943,6 +2158,14 @@ async function loadLivePortalBundle(
           .order("updated_at", { ascending: false })
           .limit(600)
       : Promise.resolve({ data: [] }),
+    loadPlan.sessionInstructionBlocks && sessionIds.length > 0
+      ? applyDemoScope(serviceClient
+          .from("session_instruction_blocks")
+          .select("*")
+          .in("session_id", sessionIds), viewer)
+          .order("start_at", { ascending: true })
+          .limit(600)
+      : Promise.resolve({ data: [] }),
     loadPlan.instructionalAccommodations && studentIds.length > 0
       ? serviceClient
           .from("instructional_accommodations")
@@ -1951,44 +2174,47 @@ async function loadLivePortalBundle(
           .order("updated_at", { ascending: false })
       : Promise.resolve({ data: [] }),
     loadPlan.instructorFollowUpFlags && cohortIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("instructor_follow_up_flags")
           .select("*")
-          .in("cohort_id", cohortIds)
+          .in("cohort_id", cohortIds), viewer)
           .order("created_at", { ascending: false })
           .limit(300)
       : Promise.resolve({ data: [] }),
     loadPlan.resources && cohortIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("resources")
           .select("*")
-          .in("cohort_id", cohortIds)
+          .in("cohort_id", cohortIds), viewer)
           .order("published_at", { ascending: false })
           .limit(300)
       : Promise.resolve({ data: [] }),
     loadPlan.invoices && familyIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("invoices")
           .select("*")
-          .in("family_id", familyIds)
+          .in("family_id", familyIds), viewer)
           .order("due_date", { ascending: true })
       : Promise.resolve({ data: [] }),
     loadPlan.messageThreads && cohortIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("message_threads")
           .select("*")
-          .in("cohort_id", cohortIds)
+          .in("cohort_id", cohortIds), viewer)
           .order("last_message_at", { ascending: false })
           .limit(200)
       : Promise.resolve({ data: [] }),
     loadPlan.leads
-      ? serviceClient.from("leads").select("*").order("submitted_at", { ascending: false }).limit(150)
+      ? applyDemoScope(serviceClient.from("leads").select("*"), viewer)
+          .order("submitted_at", { ascending: false })
+          .limit(150)
       : Promise.resolve({ data: [] }),
     serviceClient.from("sync_jobs").select("*").order("label", { ascending: true }),
     loadPlan.integrations
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("intake_import_runs")
           .select("*")
+        , viewer)
           .order("started_at", { ascending: false })
           .limit(6)
       : Promise.resolve({ data: [] }),
@@ -2007,67 +2233,76 @@ async function loadLivePortalBundle(
           .maybeSingle()
       : Promise.resolve({ data: null }),
     loadPlan.allProfiles
-      ? serviceClient.from("profiles").select("*").order("full_name", { ascending: true })
+      ? applyDemoScope(serviceClient.from("profiles").select("*"), viewer).order(
+          "full_name",
+          { ascending: true },
+        )
       : assignedUserIds.length > 0
-        ? serviceClient.from("profiles").select("*").in("id", assignedUserIds)
+        ? applyDemoScope(serviceClient.from("profiles").select("*").in("id", assignedUserIds), viewer)
         : Promise.resolve({ data: [] }),
     loadPlan.userTemplates
-      ? serviceClient.from("user_templates").select("*").order("email", { ascending: true })
+      ? applyDemoScope(serviceClient.from("user_templates").select("*"), viewer).order(
+          "email",
+          { ascending: true },
+        )
       : Promise.resolve({ data: [] }),
     loadPlan.auditLogs
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("account_audit_logs")
           .select("*")
+        , viewer)
           .order("created_at", { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [] }),
     loadPlan.billingFollowUpNotes && familyIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("billing_follow_up_notes")
           .select("*")
-          .in("family_id", familyIds)
+          .in("family_id", familyIds), viewer)
           .order("created_at", { ascending: false })
           .limit(300)
       : Promise.resolve({ data: [] }),
       loadPlan.adminTasks && viewer.role === "admin"
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("admin_tasks")
           .select("*")
+        , viewer)
           .order("due_at", { ascending: true, nullsFirst: false })
           .limit(300)
       : loadPlan.adminTasks && (viewer.role === "staff" || viewer.role === "ta" || viewer.role === "instructor")
-        ? serviceClient
+        ? applyDemoScope(serviceClient
             .from("admin_tasks")
             .select("*")
-            .eq("assigned_to", viewer.id)
+            .eq("assigned_to", viewer.id), viewer)
             .order("due_at", { ascending: true, nullsFirst: false })
             .limit(100)
         : Promise.resolve({ data: [] }),
     loadPlan.savedViews && viewer.role === "admin"
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("admin_saved_views")
           .select("*")
+        , viewer)
           .order("updated_at", { ascending: false })
       : loadPlan.savedViews && viewer.role === "staff"
-        ? serviceClient
+        ? applyDemoScope(serviceClient
             .from("admin_saved_views")
             .select("*")
-            .eq("created_by", viewer.id)
+            .eq("created_by", viewer.id), viewer)
             .order("updated_at", { ascending: false })
       : Promise.resolve({ data: [] }),
     loadPlan.familyContactEvents && familyIds.length > 0
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("family_contact_events")
           .select("*")
-          .in("family_id", familyIds)
+          .in("family_id", familyIds), viewer)
           .order("contact_at", { ascending: false })
           .limit(300)
       : Promise.resolve({ data: [] }),
     loadPlan.adminAnnouncements
-      ? serviceClient
+      ? applyDemoScope(serviceClient
           .from("admin_announcements")
           .select("*")
-          .eq("is_active", true)
+          .eq("is_active", true), viewer)
           .order("starts_at", { ascending: false })
       : Promise.resolve({ data: [] }),
     loadPlan.sessionChecklists
@@ -2134,6 +2369,22 @@ async function loadLivePortalBundle(
           .eq("owner_id", viewer.id)
           .order("updated_at", { ascending: false })
       : Promise.resolve({ data: [] }),
+    loadPlan.studentImportMetadata
+      ? applyDemoScope(
+          serviceClient
+            .from("student_field_definitions")
+            .select("*")
+            .is("archived_at", null),
+          viewer,
+        )
+          .order("sort_order", { ascending: true })
+          .order("key", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    loadPlan.studentImportMetadata
+      ? applyDemoScope(serviceClient.from("student_import_runs").select("*"), viewer)
+          .order("created_at", { ascending: false })
+          .limit(24)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const familyRows = filterDemoScopedRows((familiesResult.data ?? []) as FamilyRow[], viewer);
@@ -2144,6 +2395,10 @@ async function loadLivePortalBundle(
   const noteRows = filterDemoScopedRows((notesResult.data ?? []) as AcademicNoteRow[], viewer);
   const sessionInstructionNoteRows = filterDemoScopedRows(
     (sessionNotesResult.data ?? []) as SessionInstructionNoteRow[],
+    viewer,
+  );
+  const sessionInstructionBlockRows = filterDemoScopedRows(
+    (instructionBlocksResult.data ?? []) as SessionInstructionBlockRow[],
     viewer,
   );
   const accommodationRows = filterDemoScopedRows(
@@ -2160,6 +2415,11 @@ async function loadLivePortalBundle(
   const leadRows = filterDemoScopedRows((leadsResult.data ?? []) as LeadRow[], viewer);
   const syncJobRows = (syncJobsResult.data ?? []) as SyncJobRow[];
   const importRunRows = (importRunsResult.data ?? []) as IntakeImportRunRow[];
+  const studentImportMetadata = mapStudentImportMetadataRows({
+    viewer,
+    definitions: (studentFieldDefinitionsResult.data ?? []) as StudentFieldDefinitionRow[],
+    runs: (studentImportRunsResult.data ?? []) as StudentImportRunRow[],
+  });
   const syncSourceRow = (syncSourceResult.data ?? null) as IntakeSyncSourceRow | null;
   const billingSyncSourceRow = (billingSyncSourceResult.data ?? null) as BillingSyncSourceRow | null;
   const profileRows = filterDemoScopedRows((profilesResult.data ?? []) as ProfileRow[], viewer);
@@ -2734,6 +2994,24 @@ async function loadLivePortalBundle(
       })),
     ...fallbackSessionInstructionNotes,
   ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const mappedSessionInstructionBlocks = sessionInstructionBlockRows
+    .filter((block) =>
+      sessionIdSet.has(block.session_id) &&
+      (viewer.role !== "instructor" || block.instructor_id === viewer.id),
+    )
+    .map((block) => ({
+      id: block.id,
+      sessionId: block.session_id,
+      instructorId: block.instructor_id,
+      instructorName: profilesById.get(block.instructor_id)?.full_name ?? null,
+      title: block.title,
+      startAt: block.start_at,
+      endAt: block.end_at,
+      createdBy: block.created_by,
+      createdAt: block.created_at,
+      updatedAt: block.updated_at,
+    }))
+    .sort((left, right) => left.startAt.localeCompare(right.startAt));
   const studentIdSet = new Set(studentRows.map((student) => student.id));
   const directInstructionalAccommodations = accommodationRows
     .filter((accommodation) => studentIdSet.has(accommodation.student_id))
@@ -3045,6 +3323,7 @@ async function loadLivePortalBundle(
     viewer.role === "ta"
       ? {
           taskActivities: mappedTaskActivities,
+          familyContactEvents: mappedFamilyContactEvents,
           sessionChecklists: mappedSessionChecklists,
           handoffNotes: mappedSessionHandoffNotes,
           attendanceExceptionFlags: mappedAttendanceExceptionFlags,
@@ -3099,6 +3378,7 @@ async function loadLivePortalBundle(
       mode: normalizeMode(session.mode),
       roomLabel: session.room_label,
     })),
+    visibleSessionInstructionBlocks: mappedSessionInstructionBlocks,
     visibleEnrollments: enrollmentRows.map((enrollment) => ({
       id: enrollment.id,
       studentId: enrollment.student_id,
@@ -3106,40 +3386,45 @@ async function loadLivePortalBundle(
       status: enrollment.status === "waitlist" ? "waitlist" : "active",
       registeredAt: enrollment.registered_at,
     })),
-    visibleStudents: studentRows.map((student) => ({
-      id: student.id,
-      familyId: student.family_id,
-      firstName: student.first_name,
-      lastName: student.last_name,
-      gradeLevel: canEngineerViewStudentSensitiveData(
-        viewer.role,
-        student.id,
-        student.family_id,
-        sensitiveAccessMap,
-      )
-        ? student.grade_level
-        : "Protected",
-      school: canEngineerViewStudentSensitiveData(
-        viewer.role,
-        student.id,
-        student.family_id,
-        sensitiveAccessMap,
-      )
-        ? student.school
-        : "Protected",
-      targetTest: normalizeTrack(student.target_test),
-      focus: student.focus,
-      sensitiveAccessGranted: canEngineerViewStudentSensitiveData(
-        viewer.role,
-        student.id,
-        student.family_id,
-        sensitiveAccessMap,
+    visibleStudents: studentRows.map((student) =>
+      mapStudentDirectoryRow(
+        student,
+        canEngineerViewStudentSensitiveData(
+          viewer.role,
+          student.id,
+          student.family_id,
+          sensitiveAccessMap,
+        ),
       ),
-    })),
+    ),
+    studentFieldDefinitions: studentImportMetadata.definitions,
+    studentImportRuns: studentImportMetadata.runs,
     visibleFamilies: familyRows.map((family) => ({
       id: family.id,
       familyName: family.family_name,
       guardianNames: family.guardian_names,
+      parent1Name: family.parent1_name ?? family.guardian_names[0] ?? null,
+      parent1Email:
+        canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap) ||
+        canViewFamilyContactBasics(viewer.role)
+          ? family.parent1_email ?? family.email
+          : "Protected",
+      parent1Phone:
+        canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap) ||
+        canViewFamilyContactBasics(viewer.role)
+          ? family.parent1_phone ?? family.phone
+          : "Protected",
+      parent2Name: family.parent2_name ?? family.guardian_names[1] ?? null,
+      parent2Email:
+        canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap) ||
+        canViewFamilyContactBasics(viewer.role)
+          ? family.parent2_email
+          : "Protected",
+      parent2Phone:
+        canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap) ||
+        canViewFamilyContactBasics(viewer.role)
+          ? family.parent2_phone
+          : "Protected",
       email:
         canEngineerViewFamilySensitiveData(viewer.role, family.id, sensitiveAccessMap) ||
         canViewFamilyContactBasics(viewer.role)
@@ -3174,6 +3459,7 @@ async function loadLivePortalBundle(
       totalScore: result.total_score,
       sectionScores: parseScoreArray(result.section_scores),
       deltaFromPrevious: result.delta_from_previous,
+      notes: result.notes,
     })),
     visibleNotes: noteRows.map((note) => ({
       id: note.id,
@@ -3373,7 +3659,7 @@ const getCachedLivePortalBundle = unstable_cache(
   },
   ["live-portal-bundle-v3"],
   {
-    revalidate: 15,
+    revalidate: 120,
     tags: ["portal-live"],
   },
 );

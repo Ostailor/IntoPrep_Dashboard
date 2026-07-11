@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import type { ProgramTrack, User } from "@/lib/domain";
+import type { ProgramTrack, StudentFieldDefinition, User } from "@/lib/domain";
 import { viewerCanAccessCohort } from "@/lib/attendance";
 import { recordAccountAuditLog } from "@/lib/account-governance";
 import { getDemoPartition, isSameDemoPartition } from "@/lib/demo-partition";
@@ -19,6 +19,14 @@ type FamilyRow = Database["public"]["Tables"]["families"]["Row"];
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 type AssessmentRow = Database["public"]["Tables"]["assessments"]["Row"];
 
+export const STUDENT_DIRECTORY_REQUEST_LIMITS = {
+  contentLength: 256_000,
+  customFieldCount: 50,
+  customFieldKeyLength: 64,
+  customFieldTextLength: 4_000,
+  externalIdLength: 120,
+} as const;
+
 function createId(prefix: string) {
   return `${prefix}-${randomBytes(6).toString("hex")}`;
 }
@@ -35,6 +43,11 @@ function assertStudentDirectoryEditor(viewer: User) {
   }
 }
 
+export function resolveStudentDirectoryWritePartition(viewer: User) {
+  assertStudentDirectoryEditor(viewer);
+  return getDemoPartition(viewer);
+}
+
 function requiredText(value: unknown, label: string) {
   const normalized = typeof value === "string" ? value.trim() : "";
 
@@ -49,6 +62,86 @@ function optionalText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function validateStudentDirectoryRequestPayload({
+  externalId,
+  customFields,
+}: {
+  externalId?: unknown;
+  customFields?: unknown;
+}) {
+  if (externalId !== undefined && externalId !== null && typeof externalId !== "string") {
+    throw new Error("External ID must be text.");
+  }
+
+  if (
+    typeof externalId === "string" &&
+    externalId.length > STUDENT_DIRECTORY_REQUEST_LIMITS.externalIdLength
+  ) {
+    throw new Error(
+      `External ID must be ${STUDENT_DIRECTORY_REQUEST_LIMITS.externalIdLength} characters or fewer.`,
+    );
+  }
+
+  if (customFields === undefined) {
+    return;
+  }
+
+  if (!customFields || typeof customFields !== "object" || Array.isArray(customFields)) {
+    throw new Error("Additional student information must be a JSON object of simple values.");
+  }
+
+  const entries = Object.entries(customFields);
+  if (entries.length > STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldCount) {
+    throw new Error(
+      `Additional student information is limited to ${STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldCount} fields.`,
+    );
+  }
+
+  entries.forEach(([key, value]) => {
+    if (key.length > STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldKeyLength) {
+      throw new Error(
+        `Custom field keys must be ${STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldKeyLength} characters or fewer.`,
+      );
+    }
+
+    if (
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    ) {
+      throw new Error("Additional student information must be a JSON object of simple values.");
+    }
+
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("Additional student information numbers must be finite.");
+    }
+
+    if (
+      typeof value === "string" &&
+      value.length > STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldTextLength
+    ) {
+      throw new Error(
+        `Custom field text must be ${STUDENT_DIRECTORY_REQUEST_LIMITS.customFieldTextLength} characters or fewer.`,
+      );
+    }
+  });
+}
+
+export function resolveStudentExternalId(existing: string | null, submitted: unknown) {
+  validateStudentDirectoryRequestPayload({ externalId: submitted });
+
+  if (submitted === undefined) {
+    return existing;
+  }
+
+  if (submitted === null) {
+    return null;
+  }
+
+  return optionalText(submitted) || null;
+}
+
 function normalizeTrack(value: unknown): ProgramTrack {
   switch (value) {
     case "SAT":
@@ -59,6 +152,107 @@ function normalizeTrack(value: unknown): ProgramTrack {
     default:
       throw new Error("Choose a valid target test.");
   }
+}
+
+function parseStoredStudentCustomFields(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string | number | boolean] =>
+        typeof entry[1] === "string" ||
+        typeof entry[1] === "number" ||
+        typeof entry[1] === "boolean",
+    ),
+  );
+}
+
+function assertCustomFieldValue(
+  definition: StudentFieldDefinition,
+  value: unknown,
+): asserts value is string | number | boolean {
+  const invalid = (() => {
+    switch (definition.dataType) {
+      case "number":
+        return typeof value !== "number" || !Number.isFinite(value);
+      case "boolean":
+        return typeof value !== "boolean";
+      case "date":
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          return true;
+        }
+
+        const [year, month, day] = value.split("-").map(Number);
+        const parsedDate = new Date(`${value}T00:00:00.000Z`);
+        return (
+          Number.isNaN(parsedDate.getTime()) ||
+          parsedDate.getUTCFullYear() !== year ||
+          parsedDate.getUTCMonth() + 1 !== month ||
+          parsedDate.getUTCDate() !== day
+        );
+      case "text":
+        return typeof value !== "string";
+    }
+  })();
+
+  if (invalid) {
+    const article = definition.dataType === "number" ? "a" : "a valid";
+    throw new Error(`${definition.label} must be ${article} ${definition.dataType}.`);
+  }
+}
+
+export function mergeValidatedStudentCustomFields({
+  existing,
+  submitted,
+  definitions,
+}: {
+  existing: unknown;
+  submitted: unknown;
+  definitions: StudentFieldDefinition[];
+}) {
+  const merged = parseStoredStudentCustomFields(existing);
+
+  validateStudentDirectoryRequestPayload({ customFields: submitted });
+
+  if (submitted === undefined) {
+    return merged;
+  }
+
+  if (!submitted || typeof submitted !== "object" || Array.isArray(submitted)) {
+    throw new Error("Additional student information must be a JSON object.");
+  }
+
+  const definitionByKey = new Map(definitions.map((definition) => [definition.key, definition]));
+  Object.entries(submitted).forEach(([key, value]) => {
+    const definition = definitionByKey.get(key);
+
+    if (!definition) {
+      throw new Error(`Custom field ${key} is not available in this student directory.`);
+    }
+
+    if (value === null) {
+      if (definition.required) {
+        throw new Error(`${definition.label} is required.`);
+      }
+
+      delete merged[key];
+      return;
+    }
+
+    assertCustomFieldValue(definition, value);
+    merged[key] = value;
+  });
+
+  definitions.forEach((definition) => {
+    const value = merged[definition.key];
+    if (definition.required && (value === undefined || value === "")) {
+      throw new Error(`${definition.label} is required.`);
+    }
+  });
+
+  return merged;
 }
 
 function getAssessmentLabels(assessment: AssessmentRow) {
@@ -103,6 +297,16 @@ export async function upsertStudentDirectoryRecord({
   school,
   targetTest,
   focus,
+  parent1Name,
+  parent1Email,
+  parent1Phone,
+  parent2Name,
+  parent2Email,
+  parent2Phone,
+  studentEmail,
+  studentPhone,
+  externalId,
+  customFields,
   guardianName,
   familyEmail,
   familyPhone,
@@ -116,14 +320,25 @@ export async function upsertStudentDirectoryRecord({
   school: unknown;
   targetTest: unknown;
   focus: unknown;
+  parent1Name?: unknown;
+  parent1Email?: unknown;
+  parent1Phone?: unknown;
+  parent2Name?: unknown;
+  parent2Email?: unknown;
+  parent2Phone?: unknown;
+  studentEmail?: unknown;
+  studentPhone?: unknown;
+  externalId?: unknown;
+  customFields?: unknown;
   guardianName: unknown;
   familyEmail: unknown;
   familyPhone: unknown;
   familyNotes?: unknown;
 }) {
   ensureServiceRole();
-  assertStudentDirectoryEditor(viewer);
+  const demo = resolveStudentDirectoryWritePartition(viewer);
   await assertWritesAllowed("operational_writes");
+  validateStudentDirectoryRequestPayload({ externalId, customFields });
 
   const normalizedStudent = {
     firstName: requiredText(firstName, "First name"),
@@ -134,13 +349,41 @@ export async function upsertStudentDirectoryRecord({
     focus: requiredText(focus, "Focus"),
   };
   const normalizedFamily = {
-    guardianName: requiredText(guardianName, "Guardian name"),
-    email: requiredText(familyEmail, "Family email"),
-    phone: requiredText(familyPhone, "Family phone"),
+    parent1Name: requiredText(parent1Name ?? guardianName, "Parent 1 name"),
+    parent1Email: requiredText(parent1Email ?? familyEmail, "Parent 1 email"),
+    parent1Phone: requiredText(parent1Phone ?? familyPhone, "Parent 1 phone"),
+    parent2Name: optionalText(parent2Name),
+    parent2Email: optionalText(parent2Email),
+    parent2Phone: optionalText(parent2Phone),
+    studentEmail: optionalText(studentEmail),
+    studentPhone: optionalText(studentPhone),
     notes: optionalText(familyNotes),
   };
+  const guardianNames = [normalizedFamily.parent1Name, normalizedFamily.parent2Name].filter(Boolean);
   const serviceClient = createSupabaseServiceClient();
-  const demo = getDemoPartition(viewer);
+  const { data: definitionData, error: definitionError } = await serviceClient
+    .from("student_field_definitions")
+    .select("*")
+    .eq("demo", demo)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+
+  if (definitionError) {
+    throw new Error(definitionError.message);
+  }
+
+  const definitions = ((definitionData ?? []) as Database["public"]["Tables"]["student_field_definitions"]["Row"][])
+    .map((definition) => ({
+      id: definition.id,
+      key: definition.key,
+      label: definition.label,
+      dataType: definition.data_type,
+      headerAliases: definition.header_aliases,
+      required: definition.required,
+      sensitive: definition.sensitive,
+      sortOrder: definition.sort_order,
+      demo: definition.demo,
+    } satisfies StudentFieldDefinition));
   const existingStudentResult = studentId
     ? await serviceClient.from("students").select("*").eq("id", studentId).maybeSingle()
     : { data: null, error: null };
@@ -153,6 +396,12 @@ export async function upsertStudentDirectoryRecord({
   if (studentId && (!existingStudent || !isSameDemoPartition(viewer, existingStudent))) {
     throw new Error("That student could not be found.");
   }
+
+  const mergedCustomFields = mergeValidatedStudentCustomFields({
+    existing: existingStudent?.custom_fields,
+    submitted: customFields,
+    definitions,
+  });
 
   const familyId = existingStudent?.family_id ?? createId("family");
   const resolvedStudentId = existingStudent?.id ?? createId("student");
@@ -179,9 +428,15 @@ export async function upsertStudentDirectoryRecord({
     const { error: familyInsertError } = await serviceClient.from("families").insert({
       id: familyId,
       family_name: `${normalizedStudent.lastName} family`,
-      guardian_names: [normalizedFamily.guardianName],
-      email: normalizedFamily.email,
-      phone: normalizedFamily.phone,
+      guardian_names: guardianNames,
+      parent1_name: normalizedFamily.parent1Name,
+      parent1_email: normalizedFamily.parent1Email,
+      parent1_phone: normalizedFamily.parent1Phone,
+      parent2_name: normalizedFamily.parent2Name || null,
+      parent2_email: normalizedFamily.parent2Email || null,
+      parent2_phone: normalizedFamily.parent2Phone || null,
+      email: normalizedFamily.parent1Email,
+      phone: normalizedFamily.parent1Phone,
       preferred_campus_id: defaultCampusId,
       notes: normalizedFamily.notes,
       demo,
@@ -195,12 +450,19 @@ export async function upsertStudentDirectoryRecord({
       .from("families")
       .update({
         family_name: `${normalizedStudent.lastName} family`,
-        guardian_names: [normalizedFamily.guardianName],
-        email: normalizedFamily.email,
-        phone: normalizedFamily.phone,
+        guardian_names: guardianNames,
+        parent1_name: normalizedFamily.parent1Name,
+        parent1_email: normalizedFamily.parent1Email,
+        parent1_phone: normalizedFamily.parent1Phone,
+        parent2_name: normalizedFamily.parent2Name || null,
+        parent2_email: normalizedFamily.parent2Email || null,
+        parent2_phone: normalizedFamily.parent2Phone || null,
+        email: normalizedFamily.parent1Email,
+        phone: normalizedFamily.parent1Phone,
         notes: normalizedFamily.notes,
       })
-      .eq("id", familyId);
+      .eq("id", familyId)
+      .eq("demo", demo);
 
     if (familyUpdateError) {
       throw new Error(familyUpdateError.message);
@@ -211,15 +473,23 @@ export async function upsertStudentDirectoryRecord({
     family_id: familyId,
     first_name: normalizedStudent.firstName,
     last_name: normalizedStudent.lastName,
+    email: normalizedFamily.studentEmail || null,
+    phone: normalizedFamily.studentPhone || null,
     grade_level: normalizedStudent.gradeLevel,
     school: normalizedStudent.school,
     target_test: normalizedStudent.targetTest,
     focus: normalizedStudent.focus,
+    external_id: resolveStudentExternalId(existingStudent?.external_id ?? null, externalId),
+    custom_fields: mergedCustomFields,
     demo,
   };
 
   const studentWrite = existingStudent
-    ? await serviceClient.from("students").update(studentPayload).eq("id", resolvedStudentId)
+    ? await serviceClient
+        .from("students")
+        .update(studentPayload)
+        .eq("id", resolvedStudentId)
+        .eq("demo", demo)
     : await serviceClient.from("students").insert({
         id: resolvedStudentId,
         ...studentPayload,
@@ -301,6 +571,7 @@ export async function persistStudentDirectoryScore({
   rwScore,
   mathScore,
   totalScore,
+  notes,
 }: {
   viewer: User;
   studentId: unknown;
@@ -310,6 +581,7 @@ export async function persistStudentDirectoryScore({
   rwScore: unknown;
   mathScore: unknown;
   totalScore: unknown;
+  notes?: unknown;
 }) {
   ensureServiceRole();
 
@@ -410,5 +682,6 @@ export async function persistStudentDirectoryScore({
       { label: rwLabel, score: Math.round(normalizedRw) },
       { label: mathLabel, score: Math.round(normalizedMath) },
     ],
+    notes,
   });
 }

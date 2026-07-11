@@ -28,6 +28,7 @@ const WIDE_CONTEXT_HEADERS = ["name", "class", "level", "room"] as const;
 const SCORE_LEAF_HEADERS = new Set([
   "rw",
   "readingwriting",
+  "m",
   "math",
   "mathematics",
   "total",
@@ -113,7 +114,10 @@ function findWideTable(sheet: StudentWorkbookSheet): DetectedWorkbookTable | nul
 
   for (let start = 0; start <= lastStart; start += 1) {
     const firstRowValues = sheet.rows[start]!.cells.map((cell) => normalizedHeader(cellText(cell)));
-    if (!WIDE_CONTEXT_HEADERS.every((header) => firstRowValues.includes(header))) continue;
+    const firstRowContextCount = WIDE_CONTEXT_HEADERS.filter(
+      (header) => firstRowValues.includes(header),
+    ).length;
+    if (firstRowContextCount < 2) continue;
 
     for (let depth = 2; depth <= MAX_WIDE_HEADER_ROWS; depth += 1) {
       const end = start + depth;

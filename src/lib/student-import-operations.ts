@@ -589,16 +589,22 @@ async function prepareStudentImport(
 
   const repository = input.repository ?? createProductionStudentImportRepository();
   const data = await repository.loadPartition(targetDemo);
-  if (!input.mappingPlan && !suppliedMappings && detected.profile === "simple") {
+  if (!input.mappingPlan && !suppliedMappings) {
+    const inferredDirectoryMappings = detected.profile === "simple"
+      ? inferMappings(
+          detected.directory.columns.map((column) => column.sourceHeader),
+          directoryRows,
+          data.fieldDefinitions,
+        )
+      : reuseExistingCustomFieldMappings(
+          mappingPlan.directory.columns,
+          data.fieldDefinitions,
+        );
     mappingPlan = {
       ...mappingPlan,
       directory: {
         ...mappingPlan.directory,
-        columns: inferMappings(
-          detected.directory.columns.map((column) => column.sourceHeader),
-          directoryRows,
-          data.fieldDefinitions,
-        ),
+        columns: inferredDirectoryMappings,
       },
     };
   }
@@ -941,6 +947,25 @@ function inferMappings(
       ...suggested,
       dataType: inferCustomFieldType(rows.map((row) => row.cells[index] ?? null)),
     };
+  });
+}
+
+function reuseExistingCustomFieldMappings(
+  mappings: StudentImportMapping[],
+  definitions: StudentImportFieldDefinitionRow[],
+): StudentImportMapping[] {
+  return mappings.map((mapping) => {
+    if (mapping.kind !== "custom-new") return mapping;
+    const normalizedHeader = normalizeStudentImportHeader(mapping.sourceHeader);
+    const definition = definitions.find((candidate) =>
+      candidate.key.toLowerCase() === mapping.key.toLowerCase() ||
+      [candidate.label, ...candidate.header_aliases].some(
+        (alias) => normalizeStudentImportHeader(alias) === normalizedHeader,
+      ),
+    );
+    return definition
+      ? { sourceHeader: mapping.sourceHeader, kind: "custom-existing", key: definition.key }
+      : mapping;
   });
 }
 

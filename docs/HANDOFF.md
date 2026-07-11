@@ -140,7 +140,7 @@ Use focused tests when iterating, then run the full gate before reporting comple
 
 ### Portal performance verification (2026-07-11)
 
-The production-style local QA benchmark is recorded in `.superpowers/sdd/portal-performance-report.md`. With Next.js production mode on port 3002 and one warm-up plus five Chromium hard navigations per route, median load/FCP were: `/dashboard` 20.0/68 ms, `/students` 17.0/64 ms, `/calendar` 17.2/68 ms, and `/cohorts` 15.3/68 ms. Two idle seconds on `/students` produced zero sibling RSC requests; Calendar hover/focus produced only Calendar-specific RSC GETs. Lint, typecheck, and build passed; the full suite remained at the one known QuickBooks assertion (304/305 passed). Live portal SELECTs were previously measured around 1–15 ms, and migrations `20260627005833` and `20260627103752` plus their named indexes are live. These local-QA numbers do not include signed-in Supabase latency, Vercel cold starts, user-to-region latency, or first uncached fetches and are not a production sub-second guarantee. No valid pre-optimization browser baseline exists, so use this report's raw samples as the comparison baseline for future changes.
+The production-style local QA benchmark is recorded in `.superpowers/sdd/portal-performance-report.md`. With Next.js production mode on port 3002 and one warm-up plus five Chromium hard navigations per route, median load/FCP were: `/dashboard` 20.0/68 ms, `/students` 17.0/64 ms, `/calendar` 17.2/68 ms, and `/cohorts` 15.3/68 ms. Two idle seconds on `/students` produced zero sibling RSC requests; Calendar hover/focus produced only Calendar-specific RSC GETs. A later same-worktree bundle comparison deferred the student importer until `Import students` is clicked, reducing the shared dashboard entry from 127,115 to 117,682 gzip bytes (-7.4%); a fresh production browser confirmed zero importer-chunk requests before the click and one successful request when the modal opened. Lint, typecheck, build, and all 311 tests pass. Live portal SELECTs were previously measured around 1–15 ms, and migrations `20260627005833` and `20260627103752` plus their named indexes are live. These local-QA numbers do not include signed-in Supabase latency, Vercel cold starts, user-to-region latency, or first uncached fetches and are not a production sub-second guarantee.
 
 ## Authentication And Roles
 
@@ -174,7 +174,7 @@ Recent issue fixed: demo students/families appeared in main/live. The code now c
 
 - UI: `/students` → `Import students`.
 - Template: `public/student-import-template.xlsx` (delete the labeled sample row before use).
-- Wide-score demo fixture: `src/test/fixtures/adaptive-score-import.xlsx`.
+- Wide-score Demo fixture: `src/test/fixtures/adaptive-score-import.xlsx`. It is a synthetic reproduction of the supplied photograph with context spread across merged header rows; its current SHA-256 is `8551d3472d01102250880337f3d278b9552f4f0e6ca208fe5af4415910692e82`.
 - Routes: `POST /api/students/import/preview` and `POST /api/students/import/commit`.
 - Permission boundary: only `engineer`, `admin`, and `staff` can import. Engineers must explicitly select Demo or Main; admin and staff targets come from the authenticated profile and ignore client target overrides.
 - Supported profiles:
@@ -186,7 +186,7 @@ Recent issue fixed: demo students/families appeared in main/live. The code now c
 - MWF cohorts generate Monday/Wednesday/Friday sessions; TTHS cohorts generate Tuesday/Thursday/Saturday sessions. Generated classes run 8:00 AM–3:30 PM in `America/New_York`. The operator enters one test date per cohort/test combination, so the date is shared by that cohort's students and may differ between MWF and TTHS.
 - Scores remain in `assessments` and `assessment_results`, separate from student information. RW and Math are stored separately; a blank Total is calculated, while a supplied Total must equal RW + Math.
 - The commit reparses the same file, verifies its digest plus reviewed mapping/setup, and uses `commit_student_workbook_import` for the expanded atomic transaction (`commit_student_spreadsheet_import` remains the directory-import layer). Runs are recorded in `student_import_runs`; custom labels remain in `student_field_definitions` and `students.custom_fields`.
-- Migrations: `supabase/migrations/20260710024125_student_spreadsheet_import.sql` and `supabase/migrations/20260711040125_adaptive_student_score_workbook_import.sql`.
+- Migrations: `supabase/migrations/20260710043252_student_spreadsheet_import.sql` and `supabase/migrations/20260711040125_adaptive_student_score_workbook_import.sql`.
 
 ### Student spreadsheet exports
 
@@ -208,9 +208,9 @@ Demo-only verification procedure:
 8. Verify every created family, student, cohort, enrollment, session, assessment, result, and import run has `demo = true`; assert captured identifiers have no `demo = false` matches.
 9. Recompute the seven main counts/hashes and require an exact match. Delete only the captured Demo IDs in dependency order, retain any pre-existing cohort, recompute its enrollment counter if needed, verify every captured ID is gone, and require the main fingerprints to match once more.
 
-Latest Demo E2E (2026-07-11): actual wide XLSX upload, invalid-row blocking, atomic rollback, corrected same-file replay, all three exports, artifact-tool workbook inspection, exact main invariance, and captured-ID cleanup passed. The visible Google Sheets round trip was not completed because authenticated Chrome never exposed a native macOS file picker and the extension lacked file-URL access. Re-run step 7 when that browser permission/environment is available; do not claim the normalized Sheets round trip from unit tests alone.
+Latest Demo E2E (2026-07-11): the actual photo-style merged-header XLSX committed and replayed successfully with exact RW/Math/Total values; the normalized export also re-previewed successfully. The wide run created 1 temporary cohort, 72 classes, 2 enrollments, 8 assessments, and 8 results; replay produced only 8 result updates. Guarded cleanup removed every captured Demo row and Main fingerprints remained unchanged. The earlier export/Sheets round trip also passed: all three exports, native Google Sheets conversion, visible two-tab inspection, visible Sheets `.xlsx` download, normalized Demo UI re-import, multi-cohort placement, and stored custom-field reuse. The preserved Sheets artifact is `.superpowers/sdd/task11-artifacts/sheets-roundtrip.xlsx`; see `.superpowers/sdd/task-11-report.md` for evidence.
 
-Known unrelated test status: the full suite has one pre-existing QuickBooks alert expectation failure in `src/test/portal.test.ts` (`QuickBooks invoice snapshot`). QuickBooks is unused and was intentionally left unchanged.
+The unused QuickBooks implementation was intentionally left unchanged; the portal regression now correctly verifies that its hidden alert is omitted.
 
 Known remaining suspicious but not deleted record:
 

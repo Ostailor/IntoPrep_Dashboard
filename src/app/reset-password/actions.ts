@@ -1,10 +1,10 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { expirePortalLiveCache } from "@/lib/cache-invalidation";
 import { isLocalQaMode, LOCAL_QA_COOKIE } from "@/lib/local-qa";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -44,7 +44,7 @@ export async function updatePasswordAction(formData: FormData) {
     );
   }
 
-  const viewer = await getAuthenticatedViewerForRequest();
+  const viewer = await getAuthenticatedViewerForRequest({ allowPasswordChangeRequired: true });
 
   if (!viewer) {
     redirect(
@@ -110,7 +110,7 @@ export async function updatePasswordAction(formData: FormData) {
     });
   }
 
-  revalidateTag("portal-live", { expire: 0 });
+  expirePortalLiveCache();
 
   if (mode === "required") {
     await supabase.auth.signOut();

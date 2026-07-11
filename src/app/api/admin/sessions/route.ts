@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { createAdminSession, deleteAdminSession, updateAdminSession } from "@/lib/admin-operations";
+import { revalidatePortalLiveCache } from "@/lib/cache-invalidation";
 
 export async function POST(request: NextRequest) {
   const viewer = await getAuthenticatedViewerForRequest();
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest) {
       mode: body?.mode,
       force: Boolean(body?.force),
     });
+    revalidatePortalLiveCache();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
@@ -52,6 +54,7 @@ export async function PATCH(request: NextRequest) {
       mode: body?.mode,
       force: Boolean(body?.force),
     });
+    revalidatePortalLiveCache();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
@@ -75,6 +78,7 @@ export async function DELETE(request: NextRequest) {
       viewer: viewer.user,
       sessionId: body?.sessionId,
     });
+    revalidatePortalLiveCache();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

@@ -25,12 +25,9 @@ import type { PortalViewer } from "@/lib/auth";
 import type { PortalSection, UserRole } from "@/lib/domain";
 import {
   formatLongDate,
-  formatMoney,
   formatTimeRange,
   getAlerts,
   getAlertsFromSyncJobs,
-  getBillingRowsFromContext,
-  getBillingRows,
   getDashboardMetricsFromContext,
   getDashboardMetrics,
   getPortalContext,
@@ -59,16 +56,14 @@ import {
   sectionMeta,
 } from "@/lib/portal";
 import { getPermissionProfile } from "@/lib/permissions";
+import { buildVisibleSessionRosterMaps } from "@/lib/session-rosters";
 import { getLiveAttendanceBundle } from "@/lib/live-attendance";
 import { getLivePortalBundle } from "@/lib/live-portal";
 import { AttendanceBoard } from "@/components/portal/attendance-board";
 import { AcademicsActionPanel } from "@/components/portal/academics-action-panel";
 import { AccountAuditLogPanel } from "@/components/portal/account-audit-log-panel";
-import { BillingSyncPanel } from "@/components/portal/billing-sync-panel";
-import { EngineerBreakGlassButton } from "@/components/portal/engineer-break-glass-button";
 import { EngineerConsolePanels } from "@/components/portal/engineer-console-panels";
 import { IntakeImportPanel } from "@/components/portal/intake-import-panel";
-import { MessagingReplyPanel } from "@/components/portal/messaging-reply-panel";
 import { PortalLiveSync } from "@/components/portal/portal-live-sync";
 import { PortalNavLink } from "@/components/portal/portal-nav-link";
 import { PortalFeedbackButton } from "@/components/portal/portal-feedback-button";
@@ -77,18 +72,13 @@ import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { InstallAppButton } from "@/components/install-app-button";
 import { AdminDashboardPanels } from "@/components/portal/admin-dashboard-panels";
-import { AdminAnnouncementNotices } from "@/components/portal/admin-announcement-notices";
-import { AdminBillingPanel } from "@/components/portal/admin-billing-panel";
 import { AdminCohortOperationsPanel } from "@/components/portal/admin-cohort-operations-panel";
 import { AdminFamilyOpsPanel } from "@/components/portal/admin-family-ops-panel";
-import { AdminMessagingBulkPanel } from "@/components/portal/admin-messaging-bulk-panel";
 import { AdminProgramArchivePanel } from "@/components/portal/admin-program-archive-panel";
 import { AdminSessionCreatePanel } from "@/components/portal/admin-session-create-panel";
 import { AdminSessionManagementPanel } from "@/components/portal/admin-session-management-panel";
-import { StaffBillingPanel } from "@/components/portal/staff-billing-panel";
 import { StaffDashboardPanels } from "@/components/portal/staff-dashboard-panels";
 import { StaffFamilyOpsPanel } from "@/components/portal/staff-family-ops-panel";
-import { StaffMessagingPanel } from "@/components/portal/staff-messaging-panel";
 import { StudentCohortAssignmentPanel } from "@/components/portal/student-cohort-assignment-panel";
 import { InstructorAcademicsPanel } from "@/components/portal/instructor-academics-panel";
 import { InstructorAttendanceSupportPanel } from "@/components/portal/instructor-attendance-support-panel";
@@ -96,7 +86,6 @@ import { InstructorDashboardPanels } from "@/components/portal/instructor-dashbo
 import { TaAttendanceSupportPanel } from "@/components/portal/ta-attendance-support-panel";
 import { TaDashboardPanels } from "@/components/portal/ta-dashboard-panels";
 import { TaFamilySupportPanel } from "@/components/portal/ta-family-support-panel";
-import { TaMessagingPanel } from "@/components/portal/ta-messaging-panel";
 import { FeedbackManagementPanel } from "@/components/portal/feedback-management-panel";
 
 const sectionIcons: Record<PortalSection, LucideIcon> = {
@@ -173,17 +162,22 @@ function SectionHeading({
   );
 }
 
-function InvoiceStatusPill({ status }: { status: "paid" | "pending" | "overdue" }) {
-  const styles = {
-    paid: "border-emerald-200 bg-emerald-100 text-emerald-800",
-    pending: "border-amber-200 bg-amber-100 text-amber-800",
-    overdue: "border-rose-200 bg-rose-100 text-rose-800",
-  } as const;
-
+function UnderConstructionPanel({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
   return (
-    <span className={clsx("rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]", styles[status])}>
-      {status}
-    </span>
+    <SectionPanel>
+      <SectionHeading eyebrow={eyebrow} title={title} description={description} />
+      <div className="mt-5 rounded-lg border border-[color:var(--line)] bg-stone-50/80 p-4 text-sm text-[color:var(--muted)]">
+        This area is kept in navigation for planning, but it is not active yet.
+      </div>
+    </SectionPanel>
   );
 }
 
@@ -228,6 +222,7 @@ export async function PortalShell({
         visibleUsers: livePortal.visibleUsers,
         visibleCohorts: livePortal.visibleCohorts,
         visibleSessions: livePortal.visibleSessions,
+        visibleSessionInstructionBlocks: livePortal.visibleSessionInstructionBlocks,
         visibleEnrollments: livePortal.visibleEnrollments,
         visibleStudents: livePortal.visibleStudents,
         visibleFamilies: livePortal.visibleFamilies,
@@ -250,8 +245,6 @@ export async function PortalShell({
     section === "dashboard" ||
     section === "attendance" ||
     section === "academics";
-  const needsBillingRows =
-    section === "dashboard" || section === "families" || section === "billing";
   const needsSettingsRows = section === "settings";
   const metrics = needsDashboardData && livePortal
     ? getDashboardMetricsFromContext(role, context)
@@ -303,16 +296,10 @@ export async function PortalShell({
         ? livePortal.visibleResources
         : getSectionResourceRows(role)
       : [];
-  const visibleThreadPosts = livePortal?.visibleThreadPosts ?? {};
   const trendRows = needsTrendRows && livePortal
     ? getStudentTrendViewFromContext(role, context)
     : needsTrendRows
       ? getStudentTrendView(role)
-      : [];
-  const billingRows = needsBillingRows && livePortal
-    ? getBillingRowsFromContext(context, role)
-    : needsBillingRows
-      ? getBillingRows(role)
       : [];
   const programRows = section === "programs" ? getProgramRowsFromContext(context) : [];
   const settingsRoleRows = needsSettingsRows
@@ -385,10 +372,6 @@ export async function PortalShell({
         ]
     : [];
 
-  const rosterMaps =
-    liveAttendance?.rosters ??
-    Object.fromEntries(todaySessions.map((session) => [session.id, getSessionRosterView(role, session.id)]));
-
   const attendanceSessions =
     liveAttendance?.sessions ??
     todaySessions.map((session) => ({
@@ -397,43 +380,16 @@ export async function PortalShell({
       timeLabel: formatTimeRange(session.startAt, session.endAt),
       roomLabel: session.roomLabel,
     }));
-  const instructorSupportSessions =
-    role === "instructor" && attendanceSessions.length === 0
-      ? context.visibleSessions.map((session) => ({
-          id: session.id,
-          title: session.title,
-          timeLabel: formatTimeRange(session.startAt, session.endAt),
-          roomLabel: session.roomLabel,
-        }))
-      : attendanceSessions;
-  const instructorSupportRosters =
-    role === "instructor" && attendanceSessions.length === 0
-      ? Object.fromEntries(
-          context.visibleSessions.map((session) => [
-            session.id,
-            context.visibleEnrollments
-              .filter(
-                (enrollment) =>
-                  enrollment.cohortId === session.cohortId && enrollment.status === "active",
-              )
-              .map((enrollment) => {
-                const student = context.visibleStudents.find(
-                  (candidate) => candidate.id === enrollment.studentId,
-                );
-
-                return student
-                  ? {
-                      studentId: student.id,
-                      studentName: `${student.firstName} ${student.lastName}`,
-                      attendance: "present" as const,
-                      trend: [],
-                    }
-                  : null;
-              })
-              .filter((row): row is { studentId: string; studentName: string; attendance: "present"; trend: [] } => row !== null),
-          ]),
-        )
-      : rosterMaps;
+  const contextRosterMaps =
+    section === "attendance" ? buildVisibleSessionRosterMaps(role, context) : {};
+  const rosterMaps = Object.fromEntries(
+    attendanceSessions.map((session) => {
+      const liveRows = liveAttendance?.rosters?.[session.id] ?? [];
+      return [session.id, liveRows.length > 0 ? liveRows : (contextRosterMaps[session.id] ?? [])];
+    }),
+  );
+  const instructorSupportSessions = attendanceSessions;
+  const instructorSupportRosters = rosterMaps;
   const roleScopedCohortCount =
     role === "engineer" || role === "admin" || role === "staff"
       ? context.visibleCohorts.length
@@ -616,12 +572,6 @@ export async function PortalShell({
               </div>
             </div>
           ) : null}
-
-          <AdminAnnouncementNotices
-            announcements={activeAdminAnnouncements.slice(0, 2)}
-            viewerId={currentUser.id}
-            className="mb-5"
-          />
 
           {role === "engineer" &&
           viewer.mode === "live" &&
@@ -808,12 +758,12 @@ export async function PortalShell({
                 trendRows,
                 visibleNotes,
                 visibleResources,
-                visibleThreadPosts,
                 visibleSyncJobs,
                 visibleImportRuns,
+                studentFieldDefinitions: livePortal?.studentFieldDefinitions ?? [],
+                studentImportRuns: livePortal?.studentImportRuns ?? [],
                 intakeSyncSource,
                 billingSyncSource,
-                billingRows,
                 programRows,
                 settingsRoleRows,
                 settingsUsers: livePortal?.settingsUsers ?? null,
@@ -857,12 +807,12 @@ function renderSectionContent({
   trendRows,
   visibleNotes,
   visibleResources,
-  visibleThreadPosts,
   visibleSyncJobs,
   visibleImportRuns,
+  studentFieldDefinitions,
+  studentImportRuns,
   intakeSyncSource,
   billingSyncSource,
-  billingRows,
   programRows,
   settingsRoleRows,
   settingsUsers,
@@ -897,12 +847,12 @@ function renderSectionContent({
   trendRows: ReturnType<typeof getStudentTrendView>;
   visibleNotes: ReturnType<typeof getVisibleNotes>;
   visibleResources: ReturnType<typeof getSectionResourceRows>;
-  visibleThreadPosts: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["visibleThreadPosts"];
   visibleSyncJobs: ReturnType<typeof getVisibleSyncJobs>;
   visibleImportRuns: ReturnType<typeof getVisibleImportRuns>;
+  studentFieldDefinitions: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["studentFieldDefinitions"];
+  studentImportRuns: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["studentImportRuns"];
   intakeSyncSource: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["intakeSyncSource"];
   billingSyncSource: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["billingSyncSource"];
-  billingRows: ReturnType<typeof getBillingRows>;
   programRows: ReturnType<typeof getProgramRowsFromContext>;
   settingsRoleRows: ReturnType<typeof getSettingsRoleRows>;
   settingsUsers: NonNullable<Awaited<ReturnType<typeof getLivePortalBundle>>>["settingsUsers"];
@@ -942,6 +892,8 @@ function renderSectionContent({
   todayResults: ReturnType<typeof getTodayResults>;
   context: ReturnType<typeof getPortalContext>;
 }) {
+  const instructorDeclinerRows = trendRows.filter((student) => (student.deltaFromPrevious ?? 0) < 0);
+
   switch (section) {
     case "dashboard":
       return (
@@ -993,16 +945,11 @@ function renderSectionContent({
           ) : null}
           {role === "ta" && taOps ? (
             <TaDashboardPanels
-              viewerId={viewerId}
               viewerMode={viewerMode}
               tasks={visibleAdminTasks}
               taskActivities={taOps.taskActivities}
               threads={context.visibleThreads}
-              sessions={context.visibleSessions}
-              sessionChecklists={taOps.sessionChecklists}
               handoffNotes={taOps.handoffNotes}
-              coverageFlags={taOps.coverageFlags}
-              announcements={visibleAdminAnnouncements}
               trendRows={trendRows}
             />
           ) : null}
@@ -1092,8 +1039,8 @@ function renderSectionContent({
                     title="Today’s score picture"
                     description="Instructors can see same-day assessment totals, section breakdowns, and trend direction for assigned students."
                   />
-                  <div className="mt-5 space-y-4">
-                    {trendRows.map((student) => (
+                  <div className="mt-5 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                    {instructorDeclinerRows.map((student) => (
                       <div
                         key={student.studentId}
                         className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
@@ -1118,12 +1065,17 @@ function renderSectionContent({
                         <TrendSparkline className="mt-3" points={student.trend} />
                       </div>
                     ))}
+                    {instructorDeclinerRows.length === 0 ? (
+                      <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+                        No score decliners are visible in your assigned classes right now.
+                      </div>
+                    ) : null}
                   </div>
                 </>
               ) : role === "ta" ? (
                 <>
                   <SectionHeading
-                    eyebrow="Support lane"
+                    eyebrow="Family context"
                     title="Family threads"
                     description="TA messaging remains scoped to assigned cohorts and their families."
                   />
@@ -1149,9 +1101,9 @@ function renderSectionContent({
               ) : (
                 <>
                   <SectionHeading
-                    eyebrow="Intake and billing"
-                    title="Lead and tuition snapshot"
-                    description="Leads come from intake imports or staff entry; billing risk comes from synced or manually entered invoices."
+                    eyebrow="Intake"
+                    title="Lead snapshot"
+                    description="Leads come from intake imports or staff entry."
                   />
                   <div className="mt-5 space-y-3">
                     {visibleLeads.map((lead) => (
@@ -1189,11 +1141,17 @@ function renderSectionContent({
             viewerMode={viewerMode}
             cohorts={context.visibleCohorts}
             sessions={context.visibleSessions}
+            instructionBlocks={context.visibleSessionInstructionBlocks}
+            students={context.visibleStudents}
+            enrollments={context.visibleEnrollments}
+            users={context.visibleUsers}
             canManage={permissions.canManageSchedules}
+            canManageRoster={permissions.canMoveSingleEnrollment}
+            canManageInstructionBlocks={role === "admin" || role === "staff" || role === "ta"}
           />
 
           <div className="space-y-5">
-            {permissions.canManageSchedules ? (
+            {role === "admin" || role === "staff" || role === "ta" ? (
               <AdminSessionCreatePanel viewerMode={viewerMode} cohorts={context.visibleCohorts} />
             ) : null}
             <SectionPanel>
@@ -1213,6 +1171,11 @@ function renderSectionContent({
                     </div>
                   </div>
                 ))}
+                {context.visibleCohorts.length === 0 ? (
+                  <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+                    No cohorts are visible for this role yet.
+                  </div>
+                ) : null}
               </div>
             </SectionPanel>
           </div>
@@ -1233,6 +1196,59 @@ function renderSectionContent({
               />
             </SectionPanel>
           )}
+          <SectionPanel>
+            <SectionHeading
+              eyebrow="Cohort map"
+              title="Created cohorts"
+              description="Every visible active cohort is listed here, including cohorts that do not have classes scheduled yet."
+            />
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {context.visibleCohorts.map((cohort) => {
+                const program = context.visiblePrograms.find((item) => item.id === cohort.programId);
+                const campus = context.visibleCampuses.find((item) => item.id === cohort.campusId);
+                const term = context.visibleTerms.find((item) => item.id === cohort.termId);
+                const classCount = context.visibleSessions.filter((session) => session.cohortId === cohort.id).length;
+
+                return (
+                  <div
+                    key={cohort.id}
+                    className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4"
+                  >
+                    <div className="text-base font-semibold text-[color:var(--navy-strong)]">{cohort.name}</div>
+                    <div className="mt-1 text-sm text-[color:var(--muted)]">
+                      {program?.name ?? "Program"} · {campus?.name ?? cohort.roomLabel}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        {cohort.cadence}
+                      </span>
+                      <span className="rounded-full border border-[rgba(115,138,123,0.22)] bg-[rgba(115,138,123,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--sage)]">
+                        {cohort.cohortMode}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      <div>
+                        <div className="font-semibold text-[color:var(--navy-strong)]">{cohort.enrolled}/{cohort.capacity}</div>
+                        <div>Filled</div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[color:var(--navy-strong)]">{classCount}</div>
+                        <div>Classes</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs text-[color:var(--muted)]">
+                      {term?.name ?? "Term"} · {cohort.startDate ?? "No start"} to {cohort.endDate ?? "No end"}
+                    </div>
+                  </div>
+                );
+              })}
+              {context.visibleCohorts.length === 0 ? (
+                <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)] md:col-span-2 xl:col-span-3">
+                  No cohorts are visible for this role yet.
+                </div>
+              ) : null}
+            </div>
+          </SectionPanel>
         </div>
       );
 
@@ -1288,16 +1304,47 @@ function renderSectionContent({
           enrollments={context.visibleEnrollments}
           assessments={context.visibleAssessments}
           results={context.visibleResults}
+          fieldDefinitions={studentFieldDefinitions}
+          importRuns={studentImportRuns}
         />
       );
 
-    case "families":
+    case "families": {
+      const taTodayCohortIds = new Set(todaySessions.map((session) => session.cohortId));
+      const taTodayStudentIds = new Set(
+        context.visibleEnrollments
+          .filter((enrollment) => taTodayCohortIds.has(enrollment.cohortId))
+          .map((enrollment) => enrollment.studentId),
+      );
+      const taTodayFamilyIds = new Set(
+        context.visibleStudents
+          .filter((student) => taTodayStudentIds.has(student.id))
+          .map((student) => student.familyId),
+      );
+      const taFamilyContextFamilies =
+        role === "ta"
+          ? context.visibleFamilies.filter((family) => taTodayFamilyIds.has(family.id))
+          : context.visibleFamilies;
+      const taFamilyContextStudents =
+        role === "ta"
+          ? context.visibleStudents.filter((student) => taTodayStudentIds.has(student.id))
+          : context.visibleStudents;
+      const taFamilyContextThreads =
+        role === "ta"
+          ? context.visibleThreads.filter((thread) => taTodayCohortIds.has(thread.cohortId))
+          : context.visibleThreads;
+      const taFamilyContextContactEvents =
+        role === "ta"
+          ? (taOps?.familyContactEvents ?? []).filter((event) => taTodayFamilyIds.has(event.familyId))
+          : [];
+
       return (
         <div className="space-y-5">
           {role === "admin" && adminOps ? (
             <AdminFamilyOpsPanel
               viewerMode={viewerMode}
               families={context.visibleFamilies}
+              students={context.visibleStudents}
               contactEvents={adminOps.familyContactEvents}
             />
           ) : null}
@@ -1305,56 +1352,22 @@ function renderSectionContent({
             <StaffFamilyOpsPanel
               viewerMode={viewerMode}
               families={context.visibleFamilies}
+              students={context.visibleStudents}
               contactEvents={staffOps.familyContactEvents}
             />
           ) : null}
           {role === "ta" ? (
             <TaFamilySupportPanel
-              families={context.visibleFamilies}
-              students={context.visibleStudents}
-              threads={context.visibleThreads}
+              viewerMode={viewerMode}
+              families={taFamilyContextFamilies}
+              students={taFamilyContextStudents}
+              threads={taFamilyContextThreads}
+              contactEvents={taFamilyContextContactEvents}
             />
           ) : null}
-          {role === "ta" ? null : (
-            <section className="grid gap-4 md:grid-cols-2">
-            {context.visibleFamilies.map((family) => {
-              const invoice = billingRows.find((row) => row.familyName === family.familyName);
-              return (
-                <SectionPanel key={family.id}>
-                  <div className="section-kicker">Guardian relationship</div>
-                  <h3 className="display-font mt-2 text-2xl text-[color:var(--navy-strong)]">
-                    {family.familyName} family
-                  </h3>
-                  <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
-                    <div>{family.guardianNames.join(" · ")}</div>
-                    <div>{family.email}</div>
-                    <div>{family.phone}</div>
-                    <div>{family.notes}</div>
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    <span className="rounded-full border border-[color:var(--line)] bg-stone-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                      Campus preference noted
-                    </span>
-                    {(permissions.canViewBilling || role === "engineer") && invoice ? (
-                      <span className="rounded-full border border-[rgba(187,110,69,0.24)] bg-[rgba(187,110,69,0.12)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--copper)]">
-                        {typeof invoice.amountDue === "number" ? formatMoney(invoice.amountDue) : "Protected"} due
-                      </span>
-                    ) : null}
-                    {role === "engineer" && !family.sensitiveAccessGranted ? (
-                      <EngineerBreakGlassButton
-                        scopeType="family"
-                        scopeId={family.id}
-                        label={`${family.familyName} family`}
-                      />
-                    ) : null}
-                  </div>
-                </SectionPanel>
-              );
-            })}
-            </section>
-          )}
         </div>
       );
+    }
 
     case "programs":
       return (
@@ -1408,7 +1421,7 @@ function renderSectionContent({
                 </div>
                 <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm font-semibold text-[color:var(--navy-strong)]">
                   <span>Fill rate {row.fillRate}%</span>
-                  <span>{formatMoney(row.tuition)}</span>
+                  <span>{row.programFormat}</span>
                 </div>
               </SectionPanel>
             ))}
@@ -1506,20 +1519,22 @@ function renderSectionContent({
                 )}
               </SectionPanel>
             ) : null}
-            <SectionPanel>
-              <SectionHeading
-                eyebrow="Internal notes"
-                title="Coaching memory"
-                description="TA and staff can preserve coaching context and follow-up prompts."
-              />
-              <div className="mt-5 space-y-3">
-                {visibleNotes.map((note) => (
-                  <div key={note.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                    <div className="text-sm text-[color:var(--muted)]">{note.summary}</div>
-                  </div>
-                ))}
-              </div>
-            </SectionPanel>
+            {role !== "instructor" ? (
+              <SectionPanel>
+                <SectionHeading
+                  eyebrow="Internal notes"
+                  title="Coaching memory"
+                  description="TA and staff can preserve coaching context and follow-up prompts."
+                />
+                <div className="mt-5 space-y-3">
+                  {visibleNotes.map((note) => (
+                    <div key={note.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+                      <div className="text-sm text-[color:var(--muted)]">{note.summary}</div>
+                    </div>
+                  ))}
+                </div>
+              </SectionPanel>
+            ) : null}
             <SectionPanel>
               <SectionHeading
                 eyebrow="Published resources"
@@ -1560,99 +1575,20 @@ function renderSectionContent({
 
     case "messaging":
       return (
-        <div className="space-y-5">
-          {role === "admin" ? (
-            <AdminMessagingBulkPanel
-              viewerMode={viewerMode}
-              cohorts={context.visibleCohorts}
-              families={context.visibleFamilies}
-              students={context.visibleStudents}
-              enrollments={context.visibleEnrollments}
-            />
-          ) : null}
-          {role === "staff" && staffOps ? (
-            <StaffMessagingPanel
-              viewerMode={viewerMode}
-              cohorts={context.visibleCohorts}
-              families={context.visibleFamilies}
-              students={context.visibleStudents}
-              enrollments={context.visibleEnrollments}
-              templates={staffOps.outreachTemplates}
-            />
-          ) : null}
-          {role === "ta" ? (
-            <TaMessagingPanel
-              viewerMode={viewerMode}
-              cohorts={context.visibleCohorts}
-              families={context.visibleFamilies}
-              students={context.visibleStudents}
-              enrollments={context.visibleEnrollments}
-            />
-          ) : null}
-          <MessagingReplyPanel
-            viewerRole={role}
-            threads={context.visibleThreads}
-            threadPosts={visibleThreadPosts}
-            readOnly={viewerMode === "live-role-preview"}
-          />
-        </div>
+        <UnderConstructionPanel
+          eyebrow="Communication"
+          title="Family messaging is under construction"
+          description="Threaded family messaging is intentionally hidden for now and will not send messages from this dashboard."
+        />
       );
 
     case "billing":
-      return role === "admin" && adminOps ? (
-        <AdminBillingPanel
-          viewerMode={viewerMode}
-          rows={billingRows}
-          notes={adminOps.billingFollowUpNotes}
-          savedViews={adminOps.savedViews}
+      return (
+        <UnderConstructionPanel
+          eyebrow="Billing"
+          title="Tuition visibility is under construction"
+          description="Tuition visibility and billing workflows are intentionally hidden for now. External billing sync controls are not shown."
         />
-      ) : role === "staff" && staffOps ? (
-        <StaffBillingPanel
-          viewerMode={viewerMode}
-          rows={billingRows}
-          tasks={visibleAdminTasks}
-          notes={staffOps.billingFollowUpNotes}
-          savedViews={staffOps.savedViews}
-        />
-      ) : (
-        <SectionPanel>
-          <SectionHeading
-            eyebrow="Read-only finance"
-            title="Invoice visibility"
-            description="Billing stays hidden from instructors and TAs. Admin and staff can review balance posture here."
-          />
-          <div className="mt-5 overflow-hidden rounded-[1.75rem] border border-[color:var(--line)]">
-            <div className="grid grid-cols-[minmax(0,1.2fr)_auto_auto_auto] gap-4 bg-[rgba(23,56,75,0.06)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-              <span>Family</span>
-              <span>Amount due</span>
-              <span>Source</span>
-              <span>Status</span>
-            </div>
-            {billingRows.map((row) => (
-              <div
-                key={row.invoiceId}
-                className="grid grid-cols-[minmax(0,1.2fr)_auto_auto_auto] gap-4 border-t border-[color:var(--line)] bg-white/75 px-5 py-4 text-sm"
-              >
-                <div>
-                  <div className="font-semibold text-[color:var(--navy-strong)]">{row.familyName}</div>
-                  {role === "engineer" && !row.sensitiveAccessGranted ? (
-                    <EngineerBreakGlassButton
-                      scopeType="billing"
-                      scopeId={context.visibleFamilies.find((family) => family.familyName === row.familyName)?.id ?? row.invoiceId}
-                      label={`${row.familyName} billing`}
-                      className="mt-2"
-                    />
-                  ) : null}
-                </div>
-                <span className="text-[color:var(--muted)]">
-                  {typeof row.amountDue === "number" ? formatMoney(row.amountDue) : "Protected"}
-                </span>
-                <span className="text-[color:var(--muted)]">{row.source}</span>
-                <InvoiceStatusPill status={row.status} />
-              </div>
-            ))}
-          </div>
-        </SectionPanel>
       );
 
     case "integrations":
@@ -1661,11 +1597,6 @@ function renderSectionContent({
           <IntakeImportPanel
             recentRuns={visibleImportRuns}
             syncSource={intakeSyncSource}
-            readOnly={viewerMode === "live-role-preview"}
-            canManageSource={permissions.canManageSyncSources}
-          />
-          <BillingSyncPanel
-            syncSource={billingSyncSource}
             readOnly={viewerMode === "live-role-preview"}
             canManageSource={permissions.canManageSyncSources}
           />

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  STUDENT_IMPORT_FIELD_LABELS,
   findStudentImportField,
+  formatStudentImportSummary,
+  getStudentImportTargetLabel,
   normalizeStudentImportHeader,
   normalizeStudentImportRow,
   suggestStudentImportMapping,
@@ -8,6 +11,25 @@ import {
 } from "@/lib/student-import-schema";
 
 describe("student import schema", () => {
+  it("formats preview counts and partition labels for the import workflow", () => {
+    expect(formatStudentImportSummary({
+      creates: 2,
+      updates: 1,
+      enrollments: 1,
+      skips: 0,
+      warnings: 1,
+      errors: 0,
+    })).toBe("2 creates, 1 update, 1 enrollment, 0 skipped, 1 warning.");
+    expect(getStudentImportTargetLabel(true)).toBe("Demo data only");
+    expect(getStudentImportTargetLabel(false)).toBe("Main data");
+  });
+
+  it("exposes every known destination with an admin-friendly label", () => {
+    expect(STUDENT_IMPORT_FIELD_LABELS.studentEmail).toBe("Student email");
+    expect(STUDENT_IMPORT_FIELD_LABELS.registeredAt).toBe("Registration date");
+    expect(Object.keys(STUDENT_IMPORT_FIELD_LABELS)).toHaveLength(20);
+  });
+
   it("normalizes punctuation and suggests known aliases", () => {
     expect(normalizeStudentImportHeader(" Student_First-Name ")).toBe("student first name");
     expect(normalizeStudentImportHeader("Parent / Guardian Email")).toBe("parent/guardian email");
@@ -20,6 +42,7 @@ describe("student import schema", () => {
       field: "parent1Email",
     });
     expect(findStudentImportField(" Student Name ")).toBe("fullName");
+    expect(findStudentImportField("Gr")).toBe("gradeLevel");
     expect(findStudentImportField("Unmapped score")).toBeNull();
   });
 

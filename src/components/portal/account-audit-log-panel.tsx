@@ -18,6 +18,7 @@ function formatTimestamp(value: string) {
 }
 
 export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [issueReference, setIssueReference] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
@@ -73,12 +74,32 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
   return (
     <section className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
       <div className="section-kicker">Governance trail</div>
-      <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-        Account audit log
-      </h3>
-      <p className="mt-3 text-sm text-[color:var(--muted)]">
-        Recent account, role, suspension, and password-governance actions recorded in Supabase.
-      </p>
+      <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="display-font text-3xl text-[color:var(--navy-strong)]">
+            Account audit log
+          </h3>
+          <p className="mt-3 text-sm text-[color:var(--muted)]">
+            Recent account, role, suspension, and password-governance actions recorded in Supabase.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
+        >
+          {open ? "Hide audit log" : "Open audit log"}
+        </button>
+      </div>
+
+      {!open ? (
+        <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+          Audit entries are hidden until opened.
+        </div>
+      ) : null}
+
+      {open ? (
+        <>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <input
@@ -163,6 +184,8 @@ export function AccountAuditLogPanel({ entries }: AccountAuditLogPanelProps) {
           ))}
         </div>
       )}
+        </>
+      ) : null}
     </section>
   );
 }

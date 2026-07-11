@@ -26,7 +26,7 @@ export default async function ResetPasswordPage({
     redirect("/dashboard?role=admin");
   }
 
-  const viewer = await getAuthenticatedViewerForRequest();
+  const viewer = await getAuthenticatedViewerForRequest({ allowPasswordChangeRequired: true });
 
   if (!viewer) {
     redirect(

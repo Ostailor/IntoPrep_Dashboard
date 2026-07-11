@@ -5,6 +5,7 @@ import {
   normalizeManagedEmail,
   recordAccountAuditLog,
 } from "@/lib/account-governance";
+import { expirePortalLiveCache } from "@/lib/cache-invalidation";
 import {
   canDeleteRole,
   canManageRoleTransition,
@@ -145,6 +146,8 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  expirePortalLiveCache();
+
   return NextResponse.json({
     ok: true,
     userId: createdAuthUser.id,
@@ -254,6 +257,8 @@ export async function PATCH(request: NextRequest) {
       toRole: role,
     },
   });
+
+  expirePortalLiveCache();
 
   return NextResponse.json({
     ok: true,
@@ -371,6 +376,8 @@ export async function PUT(request: NextRequest) {
     },
   });
 
+  expirePortalLiveCache();
+
   return NextResponse.json({
     ok: true,
     userId: targetProfile.id,
@@ -487,6 +494,8 @@ export async function DELETE(request: NextRequest) {
       deletedAt,
     },
   });
+
+  expirePortalLiveCache();
 
   return NextResponse.json({
     ok: true,

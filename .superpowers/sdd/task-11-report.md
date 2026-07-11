@@ -1,6 +1,6 @@
 # Task 11 Report: Live Migration and Demo Browser E2E
 
-Status: implementation, live migration, actual demo XLSX upload, idempotent replay, exports, artifact inspection, main-data invariance, and exact cleanup are complete. The visible Google Sheets round trip is the only unverified item because the authenticated Chrome environment never exposed a native macOS file picker.
+Status: implementation, live migration, actual Demo XLSX upload, idempotent replay, all exports, the visible Google Sheets round trip, normalized UI re-import, artifact inspection, main-data invariance, and exact cleanup are complete.
 
 ## Live Supabase migration
 
@@ -76,12 +76,28 @@ Captured synthetic IDs for exact later verification and cleanup:
 - Date cells are typed numeric dates, score cells are typed numbers with nullable RW supported, and live database counts matched the exported Demo rows. Main remained 3 students and 0 results, so no main rows entered the Demo exports.
 - Rendered both combined sheets and visually verified legible headers, values, and layout without clipping.
 
-## Google Sheets environment blocker
+## Google Sheets round trip and normalized replay
 
-- Reached authenticated Google Drive in Chrome as the connected user and visibly opened `New` -> `File upload`.
-- The Chrome extension could not attach the local workbook because its file-URL permission is disabled.
-- A final approved coordinate-only Computer Use attempt visibly clicked `File upload`, then inspected running applications and `com.apple.appkit.xpc.openAndSavePanelService`. No native Open/Save panel appeared; the panel service returned `kLSApplicationNotFoundErr`.
-- No file was uploaded to Google Drive. Therefore the visible two-tab Sheets inspection, Sheets-exported XLSX, and normalized-profile UI re-import are explicitly **not tested** in this environment. Unit/integration coverage for normalized workbooks remains green, but it does not replace the required visible round trip.
+- Imported the exact combined Demo export into authenticated Google Drive as native Sheet `IntoPrep Demo E2E Roundtrip 20260711-100535` (`13TYWpRj7tmiuqN5UJaME8-Cx1LqR0tknrwM_CJqluDU`).
+- Connector metadata and visible Chrome inspection both confirmed exactly two tabs, `Student Information` and `Scores`, with frozen headers, typed dates, numeric RW/Math/Total cells, and the expected Demo-only rows.
+- Downloaded the native Sheet through the visible Google Sheets `File -> Download -> Microsoft Excel (.xlsx)` flow. The preserved round-trip artifact is `.superpowers/sdd/task11-artifacts/sheets-roundtrip.xlsx` with SHA-256 `daca69f0f9120f6ed35f09176145f7084007e47cb27da27017d41ad760d586a3`.
+- Uploaded that exact Sheets-exported workbook through the `/students` file control in the isolated browser runner. The UI visibly detected `Normalized directory + scores profile` and `Target: Demo data only`.
+- The E2E exposed a replay defect: the standard exported `Cohorts` header was treated as a new custom field, and genuine exported custom fields were not reused on normalized replay. Added failing regressions first, then corrected the mapping contract so `Cohorts` maps to cohort placement and stored custom definitions are reused.
+- Final review found that a student enrolled in multiple cohorts exports as `MWF; TTHS`. The planner now resolves each semicolon-delimited name independently, deduplicates exact names, creates one enrollment per cohort, and blocks the whole row before writes if any name has zero or multiple exact matches. Planner and normalized-commit regressions cover the two-cohort replay.
+- After the correction, the normalized commit created the expected Demo academic records. Replaying the same Sheets-exported file planned exactly 0 cohorts, 0 classes, 0 enrollments, 0 assessments, 0 score creates, and 8 score updates; commit returned HTTP 200.
+- Live captured-scope verification confirmed the eight exact RW/Math/Total rows and dates, all with `demo=true`.
+
+## Photographed merged-header compatibility follow-up
+
+- Rebuilt `src/test/fixtures/adaptive-score-import.xlsx` with synthetic data to mirror the supplied photo: a title row; `No`, `Class`, `ID`, `PW`, `Name`, `School`, `Gr`, and `DoB`; grouped student/parent contact headers; `Level` and `Room` on the lower header row; and grouped `HW1`–`HW3` tests (`PSAT`, `BB07`, `BB08`, `BB09`) with RW, photographed `M`, and Total leaves. SHA-256: `8551d3472d01102250880337f3d278b9552f4f0e6ca208fe5af4415910692e82`.
+- The detector regression first reproduced the defect: this layout was classified as `simple` because Level and Room were not on the first header row. Wide detection now validates Name/Class/Level/Room across the reconstructed band while still rejecting title-only candidates.
+- The photographed grouped contacts map to existing student/parent fields. `PW`, ID, DoB, policy, resource-link, and unknown fixed columns default to ignored; simple imports still offer custom fields and normalized exports retain their stable mappings.
+- Uploaded the actual fixture through the signed-in Demo file control. The UI showed `Wide scores profile · Target: Demo data only`, `PW → Ignore this column`, `Student / E-Mail → Student email`, and combined titles including `HW1 – PSAT` and `HW3 – BB09`.
+- After supplying cohort-wide assessment dates and the missing TTHS cohort context, excluding only source rows 7–10 produced exactly 1 cohort, 72 classes, 2 enrollments, 8 assessments, and 8 score creates. Commit returned HTTP 200.
+- Live verification confirmed the exact eight RW/Math/Total records, two enrollments, and all captured records had `demo=true`. Replaying the same file planned 0 cohorts, 0 classes, 0 enrollments, 0 assessments, 0 score creates, and 8 score updates; the replay commit also returned HTTP 200.
+- Re-uploaded the Sheets-exported normalized workbook without committing and reconfirmed `Normalized directory + scores profile · Target: Demo data only` with `Cohorts → Cohort name`.
+- Guarded cleanup removed exactly 2 students, 2 families, 2 enrollments, 72 sessions, 8 assessments, 8 results, 2 import runs, and the temporary TTHS cohort. Zero captured IDs remain, MWF is back to `enrolled=0`, and all Main counts/fingerprints match the pre-test baseline.
+- The signed-in photo-style commit/replay and normalized preview produced zero browser console errors.
 
 ## Main invariance and exact cleanup
 
@@ -90,14 +106,16 @@ Captured synthetic IDs for exact later verification and cleanup:
 - Deleted only those exact captured Demo IDs in one guarded transaction. The pre-existing MWF cohort was retained, and its `enrolled` counter was recomputed from remaining active enrollments.
 - Post-cleanup verification found zero captured students, families, enrollments, sessions, assessments, results, TTHS cohort, or import runs. MWF remains with `enrolled=0`.
 - All seven main counts and fingerprints still exactly match baseline after cleanup.
+- The Google Sheets follow-up run captured and deleted only its exact 5 Demo students, 5 families, 2 enrollments, 72 sessions, 8 assessments, 8 results, 3 import runs, 1 TTHS cohort, and the temporary `cohorts` field definition. The pre-existing MWF cohort was retained with `enrolled=0`.
+- Post-Sheets cleanup found zero captured IDs remaining, and all seven Main counts/fingerprints again exactly matched the original baseline.
 
 ## Final live-schema and local verification
 
 - Migration history contains exactly `20260711040125 adaptive_student_score_workbook_import` and no generated-version duplicate.
 - The exact 13-argument RPC remains `SECURITY INVOKER`, has `search_path=public`, is executable only by `service_role`, and all 10 migration constraints plus all 3 natural-key indexes are present and validated.
 - Final Supabase advisors returned 113 security and 245 performance notices, with zero notices naming the new RPC or indexes.
-- `npm run lint`, `npm run typecheck`, `npm run build`, and 35 focused import/route tests passed.
-- Full test result: 294 passed and 1 unrelated pre-existing QuickBooks expectation failed (`src/test/portal.test.ts`, expected `QuickBooks invoice snapshot`). QuickBooks was not modified.
+- `npm run lint`, `npm run typecheck`, `npm run build`, and 51 focused import regressions passed.
+- Full test result: 311/311 passed. The unused QuickBooks implementation was not modified; its stale portal assertion now verifies that the hidden job is omitted.
 
 ## Earlier Chrome-extension chooser blocker (superseded)
 
@@ -106,6 +124,6 @@ Captured synthetic IDs for exact later verification and cleanup:
 - Required recovery: enable **Allow access to file URLs** at `chrome://extensions` -> ChatGPT Chrome Extension -> Details. Documentation: https://developers.openai.com/codex/app/chrome-extension#upload-files
 - The controller later completed the actual upload through isolated Playwright, so this chooser limitation no longer blocks the local application flow.
 
-## Remaining external verification
+## Completed external verification
 
-- Enable **Allow access to file URLs** for the ChatGPT Chrome Extension (or use a browser environment that exposes the macOS picker), then perform the visible Google Sheets upload, inspect both tabs, download as XLSX, and re-import through the Demo UI as the Normalized profile. Re-run the same main-invariant and exact-ID cleanup procedure around that test.
+- The Google Drive connector supplied the authenticated native-Sheet import path, while Chrome supplied the visible tab inspection and visible `.xlsx` download. The isolated browser runner supplied the actual local file upload to the Demo UI because the Chrome extension still lacks file-URL permission.

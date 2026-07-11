@@ -18,6 +18,7 @@ import type {
   Resource,
   ScoreTrendSnapshot,
   Session,
+  SessionInstructionBlock,
   Student,
   SyncStatus,
   SyncJob,
@@ -51,6 +52,7 @@ const programs: Program[] = [];
 const resources: Resource[] = [];
 const scoreTrends: ScoreTrendSnapshot[] = [];
 const sessions: Session[] = [];
+const sessionInstructionBlocks: SessionInstructionBlock[] = [];
 const students: Student[] = [];
 const syncJobs: SyncJob[] = [];
 const tasks: Task[] = [];
@@ -79,6 +81,7 @@ export interface AlertItem {
 export interface SessionRosterRow {
   studentId: string;
   studentName: string;
+  cohortId: string;
   gradeLevel?: string;
   school?: string;
   familyEmail?: string;
@@ -89,7 +92,19 @@ export interface SessionRosterRow {
     totalScore: number;
     deltaFromPrevious: number;
     sectionScores: { label: string; score: number }[];
+    date?: string;
+    notes?: string | null;
   };
+  practiceTests?: {
+    resultId: string;
+    assessmentId: string;
+    title: string;
+    date: string;
+    totalScore: number;
+    deltaFromPrevious: number;
+    sectionScores: { label: string; score: number }[];
+    notes?: string | null;
+  }[];
   trend: { label: string; score: number }[];
 }
 
@@ -103,6 +118,7 @@ export interface PortalContext {
   visibleUsers: typeof users;
   visibleCohorts: typeof cohorts;
   visibleSessions: typeof sessions;
+  visibleSessionInstructionBlocks: typeof sessionInstructionBlocks;
   visibleEnrollments: typeof enrollments;
   visibleStudents: typeof students;
   visibleFamilies: typeof families;
@@ -216,7 +232,7 @@ export const sectionMeta: Record<
   },
   academics: {
     title: "Academic follow-up",
-    summary: "Scores, notes, and support materials for classroom follow-up.",
+    summary: "A workspace for test scores, coaching notes, resource links, and instructor flags that need staff or TA follow-through.",
     eyebrow: "Academics",
   },
   messaging: {
@@ -336,6 +352,7 @@ export const getPortalContext = (role: UserRole): PortalContext => {
     visibleUsers: users,
     visibleCohorts,
     visibleSessions,
+    visibleSessionInstructionBlocks: sessionInstructionBlocks,
     visibleEnrollments,
     visibleStudents,
     visibleFamilies,
@@ -410,11 +427,11 @@ export const getRoleHeadline = (role: UserRole) => {
     case "engineer":
       return "System oversight, incident controls, admin governance, and audited support access when production issues need attention.";
     case "admin":
-      return "Operations view across cohorts, classrooms, family follow-up, and tuition visibility.";
+      return "Operations view across cohorts, classrooms, family follow-up, and student support.";
     case "staff":
       return "Enrollment, cohort health, and billing visibility without configuration access.";
     case "ta":
-      return "Assigned-cohort support lane with family communication and academic operations.";
+      return "Assigned-cohort coverage with family communication and academic operations.";
     case "instructor":
       return "Tight teaching lane: assigned classes, attendance, instructional notes, classroom supports, and read-only trends.";
   }
@@ -491,10 +508,10 @@ export const getDashboardMetricsFromContext = (
 ): MetricCardData[] => {
   const todaySessions = getTodaySessionsFromContext(context);
   const todayResults = getTodayResultsFromContext(context);
-  const pendingInvoices = context.visibleInvoices.filter((invoice) => invoice.status !== "paid");
   const openLeads = getVisibleLeadsFromContext(role, context).length;
   const visibleSyncJobs = getVisibleSyncJobsFromContext(role, context);
   const healthySyncJobs = visibleSyncJobs.filter((job) => job.status === "healthy").length;
+  const unreadFamilyThreads = context.visibleThreads.filter((thread) => thread.unreadCount > 0).length;
 
   switch (role) {
     case "engineer":
@@ -541,9 +558,9 @@ export const getDashboardMetricsFromContext = (
           tone: "copper",
         },
         {
-          label: "Billing follow-up",
-          value: `${pendingInvoices.length}`,
-          detail: "Families with pending or overdue tuition visibility in the operations queue.",
+          label: "Family follow-up",
+          value: String(unreadFamilyThreads),
+          detail: "Family threads waiting for review, staff handoff, or outreach context.",
           tone: "sage",
         },
         {
@@ -568,9 +585,9 @@ export const getDashboardMetricsFromContext = (
           tone: "copper",
         },
         {
-          label: "Visible balances",
-          value: String(pendingInvoices.length),
-          detail: "Read-only finance visibility from QuickBooks and manual records.",
+          label: "Cohort coverage",
+          value: String(context.visibleCohorts.length),
+          detail: "Cohorts visible for schedule prep, student placement, and family follow-up.",
           tone: "sage",
         },
         {
@@ -659,10 +676,7 @@ export const getAlertsFromSyncJobs = (
     ];
   }
 
-  const roleScopedJobs =
-    role === "ta"
-      ? visibleSyncJobs.filter((job) => job.id !== "sync-quickbooks")
-      : visibleSyncJobs;
+  const roleScopedJobs = visibleSyncJobs.filter((job) => job.id !== "sync-quickbooks");
   const prioritized = [...roleScopedJobs].sort((left, right) => {
     const rank = {
       error: 0,
@@ -699,11 +713,6 @@ export const getAlerts = (role: UserRole): AlertItem[] => {
       detail: "The legacy scheduling host is still unavailable; March 13 export remains in use.",
     },
     {
-      label: "QuickBooks reconciliation",
-      tone: "warning",
-      detail: "One overdue invoice needs manual family matching before next outreach window.",
-    },
-    {
       label: "Google Forms intake",
       tone: "healthy",
       detail: "New registrations from March 14, 2026 synced cleanly on the 8:00 AM run.",
@@ -718,10 +727,6 @@ export const getAlerts = (role: UserRole): AlertItem[] => {
         detail: "Today’s DSAT scores are visible read-only for your assigned students.",
       },
     ];
-  }
-
-  if (role === "ta") {
-    return items.filter((item) => item.label !== "QuickBooks reconciliation");
   }
 
   return items;
@@ -761,6 +766,9 @@ export const getSessionRosterView = (
   const studentById = new Map(source.students.map((student) => [student.id, student]));
   const familyById = new Map(source.families.map((family) => [family.id, family]));
   const assessmentById = new Map(source.assessments.map((assessment) => [assessment.id, assessment]));
+  const sessionAssessmentIds = source.assessments
+    .filter((assessment) => assessment.cohortId === session.cohortId)
+    .map((assessment) => assessment.id);
 
   const studentIds = source.enrollments
     .filter((enrollment) => enrollment.cohortId === session.cohortId && enrollment.status === "active")
@@ -770,7 +778,30 @@ export const getSessionRosterView = (
     .map((studentId) => {
       const student = studentById.get(studentId)!;
       const family = familyById.get(student.familyId)!;
-      const latestResult = context.visibleResults.find((result) => result.studentId === studentId);
+      const practiceTests = context.visibleResults
+        .filter((result) => result.studentId === studentId && sessionAssessmentIds.includes(result.assessmentId))
+        .map((result) => {
+          const assessment = assessmentById.get(result.assessmentId);
+
+          return assessment
+            ? {
+                resultId: result.id,
+                assessmentId: result.assessmentId,
+                title: assessment.title,
+                date: assessment.date,
+                totalScore: result.totalScore,
+                deltaFromPrevious: result.deltaFromPrevious,
+                sectionScores: result.sectionScores,
+                notes: result.notes,
+              }
+            : null;
+        })
+        .filter((result): result is NonNullable<typeof result> => result !== null)
+        .sort((left, right) => right.date.localeCompare(left.date));
+      const latestTest = practiceTests[0];
+      const latestResult = latestTest
+        ? context.visibleResults.find((result) => result.id === latestTest.resultId)
+        : undefined;
       const relatedAssessment = latestResult ? assessmentById.get(latestResult.assessmentId) : undefined;
       const trend = source.scoreTrends.find((snapshot) => snapshot.studentId === studentId)?.points ?? [];
       const attendance =
@@ -780,6 +811,7 @@ export const getSessionRosterView = (
       return {
         studentId,
         studentName: `${student.firstName} ${student.lastName}`,
+        cohortId: session.cohortId,
         gradeLevel: getPermissionProfile(role).canViewStudentProfileData ? student.gradeLevel : undefined,
         school: getPermissionProfile(role).canViewStudentProfileData ? student.school : undefined,
         familyEmail: canViewFamilyContactBasics(role) ? family.email : undefined,
@@ -792,8 +824,11 @@ export const getSessionRosterView = (
                 totalScore: latestResult.totalScore,
                 deltaFromPrevious: latestResult.deltaFromPrevious,
                 sectionScores: latestResult.sectionScores,
+                date: relatedAssessment.date,
+                notes: latestResult.notes,
               }
             : undefined,
+        practiceTests,
         trend,
       };
     })

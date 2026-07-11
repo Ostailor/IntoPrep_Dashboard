@@ -34,6 +34,15 @@ function formatDateTime(value?: string | null) {
   }).format(new Date(value));
 }
 
+function formatNewYorkDate(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/New_York",
+  }).format(new Date(value));
+}
+
 export function InstructorDashboardPanels({
   viewerMode,
   tasks,
@@ -71,6 +80,10 @@ export function InstructorDashboardPanels({
     () => new Map(sessions.map((session) => [session.id, session.title])),
     [sessions],
   );
+  const todaySessionRows = useMemo(() => {
+    const today = formatNewYorkDate(new Date().toISOString());
+    return sessions.filter((session) => formatNewYorkDate(session.startAt) === today);
+  }, [sessions]);
 
   const handleTaskUpdate = (taskId: string) => {
     if (readOnly) {
@@ -184,15 +197,16 @@ export function InstructorDashboardPanels({
                 <div className="mt-4 grid gap-3 md:grid-cols-[auto_auto_minmax(0,1fr)_auto]">
                   <select
                     value={draft.status}
-                    onChange={(event) =>
-                      setTaskDrafts((current) => ({
-                        ...current,
-                        [task.id]: {
-                          ...draft,
-                          status: event.currentTarget.value,
-                        },
-                      }))
-                    }
+	                    onChange={(event) => {
+                        const status = event.currentTarget.value;
+	                      setTaskDrafts((current) => ({
+	                        ...current,
+	                        [task.id]: {
+	                          ...draft,
+	                          status,
+	                        },
+	                      }));
+                      }}
                     className="rounded-full border border-[color:var(--line)] bg-white/90 px-4 py-2 text-sm text-[color:var(--navy-strong)]"
                     disabled={readOnly}
                   >
@@ -202,15 +216,16 @@ export function InstructorDashboardPanels({
                   </select>
                   <select
                     value={draft.noteType}
-                    onChange={(event) =>
-                      setTaskDrafts((current) => ({
-                        ...current,
-                        [task.id]: {
-                          ...draft,
-                          noteType: event.currentTarget.value,
-                        },
-                      }))
-                    }
+	                    onChange={(event) => {
+                        const noteType = event.currentTarget.value;
+	                      setTaskDrafts((current) => ({
+	                        ...current,
+	                        [task.id]: {
+	                          ...draft,
+	                          noteType,
+	                        },
+	                      }));
+                      }}
                     className="rounded-full border border-[color:var(--line)] bg-white/90 px-4 py-2 text-sm text-[color:var(--navy-strong)]"
                     disabled={readOnly}
                   >
@@ -220,15 +235,16 @@ export function InstructorDashboardPanels({
                   </select>
                   <input
                     value={draft.body}
-                    onChange={(event) =>
-                      setTaskDrafts((current) => ({
-                        ...current,
-                        [task.id]: {
-                          ...draft,
-                          body: event.currentTarget.value,
-                        },
-                      }))
-                    }
+	                    onChange={(event) => {
+                        const body = event.currentTarget.value;
+	                      setTaskDrafts((current) => ({
+	                        ...current,
+	                        [task.id]: {
+	                          ...draft,
+	                          body,
+	                        },
+	                      }));
+                      }}
                     className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-2 text-sm text-[color:var(--navy-strong)]"
                     placeholder="Add a teaching update."
                     disabled={readOnly}
@@ -269,11 +285,34 @@ export function InstructorDashboardPanels({
         </div>
       </div>
 
-      <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-        <div className="section-kicker">Follow-up watch</div>
-        <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-          Open teaching flags
-        </h3>
+	      <div className="space-y-5">
+	        <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
+	          <div className="section-kicker">Today&apos;s assigned classes</div>
+	          <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
+	            Teaching today
+	          </h3>
+	          <div className="mt-5 space-y-3">
+	            {todaySessionRows.map((session) => (
+	              <div key={session.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+	                <div className="text-base font-semibold text-[color:var(--navy-strong)]">{session.title}</div>
+	                <div className="mt-1 text-sm text-[color:var(--muted)]">
+	                  {formatDateTime(session.startAt)} · {session.roomLabel}
+	                </div>
+	              </div>
+	            ))}
+	            {todaySessionRows.length === 0 ? (
+	              <div className="rounded-[1.5rem] border border-dashed border-[color:var(--line)] bg-white/75 p-4 text-sm text-[color:var(--muted)]">
+	                No assigned classes are scheduled for today.
+	              </div>
+	            ) : null}
+	          </div>
+	        </div>
+
+	        <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
+	        <div className="section-kicker">Follow-up watch</div>
+	        <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
+	          Open teaching flags
+	        </h3>
         <p className="mt-2 text-sm text-[color:var(--muted)]">
           Flags you create here stay internal and surface to TA, staff, and admin operations views.
         </p>
@@ -306,9 +345,10 @@ export function InstructorDashboardPanels({
                 <div className="mt-3 text-sm text-[color:var(--navy-strong)]">{flag.note}</div>
               ) : null}
             </div>
-          ))}
-        </div>
-      </div>
+	          ))}
+	        </div>
+	        </div>
+	      </div>
     </div>
   );
 }

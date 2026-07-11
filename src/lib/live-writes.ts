@@ -292,12 +292,14 @@ export async function persistAssessmentResult({
   studentId,
   totalScore,
   sectionScores,
+  notes,
 }: {
   viewer: User;
   assessmentId: string;
   studentId: string;
   totalScore: number;
   sectionScores: unknown;
+  notes?: unknown;
 }) {
   if (!hasSupabaseServiceRole()) {
     throw new Error("Supabase service role is not configured.");
@@ -314,6 +316,7 @@ export async function persistAssessmentResult({
   }
 
   const normalizedSectionScores = normalizeSectionScores(sectionScores);
+  const normalizedNotes = typeof notes === "string" ? notes.trim() : "";
   const serviceClient = createSupabaseServiceClient();
   const { data: assessmentData, error: assessmentError } = await serviceClient
     .from("assessments")
@@ -414,6 +417,7 @@ export async function persistAssessmentResult({
       total_score: Math.round(totalScore),
       section_scores: normalizedSectionScores,
       delta_from_previous: deltaFromPrevious,
+      notes: normalizedNotes || null,
       demo: getDemoPartition(viewer),
     },
     { onConflict: "assessment_id,student_id" },

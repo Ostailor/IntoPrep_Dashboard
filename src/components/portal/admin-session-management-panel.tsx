@@ -3,13 +3,19 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
-import type { Cohort, Session } from "@/lib/domain";
+import type { Cohort, Enrollment, Session, SessionInstructionBlock, Student, User } from "@/lib/domain";
 
 interface AdminSessionManagementPanelProps {
   viewerMode: "preview" | "live" | "live-role-preview";
   cohorts: Cohort[];
   sessions: Session[];
+  instructionBlocks: SessionInstructionBlock[];
+  students: Student[];
+  enrollments: Enrollment[];
+  users: User[];
   canManage: boolean;
+  canManageRoster: boolean;
+  canManageInstructionBlocks: boolean;
 }
 
 function formatDateTimeLocal(value: string) {
@@ -50,15 +56,32 @@ function formatTimeRange(startAt: string, endAt: string) {
   return `${formatter.format(new Date(startAt))} - ${formatter.format(new Date(endAt))}`;
 }
 
+function formatTimeInput(value: string) {
+  return formatDateTimeLocal(value).slice(11, 16);
+}
+
+function classesOverlap(left: Session, right: Session) {
+  return Date.parse(left.startAt) < Date.parse(right.endAt) && Date.parse(right.startAt) < Date.parse(left.endAt);
+}
+
 export function AdminSessionManagementPanel({
   viewerMode,
   cohorts,
   sessions,
+  instructionBlocks,
+  students,
+  enrollments,
+  users,
   canManage,
+  canManageRoster,
+  canManageInstructionBlocks,
 }: AdminSessionManagementPanelProps) {
   const router = useRouter();
-  const readOnly = viewerMode === "live-role-preview" || !canManage;
+  const classReadOnly = viewerMode === "live-role-preview" || !canManage;
+  const rosterReadOnly = viewerMode === "live-role-preview" || !canManageRoster;
+  const instructionReadOnly = viewerMode === "live-role-preview" || !canManageInstructionBlocks;
   const [localSessions, setLocalSessions] = useState(sessions);
+  const [localInstructionBlocks, setLocalInstructionBlocks] = useState(instructionBlocks);
   const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id ?? "");
   const [formState, setFormState] = useState(() => {
     const session = sessions[0];
@@ -75,6 +98,18 @@ export function AdminSessionManagementPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [warningMessages, setWarningMessages] = useState<string[]>([]);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [sourceCohortFilter, setSourceCohortFilter] = useState("all");
+  const [studentPlacementId, setStudentPlacementId] = useState("");
+  const [showAddStudent, setShowAddStudent] = useState(false);
+  const [showScheduleEditor, setShowScheduleEditor] = useState(false);
+  const [instructionBlockForm, setInstructionBlockForm] = useState({
+    blockId: "",
+    title: "",
+    instructorId: "",
+    startTime: "",
+    endTime: "",
+  });
 
   const sortedCohorts = useMemo(
     () => [...cohorts].sort((left, right) => left.name.localeCompare(right.name)),
@@ -85,10 +120,87 @@ export function AdminSessionManagementPanel({
     [localSessions],
   );
   const selectedSession = sortedSessions.find((session) => session.id === selectedSessionId) ?? sortedSessions[0];
+  const cohortById = useMemo(() => new Map(cohorts.map((cohort) => [cohort.id, cohort])), [cohorts]);
+  const instructorOptions = useMemo(
+    () =>
+      users
+        .filter((user) => user.role === "admin" || user.role === "staff" || user.role === "ta" || user.role === "instructor")
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [users],
+  );
+  const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const activeEnrollmentByStudent = useMemo(() => {
+    const map = new Map<string, Enrollment>();
+    enrollments
+      .filter((enrollment) => enrollment.status === "active")
+      .forEach((enrollment) => {
+        if (!map.has(enrollment.studentId)) {
+          map.set(enrollment.studentId, enrollment);
+        }
+      });
+    return map;
+  }, [enrollments]);
+  const rosterStudents = useMemo(() => {
+    if (!selectedSession) {
+      return [];
+    }
+
+    return students
+      .filter((student) => activeEnrollmentByStudent.get(student.id)?.cohortId === selectedSession.cohortId)
+      .sort((left, right) => `${left.lastName} ${left.firstName}`.localeCompare(`${right.lastName} ${right.firstName}`));
+  }, [activeEnrollmentByStudent, selectedSession, students]);
+  const placementCandidates = useMemo(() => {
+    const normalizedSearch = studentSearch.trim().toLowerCase();
+
+    return [...students]
+      .sort((left, right) => `${left.lastName} ${left.firstName}`.localeCompare(`${right.lastName} ${right.firstName}`))
+      .filter((student) => {
+        const enrollment = activeEnrollmentByStudent.get(student.id);
+        const studentName = `${student.firstName} ${student.lastName}`.toLowerCase();
+
+        if (normalizedSearch && !studentName.includes(normalizedSearch)) {
+          return false;
+        }
+
+        if (sourceCohortFilter === "none") {
+          return !enrollment;
+        }
+
+        if (sourceCohortFilter !== "all") {
+          return enrollment?.cohortId === sourceCohortFilter;
+        }
+
+        return true;
+      });
+  }, [activeEnrollmentByStudent, sourceCohortFilter, studentSearch, students]);
+  const placementStudent = placementCandidates.find((student) => student.id === studentPlacementId) ?? null;
+  const placementEnrollment = placementStudent ? activeEnrollmentByStudent.get(placementStudent.id) : null;
+  const selectedInstructionBlocks = useMemo(
+    () =>
+      selectedSession
+        ? localInstructionBlocks
+            .filter((block) => block.sessionId === selectedSession.id)
+            .sort((left, right) => left.startAt.localeCompare(right.startAt))
+        : [],
+    [localInstructionBlocks, selectedSession],
+  );
+  const overlappingClasses =
+    placementEnrollment && selectedSession
+      ? sessions.filter(
+          (session) =>
+            session.cohortId === placementEnrollment.cohortId &&
+            session.id !== selectedSession.id &&
+            classesOverlap(session, selectedSession),
+        )
+      : [];
 
   useEffect(() => {
     setLocalSessions(sessions);
   }, [sessions]);
+
+  useEffect(() => {
+    setLocalInstructionBlocks(instructionBlocks);
+  }, [instructionBlocks]);
 
   useEffect(() => {
     if (!selectedSessionId || !sortedSessions.some((session) => session.id === selectedSessionId)) {
@@ -118,11 +230,27 @@ export function AdminSessionManagementPanel({
       roomLabel: selectedSession.roomLabel,
     });
     setWarningMessages([]);
-  }, [cohorts, selectedSession]);
+    setStudentPlacementId("");
+    setShowAddStudent(false);
+    setShowScheduleEditor(false);
+    setInstructionBlockForm({
+      blockId: "",
+      title: "",
+      instructorId: instructorOptions[0]?.id ?? "",
+      startTime: formatTimeInput(selectedSession.startAt),
+      endTime: formatTimeInput(selectedSession.endAt),
+    });
+  }, [cohorts, instructorOptions, selectedSession]);
+
+  useEffect(() => {
+    if (!studentPlacementId || !placementCandidates.some((student) => student.id === studentPlacementId)) {
+      setStudentPlacementId(placementCandidates[0]?.id ?? "");
+    }
+  }, [placementCandidates, studentPlacementId]);
 
   const handleSave = (force = false) => {
-    if (readOnly || !selectedSession) {
-      setError(readOnly ? "Role preview is read-only." : "Choose a class to edit.");
+    if (classReadOnly || !selectedSession) {
+      setError(classReadOnly ? "This role cannot edit class details." : "Choose a class to edit.");
       setSuccess(null);
       return;
     }
@@ -194,8 +322,8 @@ export function AdminSessionManagementPanel({
   };
 
   const handleDelete = (targetSession = selectedSession) => {
-    if (readOnly || !targetSession) {
-      setError(readOnly ? "Role preview is read-only." : "Choose a class to delete.");
+    if (classReadOnly || !targetSession) {
+      setError(classReadOnly ? "This role cannot delete classes." : "Choose a class to delete.");
       setSuccess(null);
       return;
     }
@@ -233,6 +361,227 @@ export function AdminSessionManagementPanel({
         router.refresh();
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Class delete failed.");
+      } finally {
+        setPendingKey(null);
+      }
+    });
+  };
+
+  const handlePlaceStudent = () => {
+    if (rosterReadOnly || !selectedSession || !placementStudent) {
+      setError(rosterReadOnly ? "This role cannot change class rosters." : "Choose a class and student first.");
+      setSuccess(null);
+      return;
+    }
+
+    if (placementEnrollment?.cohortId === selectedSession.cohortId) {
+      setSuccess(`${placementStudent.firstName} ${placementStudent.lastName} is already in this class cohort.`);
+      setError(null);
+      return;
+    }
+
+    const sourceCohort = placementEnrollment ? cohortById.get(placementEnrollment.cohortId) : null;
+    const targetCohort = cohortById.get(selectedSession.cohortId);
+    const conflictText =
+      overlappingClasses.length > 0
+        ? `\n\nThis student is scheduled in ${overlappingClasses.map((session) => session.title).join(", ")} at the same time. Move them out of ${sourceCohort?.name ?? "their current cohort"} and into ${targetCohort?.name ?? "this class cohort"}?`
+        : sourceCohort
+          ? `\n\nThis will remove the student from ${sourceCohort.name} and place them in ${targetCohort?.name ?? "the selected class cohort"}.`
+          : "";
+    const confirmed = window.confirm(
+      `Place ${placementStudent.firstName} ${placementStudent.lastName} in ${selectedSession.title}?${conflictText}`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingKey("place-student");
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/staff/cohorts/move-student", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            studentId: placementStudent.id,
+            targetCohortId: selectedSession.cohortId,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Student placement failed.");
+        }
+
+        setSuccess(`${placementStudent.firstName} ${placementStudent.lastName} was placed in ${selectedSession.title}.`);
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Student placement failed.");
+      } finally {
+        setPendingKey(null);
+      }
+    });
+  };
+
+  const handleRemoveStudent = (student: Student) => {
+    if (rosterReadOnly || !selectedSession) {
+      setError(rosterReadOnly ? "This role cannot change class rosters." : "Choose a class first.");
+      setSuccess(null);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${student.firstName} ${student.lastName} from ${selectedSession.title}? This removes the student from ${cohortById.get(selectedSession.cohortId)?.name ?? "the class cohort"} and they will no longer appear in classes for that cohort.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingKey(`remove-student-${student.id}`);
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/staff/cohorts/remove-student", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            studentId: student.id,
+            cohortId: selectedSession.cohortId,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Student removal failed.");
+        }
+
+        setSuccess(`${student.firstName} ${student.lastName} was removed from ${selectedSession.title}.`);
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Student removal failed.");
+      } finally {
+        setPendingKey(null);
+      }
+    });
+  };
+
+  const buildInstructionDateTime = (time: string) => {
+    if (!selectedSession) {
+      return "";
+    }
+
+    return new Date(`${formatDateTimeLocal(selectedSession.startAt).slice(0, 10)}T${time}`).toISOString();
+  };
+
+  const handleEditInstructionBlock = (block: SessionInstructionBlock) => {
+    setShowScheduleEditor(true);
+    setInstructionBlockForm({
+      blockId: block.id,
+      title: block.title,
+      instructorId: block.instructorId,
+      startTime: formatTimeInput(block.startAt),
+      endTime: formatTimeInput(block.endAt),
+    });
+  };
+
+  const handleSaveInstructionBlock = () => {
+    if (instructionReadOnly || !selectedSession) {
+      setError(instructionReadOnly ? "This role cannot edit teaching schedules." : "Choose a class first.");
+      setSuccess(null);
+      return;
+    }
+
+    setPendingKey("save-instruction-block");
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/calendar/instruction-blocks", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            blockId: instructionBlockForm.blockId || null,
+            sessionId: selectedSession.id,
+            instructorId: instructionBlockForm.instructorId,
+            title: instructionBlockForm.title,
+            startAt: buildInstructionDateTime(instructionBlockForm.startTime),
+            endAt: buildInstructionDateTime(instructionBlockForm.endTime),
+          }),
+        });
+        const payload = (await response.json()) as { error?: string; blockId?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Teaching schedule update failed.");
+        }
+
+        setSuccess("Teaching schedule updated.");
+        setInstructionBlockForm({
+          blockId: "",
+          title: "",
+          instructorId: instructorOptions[0]?.id ?? "",
+          startTime: formatTimeInput(selectedSession.startAt),
+          endTime: formatTimeInput(selectedSession.endAt),
+        });
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Teaching schedule update failed.");
+      } finally {
+        setPendingKey(null);
+      }
+    });
+  };
+
+  const handleDeleteInstructionBlock = (block: SessionInstructionBlock) => {
+    if (instructionReadOnly) {
+      setError("This role cannot edit teaching schedules.");
+      setSuccess(null);
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove ${block.title} from the teaching schedule?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingKey(`delete-instruction-block-${block.id}`);
+    setError(null);
+    setSuccess(null);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/calendar/instruction-blocks", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            blockId: block.id,
+          }),
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Teaching schedule update failed.");
+        }
+
+        setSuccess("Teaching segment removed.");
+        router.refresh();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Teaching schedule update failed.");
       } finally {
         setPendingKey(null);
       }
@@ -305,7 +654,7 @@ export function AdminSessionManagementPanel({
                       <button
                         type="button"
                         onClick={() => handleDelete(session)}
-                        disabled={readOnly || pendingKey === "delete"}
+                        disabled={classReadOnly || pendingKey === "delete"}
                         className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Delete
@@ -339,7 +688,7 @@ export function AdminSessionManagementPanel({
                   setFormState((current) => ({ ...current, title }));
                 }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               />
             </label>
             <label className="flex flex-col gap-2 md:col-span-2">
@@ -358,7 +707,7 @@ export function AdminSessionManagementPanel({
                   }));
                 }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               >
                 {sortedCohorts.map((cohort) => (
                   <option key={cohort.id} value={cohort.id}>
@@ -379,7 +728,7 @@ export function AdminSessionManagementPanel({
                 }}
                 type="datetime-local"
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               />
             </label>
             <label className="flex flex-col gap-2">
@@ -394,7 +743,7 @@ export function AdminSessionManagementPanel({
                 }}
                 type="datetime-local"
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               />
             </label>
             <label className="flex flex-col gap-2">
@@ -408,7 +757,7 @@ export function AdminSessionManagementPanel({
                   setFormState((current) => ({ ...current, mode }));
                 }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               >
                 <option value="In person">In person</option>
                 <option value="Hybrid">Hybrid</option>
@@ -426,7 +775,7 @@ export function AdminSessionManagementPanel({
                   setFormState((current) => ({ ...current, roomLabel }));
                 }}
                 className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-                disabled={readOnly}
+                disabled={classReadOnly}
               />
             </label>
           </div>
@@ -446,12 +795,12 @@ export function AdminSessionManagementPanel({
             <button
               type="button"
               onClick={() => handleSave(warningMessages.length > 0)}
-              disabled={readOnly || pendingKey === "save"}
+              disabled={classReadOnly || pendingKey === "save"}
               className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {pendingKey === "save"
                 ? "Saving..."
-                : readOnly
+                : classReadOnly
                   ? "Preview only"
                   : warningMessages.length > 0
                     ? "Save anyway"
@@ -460,13 +809,317 @@ export function AdminSessionManagementPanel({
             <button
               type="button"
               onClick={() => handleDelete()}
-              disabled={readOnly || pendingKey === "delete"}
+              disabled={classReadOnly || pendingKey === "delete"}
               className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {pendingKey === "delete" ? "Deleting..." : "Delete class"}
             </button>
           </div>
         </div>
+      ) : null}
+
+      {selectedSession ? (
+        <>
+          <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="section-kicker">Class roster</div>
+                <h4 className="mt-2 text-lg font-semibold text-[color:var(--navy-strong)]">
+                  Students in this class
+                </h4>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">
+                  Roster membership comes from {cohortById.get(selectedSession.cohortId)?.name ?? "the class cohort"}. Moving a student here removes them from their prior active cohort so they are not in two classes at the same time.
+                </p>
+              </div>
+              {canManageRoster ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddStudent((current) => !current)}
+                  className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  {showAddStudent ? "Close add student" : "Add student"}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {rosterStudents.map((student) => (
+                <div
+                  key={student.id}
+                  className="flex flex-col gap-2 rounded-2xl border border-[color:var(--line)] bg-stone-50/80 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
+                      {student.firstName} {student.lastName}
+                    </div>
+                    <div className="mt-1 text-xs text-[color:var(--muted)]">
+                      {student.school} · Grade {student.gradeLevel}
+                    </div>
+                  </div>
+                  {canManageRoster ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStudent(student)}
+                      disabled={rosterReadOnly || pendingKey === `remove-student-${student.id}`}
+                      className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pendingKey === `remove-student-${student.id}` ? "Removing..." : "Remove"}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              {rosterStudents.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[color:var(--line)] bg-stone-50/80 p-4 text-sm text-[color:var(--muted)]">
+                  No students are in this class cohort yet.
+                </div>
+              ) : null}
+            </div>
+
+            {showAddStudent && canManageRoster ? (
+              <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-stone-50/80 p-4">
+                <div className="text-sm font-semibold text-[color:var(--navy-strong)]">
+                  Add a student to this class
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">
+                  Search by student name, choose the current cohort filter, then place the student into this class cohort.
+                </p>
+                <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1fr_1.2fr_auto]">
+                  <input
+                    value={studentSearch}
+                    onChange={(event) => setStudentSearch(event.currentTarget.value)}
+                    className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                    placeholder="Search student name"
+                    disabled={rosterReadOnly}
+                  />
+                  <select
+                    value={sourceCohortFilter}
+                    onChange={(event) => setSourceCohortFilter(event.currentTarget.value)}
+                    className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                    disabled={rosterReadOnly}
+                  >
+                    <option value="all">All student cohorts</option>
+                    <option value="none">No active cohort</option>
+                    {sortedCohorts.map((cohort) => (
+                      <option key={cohort.id} value={cohort.id}>
+                        {cohort.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={studentPlacementId}
+                    onChange={(event) => setStudentPlacementId(event.currentTarget.value)}
+                    className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                    disabled={rosterReadOnly || placementCandidates.length === 0}
+                  >
+                    {placementCandidates.length === 0 ? <option value="">No matching students</option> : null}
+                    {placementCandidates.map((student) => {
+                      const enrollment = activeEnrollmentByStudent.get(student.id);
+                      const cohort = enrollment ? cohortById.get(enrollment.cohortId) : null;
+
+                      return (
+                        <option key={student.id} value={student.id}>
+                          {student.firstName} {student.lastName} · {cohort?.name ?? "No active cohort"}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handlePlaceStudent}
+                    disabled={rosterReadOnly || pendingKey === "place-student" || !placementStudent}
+                    className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {pendingKey === "place-student" ? "Placing..." : rosterReadOnly ? "Preview only" : "Place student"}
+                  </button>
+                </div>
+                {placementStudent && placementEnrollment?.cohortId === selectedSession.cohortId ? (
+                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    {placementStudent.firstName} {placementStudent.lastName} is already in this class cohort and will appear on the roster.
+                  </div>
+                ) : null}
+                {placementStudent && overlappingClasses.length > 0 ? (
+                  <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Schedule conflict: this student is already in {overlappingClasses.map((session) => session.title).join(", ")} at the same time. Placing them here will ask which cohort/class they should be removed from.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="section-kicker">Teaching schedule</div>
+                <h4 className="mt-2 text-lg font-semibold text-[color:var(--navy-strong)]">
+                  Instructor segments inside this class
+                </h4>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">
+                  Segments must stay between {formatTimeRange(selectedSession.startAt, selectedSession.endAt)}.
+                </p>
+              </div>
+              {canManageInstructionBlocks ? (
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleEditor((current) => !current)}
+                  className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  {showScheduleEditor ? "Close schedule editor" : "Edit schedule"}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {selectedInstructionBlocks.map((block) => (
+                <div
+                  key={block.id}
+                  className="flex flex-col gap-2 rounded-2xl border border-[color:var(--line)] bg-stone-50/80 p-3 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-[color:var(--navy-strong)]">{block.title}</div>
+                    <div className="mt-1 text-xs text-[color:var(--muted)]">
+                      {formatTimeRange(block.startAt, block.endAt)} · {block.instructorName ?? userById.get(block.instructorId)?.name ?? "Instructor"}
+                    </div>
+                  </div>
+                  {canManageInstructionBlocks ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleEditInstructionBlock(block)}
+                        disabled={instructionReadOnly}
+                        className="rounded-full border border-[color:var(--line)] bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--navy-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteInstructionBlock(block)}
+                        disabled={instructionReadOnly || pendingKey === `delete-instruction-block-${block.id}`}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {pendingKey === `delete-instruction-block-${block.id}` ? "Removing..." : "Remove"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              {selectedInstructionBlocks.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[color:var(--line)] bg-stone-50/80 p-4 text-sm text-[color:var(--muted)]">
+                  No instructor segments have been added for this class yet.
+                </div>
+              ) : null}
+            </div>
+
+            {showScheduleEditor && canManageInstructionBlocks ? (
+              <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-stone-50/80 p-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 md:col-span-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      What is being taught
+                    </span>
+                    <input
+                      value={instructionBlockForm.title}
+                      onChange={(event) => {
+                        const title = event.currentTarget.value;
+                        setInstructionBlockForm((current) => ({ ...current, title }));
+                      }}
+                      className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                      placeholder="Math review, reading drills, writing workshop"
+                      disabled={instructionReadOnly}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                      Instructor
+                    </span>
+                    <select
+                      value={instructionBlockForm.instructorId}
+                      onChange={(event) => {
+                        const instructorId = event.currentTarget.value;
+                        setInstructionBlockForm((current) => ({ ...current, instructorId }));
+                      }}
+                      className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                      disabled={instructionReadOnly}
+                    >
+                      {instructorOptions.length === 0 ? <option value="">No instructors available</option> : null}
+                      {instructorOptions.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name} · {user.role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex flex-col gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        Start
+                      </span>
+                      <input
+                        type="time"
+                        value={instructionBlockForm.startTime}
+                        min={formatTimeInput(selectedSession.startAt)}
+                        max={formatTimeInput(selectedSession.endAt)}
+                        onChange={(event) => {
+                          const startTime = event.currentTarget.value;
+                          setInstructionBlockForm((current) => ({ ...current, startTime }));
+                        }}
+                        className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                        disabled={instructionReadOnly}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+                        End
+                      </span>
+                      <input
+                        type="time"
+                        value={instructionBlockForm.endTime}
+                        min={formatTimeInput(selectedSession.startAt)}
+                        max={formatTimeInput(selectedSession.endAt)}
+                        onChange={(event) => {
+                          const endTime = event.currentTarget.value;
+                          setInstructionBlockForm((current) => ({ ...current, endTime }));
+                        }}
+                        className="rounded-2xl border border-[color:var(--line)] bg-white px-4 py-3 text-sm text-[color:var(--navy-strong)]"
+                        disabled={instructionReadOnly}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveInstructionBlock}
+                    disabled={instructionReadOnly || pendingKey === "save-instruction-block" || !instructionBlockForm.instructorId}
+                    className="rounded-full bg-[color:var(--navy-strong)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {pendingKey === "save-instruction-block"
+                      ? "Saving..."
+                      : instructionBlockForm.blockId
+                        ? "Save segment"
+                        : "Add segment"}
+                  </button>
+                  {instructionBlockForm.blockId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInstructionBlockForm({
+                          blockId: "",
+                          title: "",
+                          instructorId: instructorOptions[0]?.id ?? "",
+                          startTime: formatTimeInput(selectedSession.startAt),
+                          endTime: formatTimeInput(selectedSession.endAt),
+                        })
+                      }
+                      className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--navy-strong)]"
+                    >
+                      New segment
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </>
       ) : null}
     </section>
   );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { expirePortalLiveCache } from "@/lib/cache-invalidation";
 import { canRevokeSessions } from "@/lib/permissions";
 import { revokeUserSession } from "@/lib/engineer-controls";
 import type { Database } from "@/lib/supabase/database.types";
@@ -66,6 +67,8 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  expirePortalLiveCache();
 
   return NextResponse.json({
     ok: true,

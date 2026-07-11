@@ -53,6 +53,16 @@ function assertSameDemoPartition(viewer: User, row: { demo?: boolean | null }, m
   }
 }
 
+function assertMatchingDemoPartition(
+  left: { demo?: boolean | null },
+  right: { demo?: boolean | null },
+  message: string,
+) {
+  if (Boolean(left.demo) !== Boolean(right.demo)) {
+    throw new Error(message);
+  }
+}
+
 function createId(prefix: string) {
   return `${prefix}-${randomBytes(6).toString("hex")}`;
 }
@@ -384,9 +394,6 @@ async function getSessionConflictWarnings({
         warnings.add(`Room conflict with ${session.title} in ${session.room_label}.`);
       }
 
-      if (relatedCohort.campus_id === cohort.campus_id) {
-        warnings.add(`Campus/time conflict with ${session.title} at the same campus window.`);
-      }
     });
 
   return Array.from(warnings);
@@ -744,6 +751,41 @@ export async function persistStaffFamilyContactEvent({
   }
   assertSameDemoPartition(viewer, family, "That family could not be found.");
 
+  if (viewer.role === "ta") {
+    const { data: familyStudentData, error: familyStudentError } = await serviceClient
+      .from("students")
+      .select("id")
+      .eq("family_id", familyId);
+
+    if (familyStudentError) {
+      throw new Error(familyStudentError.message);
+    }
+
+    const familyStudentRows = ((familyStudentData ?? []) as Pick<StudentRow, "id">[]);
+    const familyStudentIds = familyStudentRows.map((student) => student.id);
+
+    if (familyStudentIds.length === 0) {
+      throw new Error("That family is not inside your assigned cohorts.");
+    }
+
+    const { data: enrollmentData, error: enrollmentError } = await serviceClient
+      .from("enrollments")
+      .select("cohort_id")
+      .in("student_id", familyStudentIds)
+      .eq("status", "active");
+
+    if (enrollmentError) {
+      throw new Error(enrollmentError.message);
+    }
+
+    const canAccessFamily = ((enrollmentData ?? []) as Pick<EnrollmentRow, "cohort_id">[])
+      .some((enrollment) => viewerCanAccessCohort(viewer, enrollment.cohort_id));
+
+    if (!canAccessFamily) {
+      throw new Error("That family is not inside your assigned cohorts.");
+    }
+  }
+
   const { error } = await serviceClient.from("family_contact_events").insert({
     id: createId("contact"),
     family_id: familyId,
@@ -1098,6 +1140,11 @@ export async function moveSingleEnrollment({
     }
 
     assertSameDemoPartition(viewer, targetCohort, "The target cohort could not be found.");
+    assertMatchingDemoPartition(
+      student,
+      targetCohort,
+      "That student cannot be assigned to a cohort in a different demo/live partition.",
+    );
 
     if (targetCohort.enrolled >= targetCohort.capacity) {
       throw new Error("That cohort is already full.");
@@ -1171,6 +1218,11 @@ export async function moveSingleEnrollment({
     throw new Error("The target cohort could not be found.");
   }
   assertSameDemoPartition(viewer, targetCohort, "The target cohort could not be found.");
+  assertMatchingDemoPartition(
+    enrollment,
+    targetCohort,
+    "That enrollment cannot be moved to a cohort in a different demo/live partition.",
+  );
 
   if (targetCohort.enrolled >= targetCohort.capacity) {
     throw new Error("That cohort is already full.");
@@ -1206,6 +1258,7 @@ export async function moveSingleEnrollment({
     .from("enrollments")
     .update({
       cohort_id: targetCohortId,
+      demo: Boolean(targetCohort.demo),
     })
     .eq("id", enrollment.id);
 
@@ -1255,6 +1308,100 @@ export async function moveSingleEnrollment({
       studentId,
       fromCohortId: enrollment.cohort_id,
       toCohortId: targetCohortId,
+    },
+  });
+}
+
+export async function removeStudentFromCohort({
+  viewer,
+  studentId,
+  cohortId,
+}: {
+  viewer: User;
+  studentId: string;
+  cohortId: string;
+}) {
+  ensureServiceRole();
+  assertStaffVisibility(viewer);
+
+  if (!canMoveSingleEnrollment(viewer.role)) {
+    throw new Error("You cannot move enrollments.");
+  }
+
+  await assertWritesAllowed("operational_writes");
+
+  const serviceClient = createSupabaseServiceClient();
+  const [{ data: enrollmentData, error: enrollmentError }, { data: cohortData, error: cohortError }, { data: studentData, error: studentError }] =
+    await Promise.all([
+      serviceClient
+        .from("enrollments")
+        .select("*")
+        .eq("student_id", studentId)
+        .eq("cohort_id", cohortId)
+        .eq("status", "active")
+        .limit(1)
+        .maybeSingle(),
+      serviceClient.from("cohorts").select("*").eq("id", cohortId).maybeSingle(),
+      serviceClient.from("students").select("*").eq("id", studentId).maybeSingle(),
+    ]);
+  const enrollment = (enrollmentData ?? null) as EnrollmentRow | null;
+  const cohort = (cohortData ?? null) as CohortRow | null;
+  const student = (studentData ?? null) as StudentRow | null;
+
+  if (enrollmentError) {
+    throw new Error(enrollmentError.message);
+  }
+
+  if (cohortError) {
+    throw new Error(cohortError.message);
+  }
+
+  if (studentError) {
+    throw new Error(studentError.message);
+  }
+
+  if (!enrollment || !cohort || !student) {
+    throw new Error("That active class enrollment could not be found.");
+  }
+
+  if (!viewerCanAccessCohort(viewer, cohortId) || !isSameDemoPartition(viewer, enrollment)) {
+    throw new Error("That class enrollment could not be found.");
+  }
+
+  assertSameDemoPartition(viewer, cohort, "That class enrollment could not be found.");
+  assertSameDemoPartition(viewer, student, "That student could not be found.");
+
+  const { error: updateEnrollmentError } = await serviceClient
+    .from("enrollments")
+    .update({
+      status: "waitlist",
+    })
+    .eq("id", enrollment.id);
+
+  if (updateEnrollmentError) {
+    throw new Error(updateEnrollmentError.message);
+  }
+
+  const { error: updateCohortError } = await serviceClient
+    .from("cohorts")
+    .update({
+      enrolled: Math.max(0, cohort.enrolled - 1),
+    })
+    .eq("id", cohortId);
+
+  if (updateCohortError) {
+    throw new Error(updateCohortError.message);
+  }
+
+  await recordAccountAuditLog(serviceClient, {
+    actorId: viewer.id,
+    targetType: "cohort",
+    action: "cohort_operation_run",
+    summary: `${viewer.name} removed ${student.first_name} ${student.last_name} from a class cohort.`,
+    details: {
+      studentId,
+      cohortId,
+      enrollmentId: enrollment.id,
     },
   });
 }

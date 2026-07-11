@@ -76,7 +76,7 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canEditSessions: false,
     canMoveSingleEnrollment: false,
     canManageAssignedBillingFollowUp: false,
-    canLogFamilyContact: false,
+    canLogFamilyContact: true,
     canClaimLeads: false,
     canEscalateToAdmin: false,
     canSubmitApprovalRequests: false,
@@ -214,7 +214,7 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canEditSessions: false,
     canMoveSingleEnrollment: false,
     canManageAssignedBillingFollowUp: false,
-    canLogFamilyContact: false,
+    canLogFamilyContact: true,
     canClaimLeads: false,
     canEscalateToAdmin: false,
     canSubmitApprovalRequests: false,
@@ -224,7 +224,7 @@ const permissionProfiles: Record<UserRole, PermissionProfile> = {
     canStartFamilyThreads: true,
   },
   instructor: {
-    accessibleSections: ["dashboard", "calendar", "cohorts", "attendance", "academics"],
+    accessibleSections: ["dashboard", "calendar", "attendance", "academics"],
     canViewBilling: false,
     canViewFamilyProfiles: false,
     canViewFamilyContactBasics: false,
@@ -285,6 +285,31 @@ export const hasGlobalPortalScope = (role: UserRole) =>
 
 export const canRunIntakeImports = (role: UserRole) =>
   permissionProfiles[role].canRunRoutineImports;
+
+export const canRunStudentImports = (role: UserRole) =>
+  role === "engineer" || role === "admin" || role === "staff";
+
+export function resolveStudentImportTarget(
+  viewer: { role: UserRole; demo?: boolean },
+  requestedTarget: boolean | undefined,
+) {
+  if (!canRunStudentImports(viewer.role)) {
+    throw new Error("You cannot import students.");
+  }
+
+  if (viewer.role !== "engineer") {
+    if (typeof viewer.demo !== "boolean") {
+      throw new Error("The import account partition is missing.");
+    }
+    return viewer.demo;
+  }
+
+  if (typeof requestedTarget !== "boolean") {
+    throw new Error("Engineers must choose Demo or Main before previewing an import.");
+  }
+
+  return requestedTarget;
+}
 
 export const canViewFamilyContactBasics = (role: UserRole) =>
   permissionProfiles[role].canViewFamilyContactBasics;

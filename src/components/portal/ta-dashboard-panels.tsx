@@ -1,33 +1,22 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type {
-  AdminAnnouncement,
   AdminTask,
   MessageThread,
-  Session,
-  SessionChecklist,
-  SessionCoverageFlag,
   SessionHandoffNote,
   TaskActivity,
 } from "@/lib/domain";
 import type { StudentTrendRow } from "@/lib/portal";
-import { AdminAnnouncementNotices } from "@/components/portal/admin-announcement-notices";
-import { TrendSparkline } from "@/components/portal/trend-sparkline";
 
 interface TaDashboardPanelsProps {
-  viewerId: string;
   viewerMode: "preview" | "live" | "live-role-preview";
   tasks: AdminTask[];
   taskActivities: TaskActivity[];
   threads: MessageThread[];
-  sessions: Session[];
-  sessionChecklists: SessionChecklist[];
   handoffNotes: SessionHandoffNote[];
-  coverageFlags: SessionCoverageFlag[];
-  announcements: AdminAnnouncement[];
   trendRows: StudentTrendRow[];
 }
 
@@ -46,16 +35,11 @@ function formatDateTime(value?: string | null) {
 }
 
 export function TaDashboardPanels({
-  viewerId,
   viewerMode,
   tasks,
   taskActivities,
   threads,
-  sessions,
-  sessionChecklists,
   handoffNotes,
-  coverageFlags,
-  announcements,
   trendRows,
 }: TaDashboardPanelsProps) {
   const router = useRouter();
@@ -75,46 +59,6 @@ export function TaDashboardPanels({
       ]),
     ),
   );
-
-  const checklistBySessionId = useMemo(
-    () => new Map(sessionChecklists.map((checklist) => [checklist.sessionId, checklist])),
-    [sessionChecklists],
-  );
-
-  const sessionsNeedingAttention = useMemo(() => {
-    const now = Date.now();
-    return sessions
-      .filter((session) => {
-        const checklist = checklistBySessionId.get(session.id);
-        const sessionStart = Date.parse(session.startAt);
-        const coverage = coverageFlags.find(
-          (flag) => flag.sessionId === session.id && flag.status !== "clear",
-        );
-
-        if (coverage) {
-          return true;
-        }
-
-        if (!checklist) {
-          return true;
-        }
-
-        if (sessionStart > now) {
-          return !(
-            checklist.roomConfirmed &&
-            checklist.rosterReviewed &&
-            checklist.materialsReady
-          );
-        }
-
-        return !(
-          checklist.attendanceComplete &&
-          checklist.scoresLoggedIfNeeded &&
-          checklist.notesClosedOut
-        );
-      })
-      .slice(0, 6);
-  }, [checklistBySessionId, coverageFlags, sessions]);
 
   const recentHandoffs = handoffNotes.slice(0, 4);
   const unreadThreads = threads
@@ -302,23 +246,6 @@ export function TaDashboardPanels({
 
         <div className="space-y-5">
           <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-            <div className="section-kicker">Class watch</div>
-            <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-              Support attention
-            </h3>
-            <div className="mt-5 space-y-3">
-              {sessionsNeedingAttention.map((session) => (
-                <div key={session.id} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                  <div className="text-base font-semibold text-[color:var(--navy-strong)]">{session.title}</div>
-                  <div className="mt-1 text-sm text-[color:var(--muted)]">
-                    {formatDateTime(session.startAt)} · {session.roomLabel}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
             <div className="section-kicker">Family replies</div>
             <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
               Unread thread watch
@@ -363,44 +290,20 @@ export function TaDashboardPanels({
           <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
             Assigned student momentum
           </h3>
-          <div className="mt-5 space-y-3">
-            {trendRows.slice(0, 5).map((student) => (
-              <div key={student.studentId} className="rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-base font-semibold text-[color:var(--navy-strong)]">{student.studentName}</div>
-                    <div className="mt-1 text-sm text-[color:var(--muted)]">{student.focus}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xl font-semibold text-[color:var(--navy-strong)]">
-                      {student.latestScore ?? "—"}
-                    </div>
-                    <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                      {student.deltaFromPrevious && student.deltaFromPrevious >= 0 ? "+" : ""}
-                      {student.deltaFromPrevious ?? 0} latest delta
-                    </div>
-                  </div>
-                </div>
-                <TrendSparkline className="mt-3" points={student.trend} />
-              </div>
-            ))}
+          <div className="mt-5 rounded-[1.5rem] border border-[color:var(--line)] bg-white/75 p-4">
+            <div className="text-sm text-[color:var(--muted)]">
+              {trendRows.length} assigned student{trendRows.length === 1 ? "" : "s"} have trend history available.
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push("/students")}
+              className="mt-4 rounded-full bg-[color:var(--navy)] px-4 py-2 text-sm font-semibold text-white"
+            >
+              Search students
+            </button>
           </div>
         </div>
       </section>
-
-      {announcements.length > 0 ? (
-        <div className="glass-panel rounded-[2rem] border border-white/40 p-5 shadow-[var(--shadow)]">
-          <div className="section-kicker">Operations notices</div>
-          <h3 className="display-font mt-2 text-3xl text-[color:var(--navy-strong)]">
-            Admin announcements
-          </h3>
-          <AdminAnnouncementNotices
-            announcements={announcements}
-            viewerId={viewerId}
-            className="mt-5"
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

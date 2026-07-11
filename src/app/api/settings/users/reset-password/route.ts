@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { recordAccountAuditLog } from "@/lib/account-governance";
+import { expirePortalLiveCache } from "@/lib/cache-invalidation";
 import { canSendPasswordResetForRole, getPermissionProfile } from "@/lib/permissions";
 import { hasSupabaseServiceRole } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest) {
       role: targetProfile.role,
     },
   });
+
+  expirePortalLiveCache();
 
   return NextResponse.json({
     ok: true,

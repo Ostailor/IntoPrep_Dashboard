@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { revalidatePortalLiveCache } from "@/lib/cache-invalidation";
 import { persistStudentDirectoryScore } from "@/lib/student-directory-writes";
 
 export async function POST(request: NextRequest) {
@@ -21,9 +21,10 @@ export async function POST(request: NextRequest) {
       rwScore: body?.rwScore,
       mathScore: body?.mathScore,
       totalScore: body?.totalScore,
+      notes: body?.notes,
     });
 
-    revalidateTag("portal-live", { expire: 0 });
+    revalidatePortalLiveCache();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

@@ -68,6 +68,55 @@ describe("student workbook profile detection", () => {
     );
   });
 
+  it("detects the photographed header when Level and Room are on a lower row", () => {
+    const photographedSheet = workbookSheet("SAT Summer Camp 2026", [
+      { rowNumber: 1, cells: ["SAT Summer Camp 2026"] },
+      {
+        rowNumber: 2,
+        cells: [
+          "No", "Class", "ID", "PW", "Name", "School", "Gr", "DoB",
+          "Student", null, "Parent", null, null, null, "Policy Report",
+          null, null, null, "Resource", null, null, null, "HW1", null, null,
+        ],
+      },
+      {
+        rowNumber: 3,
+        cells: [
+          "No", "Class", "ID", "PW", "Name", null, null, null,
+          "Cell", "E-Mail", "Cell 1", "Cell 2", "E-Mail 1", "E-Mail 2",
+          null, null, null, null, "Link", null, null, null, "PSAT", null, null,
+        ],
+      },
+      {
+        rowNumber: 4,
+        cells: [
+          null, null, null, null, null, null, null, null, null, null,
+          null, null, null, null, "PSAT", "#", "Level", "Room", null,
+          null, null, null, "RW", "M", "Total",
+        ],
+      },
+      {
+        rowNumber: 5,
+        cells: [
+          "01", "MWF", "demo@example.com", "synthetic", "Maya Demo",
+          "Central High", "11", "2010-05-12", "555-0100", "maya@example.com",
+          "555-0110", "", "parent@example.com", "", "Y", 1480, 4, "G4",
+          "https://example.com/demo", null, null, null, 720, 760, 1480,
+        ],
+      },
+    ]);
+
+    const detected = detectStudentWorkbook({ sheets: [photographedSheet] });
+
+    expect(detected).toMatchObject({
+      profile: "wide",
+      directory: { headerRowNumbers: [2, 3, 4], dataStartRow: 5 },
+    });
+    expect(detected.academic?.columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceHeader: "HW1 / PSAT / M" }),
+    ]));
+  });
+
   it("detects normalized student-information and scores sheets", () => {
     const studentInformationSheet = workbookSheet("Student Information", [
       { rowNumber: 1, cells: ["Student Name", "Parent Email"] },

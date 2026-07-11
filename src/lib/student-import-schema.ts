@@ -8,6 +8,29 @@ export type StudentImportFieldKey =
   | "parent2Name" | "parent2Email" | "parent2Phone"
   | "familyNotes" | "cohortId" | "cohortName" | "registeredAt";
 
+export const STUDENT_IMPORT_FIELD_LABELS = {
+  externalId: "External student ID",
+  fullName: "Full student name",
+  firstName: "First name",
+  lastName: "Last name",
+  gradeLevel: "Grade level",
+  school: "School",
+  targetTest: "Target test",
+  focus: "Focus",
+  studentEmail: "Student email",
+  studentPhone: "Student phone",
+  parent1Name: "Parent 1 name",
+  parent1Email: "Parent 1 email",
+  parent1Phone: "Parent 1 phone",
+  parent2Name: "Parent 2 name",
+  parent2Email: "Parent 2 email",
+  parent2Phone: "Parent 2 phone",
+  familyNotes: "Family notes",
+  cohortId: "Cohort ID",
+  cohortName: "Cohort name",
+  registeredAt: "Registration date",
+} as const satisfies Record<StudentImportFieldKey, string>;
+
 export type StudentCustomFieldType = "text" | "number" | "date" | "boolean";
 export type StudentImportCell = string | number | boolean | Date | null;
 
@@ -42,12 +65,41 @@ export interface NormalizedStudentImportRow {
   suppliedFields: StudentImportFieldKey[];
 }
 
+export interface StudentImportSummaryCounts {
+  creates: number;
+  updates: number;
+  enrollments: number;
+  skips: number;
+  warnings: number;
+  errors: number;
+}
+
+export function formatStudentImportSummary(summary: StudentImportSummaryCounts): string {
+  const parts = [
+    formatCount(summary.creates, "create"),
+    formatCount(summary.updates, "update"),
+    formatCount(summary.enrollments, "enrollment"),
+    `${summary.skips} skipped`,
+    formatCount(summary.warnings, "warning"),
+  ];
+
+  if (summary.errors > 0) {
+    parts.push(formatCount(summary.errors, "error"));
+  }
+
+  return `${parts.join(", ")}.`;
+}
+
+export function getStudentImportTargetLabel(targetDemo: boolean): string {
+  return targetDemo ? "Demo data only" : "Main data";
+}
+
 const STUDENT_IMPORT_FIELD_ALIASES = {
   externalId: ["external id", "external student id", "student id", "student number"],
   fullName: ["full name", "student name", "student full name"],
   firstName: ["first name", "student first name", "firstname"],
   lastName: ["last name", "student last name", "lastname"],
-  gradeLevel: ["grade", "grade level", "student grade"],
+  gradeLevel: ["gr", "grade", "grade level", "student grade"],
   school: ["school", "school name", "current school"],
   targetTest: ["target test", "test", "program", "program track", "track"],
   focus: ["focus", "academic focus", "student focus"],
@@ -61,7 +113,7 @@ const STUDENT_IMPORT_FIELD_ALIASES = {
   parent2Phone: ["parent 2 phone", "second parent phone", "secondary guardian phone"],
   familyNotes: ["family notes", "family note", "notes"],
   cohortId: ["cohort id", "class id"],
-  cohortName: ["cohort", "cohort name", "class", "class name"],
+  cohortName: ["cohort", "cohorts", "cohort name", "class", "class name"],
   registeredAt: ["registered at", "registration date", "date registered", "enrollment date"],
 } satisfies Record<StudentImportFieldKey, readonly string[]>;
 
@@ -194,8 +246,11 @@ export function normalizeStudentImportRow(input: {
 }
 
 function formatFieldLabel(field: StudentImportFieldKey): string {
-  const label = field.replace(/([a-z])([A-Z0-9])/g, "$1 $2").toLowerCase();
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return STUDENT_IMPORT_FIELD_LABELS[field];
+}
+
+function formatCount(value: number, singular: string): string {
+  return `${value} ${singular}${value === 1 ? "" : "s"}`;
 }
 
 function isBlankCell(cell: StudentImportCell): cell is null | string {

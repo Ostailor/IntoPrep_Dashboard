@@ -59,6 +59,12 @@ function assertAdminAccess(viewer: User) {
   }
 }
 
+function assertInstructionClassCreator(viewer: User) {
+  if (viewer.role !== "admin" && viewer.role !== "staff" && viewer.role !== "ta") {
+    throw new Error("You cannot create instruction classes.");
+  }
+}
+
 function normalizeFollowUpState(value: string): BillingFollowUpState {
   switch (value) {
     case "open":
@@ -254,6 +260,16 @@ function ensureJsonObject(
 
 function overlaps(leftStart: string, leftEnd: string, rightStart: string, rightEnd: string) {
   return Date.parse(leftStart) < Date.parse(rightEnd) && Date.parse(rightStart) < Date.parse(leftEnd);
+}
+
+function formatEasternWarningDate(value: string) {
+  return `${new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  }).format(new Date(value))} ET`;
 }
 
 async function getProfilesByIds(userIds: string[]) {
@@ -555,6 +571,24 @@ export async function persistAdminTask({
     }
   }
 
+  let assignedToName: string | null = null;
+  if (assignedTo) {
+    const { data: assignedProfile, error: assignedProfileError } = await serviceClient
+      .from("profiles")
+      .select("*")
+      .eq("id", assignedTo)
+      .maybeSingle();
+
+    if (assignedProfileError) {
+      throw new Error(assignedProfileError.message);
+    }
+
+    const assignedProfileRow = (assignedProfile ?? null) as ProfileRow | null;
+    if (assignedProfileRow && isSameDemoPartition(viewer, assignedProfileRow)) {
+      assignedToName = assignedProfileRow.full_name;
+    }
+  }
+
   await recordAccountAuditLog(serviceClient, {
     actorId: viewer.id,
     targetType: normalizedTargetType,
@@ -578,7 +612,7 @@ export async function persistAdminTask({
     title: normalizedTitle,
     details: detailsWithoutLifecycleState,
     assignedTo: assignedTo ?? null,
-    assignedToName: null,
+    assignedToName,
     dueAt: normalizedDueAt,
     status: normalizedStatus,
     createdBy: existingTask?.created_by ?? viewer.id,
@@ -952,9 +986,6 @@ async function getConflictWarnings({
         warnings.add(`Instructor conflict with ${session.title}.`);
       }
 
-      if (relatedCohort.campus_id === cohort.campus_id) {
-        warnings.add(`Campus/time conflict with ${session.title} at the same campus window.`);
-      }
     });
 
   return Array.from(warnings);
@@ -1148,11 +1179,7 @@ export async function createAdminSession({
   force?: boolean;
 }) {
   ensureServiceRole();
-  assertAdminAccess(viewer);
-
-  if (!canManageSchedules(viewer.role)) {
-    throw new Error("You cannot create instruction classes.");
-  }
+  assertInstructionClassCreator(viewer);
 
   await assertWritesAllowed("operational_writes");
 
@@ -1215,12 +1242,7 @@ export async function createAdminSession({
   const warnings = (
     await Promise.all(
       normalizedSessions.map(async (session) => {
-        const dateLabel = new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        }).format(new Date(session.startAt));
+        const dateLabel = formatEasternWarningDate(session.startAt);
         const sessionWarnings = await getConflictWarnings({
           cohort,
           sessionId: null,
@@ -1914,26 +1936,53 @@ export async function runAdminBulkOperation({
       throw new Error("Source cohort, target cohort, and at least one student are required.");
     }
 
-    const { data: enrollmentData, error: enrollmentError } = await serviceClient
-      .from("enrollments")
-      .select("*")
-      .eq("cohort_id", sourceCohortId)
-      .eq("status", "active")
-      .in("student_id", studentIds);
+    const [sourceCohortResult, targetCohortResult, enrollmentResult] = await Promise.all([
+      serviceClient.from("cohorts").select("*").eq("id", sourceCohortId).maybeSingle(),
+      serviceClient.from("cohorts").select("*").eq("id", targetCohortId).maybeSingle(),
+      serviceClient
+        .from("enrollments")
+        .select("*")
+        .eq("cohort_id", sourceCohortId)
+        .eq("status", "active")
+        .in("student_id", studentIds),
+    ]);
 
-    if (enrollmentError) {
-      throw new Error(enrollmentError.message);
+    if (sourceCohortResult.error) {
+      throw new Error(sourceCohortResult.error.message);
     }
 
-    const enrollments = (enrollmentData ?? []) as EnrollmentRow[];
+    if (targetCohortResult.error) {
+      throw new Error(targetCohortResult.error.message);
+    }
+
+    if (enrollmentResult.error) {
+      throw new Error(enrollmentResult.error.message);
+    }
+
+    const sourceCohort = (sourceCohortResult.data ?? null) as CohortRow | null;
+    const targetCohort = (targetCohortResult.data ?? null) as CohortRow | null;
+
+    if (!sourceCohort || !targetCohort) {
+      throw new Error("Source and target cohorts are required.");
+    }
+
+    if (Boolean(sourceCohort.demo) !== Boolean(targetCohort.demo)) {
+      throw new Error("Students cannot be moved between demo and live cohorts.");
+    }
+
+    const enrollments = (enrollmentResult.data ?? []) as EnrollmentRow[];
     if (enrollments.length === 0) {
       throw new Error("No active enrollments matched that source cohort selection.");
+    }
+
+    if (enrollments.some((enrollment) => Boolean(enrollment.demo) !== Boolean(targetCohort.demo))) {
+      throw new Error("One or more selected enrollments are in a different demo/live partition.");
     }
 
     const movedStudentIds = enrollments.map((enrollment) => enrollment.student_id);
     const { error: updateError } = await serviceClient
       .from("enrollments")
-      .update({ cohort_id: targetCohortId })
+      .update({ cohort_id: targetCohortId, demo: Boolean(targetCohort.demo) })
       .eq("cohort_id", sourceCohortId)
       .eq("status", "active")
       .in("student_id", movedStudentIds);
@@ -1943,22 +1992,17 @@ export async function runAdminBulkOperation({
     }
 
     const sourceCountDelta = movedStudentIds.length;
-    const [sourceCohortResult, targetCohortResult] = await Promise.all([
-      serviceClient.from("cohorts").select("enrolled").eq("id", sourceCohortId).maybeSingle(),
-      serviceClient.from("cohorts").select("enrolled").eq("id", targetCohortId).maybeSingle(),
-    ]);
-
     await Promise.all([
-      sourceCohortResult.data
+      sourceCohort
         ? serviceClient
             .from("cohorts")
-            .update({ enrolled: Math.max(0, sourceCohortResult.data.enrolled - sourceCountDelta) })
+            .update({ enrolled: Math.max(0, sourceCohort.enrolled - sourceCountDelta) })
             .eq("id", sourceCohortId)
         : Promise.resolve({ error: null }),
-      targetCohortResult.data
+      targetCohort
         ? serviceClient
             .from("cohorts")
-            .update({ enrolled: targetCohortResult.data.enrolled + sourceCountDelta })
+            .update({ enrolled: targetCohort.enrolled + sourceCountDelta })
             .eq("id", targetCohortId)
         : Promise.resolve({ error: null }),
     ]);

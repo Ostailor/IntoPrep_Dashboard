@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { startTransition, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
@@ -54,7 +55,6 @@ type TaskFormState = {
 };
 
 const taskTypeOptions = [
-  { value: "billing_follow_up", label: "Billing follow-up" },
   { value: "family_communication", label: "Family communication" },
   { value: "attendance_follow_up", label: "Attendance follow-up" },
   { value: "score_cleanup", label: "Missing scores" },
@@ -62,7 +62,6 @@ const taskTypeOptions = [
 ] as const;
 
 const targetTypeOptions = [
-  { value: "invoice", label: "Invoice" },
   { value: "family", label: "Family" },
   { value: "cohort", label: "Cohort" },
   { value: "student", label: "Student" },
@@ -212,6 +211,7 @@ export function AdminDashboardPanels({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState<TaskFormState>(createDefaultTaskForm);
+  const [taskFormKey, setTaskFormKey] = useState(0);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [openedTaskId, setOpenedTaskId] = useState<string | null>(null);
   const [localTasks, setLocalTasks] = useState<AdminTask[]>([]);
@@ -312,11 +312,13 @@ export function AdminDashboardPanels({
 
   const resetTaskForm = () => {
     setTaskForm(createDefaultTaskForm());
+    setTaskFormKey((current) => current + 1);
     setEditingTaskId(null);
   };
 
   const beginTaskEdit = (task: AdminTask) => {
     setTaskForm(createTaskFormFromTask(task));
+    setTaskFormKey((current) => current + 1);
     setEditingTaskId(task.id);
     setOpenedTaskId(task.id);
     setError(null);
@@ -432,13 +434,35 @@ export function AdminDashboardPanels({
     });
   };
 
-  const handleTaskSave = () => {
+  const getTaskFormValue = (
+    formData: FormData | null,
+    key: keyof TaskFormState,
+  ) => {
+    const value = formData?.get(key);
+    return typeof value === "string" ? value : taskForm[key];
+  };
+
+  const handleTaskSave = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+
     if (readOnly) {
       setError("Role preview is read-only.");
       setSuccess(null);
       return;
     }
 
+    const submittedForm = event?.currentTarget ? new FormData(event.currentTarget) : null;
+    const submittedTask = {
+      title: getTaskFormValue(submittedForm, "title"),
+      taskType: getTaskFormValue(submittedForm, "taskType"),
+      targetType: getTaskFormValue(submittedForm, "targetType"),
+      targetId: getTaskFormValue(submittedForm, "targetId"),
+      assignedTo: getTaskFormValue(submittedForm, "assignedTo"),
+      dueAt: getTaskFormValue(submittedForm, "dueAt"),
+      details: getTaskFormValue(submittedForm, "details"),
+    };
+
+    setTaskForm(submittedTask);
     setPending("task");
     setError(null);
     setSuccess(null);
@@ -452,13 +476,13 @@ export function AdminDashboardPanels({
           },
           body: JSON.stringify({
             taskId: editingTaskId,
-            title: taskForm.title,
-            taskType: taskForm.taskType,
-            targetType: taskForm.targetType,
-            targetId: taskForm.targetId,
-            assignedTo: taskForm.assignedTo || null,
-            dueAt: taskForm.dueAt || null,
-            details: taskForm.details || null,
+            title: submittedTask.title,
+            taskType: submittedTask.taskType,
+            targetType: submittedTask.targetType,
+            targetId: submittedTask.targetId,
+            assignedTo: submittedTask.assignedTo || null,
+            dueAt: submittedTask.dueAt || null,
+            details: submittedTask.details || null,
             status: "open",
           }),
         });
@@ -703,8 +727,8 @@ export function AdminDashboardPanels({
           Follow-up queue
         </h3>
         <p className="mt-3 text-sm text-[color:var(--muted)]">
-          Keep billing, classroom, and family work assigned with due dates so the next handoff is
-          clear.
+          Keep classroom, family, academic, and staffing work assigned with due dates so the next
+          handoff is clear.
         </p>
 
         {error ? (
@@ -718,7 +742,8 @@ export function AdminDashboardPanels({
           </div>
         ) : null}
 
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <form key={taskFormKey} className="mt-5" onSubmit={handleTaskSave}>
+          <div className="grid gap-3 md:grid-cols-2">
           <label className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
               Task title
@@ -727,7 +752,8 @@ export function AdminDashboardPanels({
               Short queue label the assignee will recognize immediately.
             </span>
             <input
-              value={taskForm.title}
+              name="title"
+              defaultValue={taskForm.title}
               onChange={(event) => {
                 const title = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, title }));
@@ -742,16 +768,17 @@ export function AdminDashboardPanels({
               Target ID
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Internal record id for the invoice, family, cohort, student, or user this task belongs to.
+              Internal record id for the family, cohort, student, or user this task belongs to.
             </span>
             <input
-              value={taskForm.targetId}
+              name="targetId"
+              defaultValue={taskForm.targetId}
               onChange={(event) => {
                 const targetId = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, targetId }));
               }}
               className="rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 py-3 text-sm text-[color:var(--navy-strong)]"
-              placeholder="Example: invoice_123 or family_456"
+              placeholder="Example: cohort_123 or family_456"
               disabled={readOnly}
             />
           </label>
@@ -763,7 +790,8 @@ export function AdminDashboardPanels({
               Choose the kind of operational follow-up this work belongs to.
             </span>
             <select
-              value={taskForm.taskType}
+              name="taskType"
+              defaultValue={taskForm.taskType}
               onChange={(event) => {
                 const taskType = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, taskType }));
@@ -783,10 +811,11 @@ export function AdminDashboardPanels({
               Target type
             </span>
             <span className="text-sm text-[color:var(--muted)]">
-              Tell the queue whether the target id points to an invoice, family, cohort, student, or user.
+              Tell the queue whether the target id points to a family, cohort, student, or user.
             </span>
             <select
-              value={taskForm.targetType}
+              name="targetType"
+              defaultValue={taskForm.targetType}
               onChange={(event) => {
                 const targetType = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, targetType }));
@@ -809,7 +838,8 @@ export function AdminDashboardPanels({
               Pick the teammate who should own this next, or leave it unassigned for later.
             </span>
             <select
-              value={taskForm.assignedTo}
+              name="assignedTo"
+              defaultValue={taskForm.assignedTo}
               onChange={(event) => {
                 const assignedTo = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, assignedTo }));
@@ -833,7 +863,8 @@ export function AdminDashboardPanels({
               Optional deadline for the follow-up.
             </span>
             <input
-              value={taskForm.dueAt}
+              name="dueAt"
+              defaultValue={taskForm.dueAt}
               onChange={(event) => {
                 const dueAt = event.currentTarget.value;
                 setTaskForm((current) => ({ ...current, dueAt }));
@@ -843,8 +874,8 @@ export function AdminDashboardPanels({
               disabled={readOnly}
             />
           </label>
-        </div>
-        <label className="mt-3 flex flex-col gap-2">
+          </div>
+          <label className="mt-3 flex flex-col gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
             Assignee notes
           </span>
@@ -852,7 +883,8 @@ export function AdminDashboardPanels({
             Include the context, blocker, or next step the assignee needs before they open the record.
           </span>
           <textarea
-            value={taskForm.details}
+            name="details"
+            defaultValue={taskForm.details}
             onChange={(event) => {
               const details = event.currentTarget.value;
               setTaskForm((current) => ({ ...current, details }));
@@ -861,26 +893,26 @@ export function AdminDashboardPanels({
             placeholder="Example: Call the guardian, confirm the missed class makeup date, and note the answer in billing follow-up."
             disabled={readOnly}
           />
-        </label>
-        <button
-          type="button"
-          onClick={handleTaskSave}
-          disabled={pending === "task" || readOnly}
-          className={clsx(
-            "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
-            pending === "task" || readOnly
-              ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
-              : "bg-[color:var(--navy-strong)] hover:opacity-90",
-          )}
-        >
-          {pending === "task"
-            ? "Saving..."
-            : readOnly
-              ? "Preview only"
-              : editingTaskId
-                ? "Save task"
-                : "Create task"}
-        </button>
+          </label>
+          <button
+            type="submit"
+            disabled={pending === "task" || readOnly}
+            className={clsx(
+              "mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white",
+              pending === "task" || readOnly
+                ? "cursor-not-allowed bg-[rgba(23,56,75,0.46)]"
+                : "bg-[color:var(--navy-strong)] hover:opacity-90",
+            )}
+          >
+            {pending === "task"
+              ? "Saving..."
+              : readOnly
+                ? "Preview only"
+                : editingTaskId
+                  ? "Save task"
+                  : "Create task"}
+          </button>
+        </form>
         {editingTaskId ? (
           <button
             type="button"

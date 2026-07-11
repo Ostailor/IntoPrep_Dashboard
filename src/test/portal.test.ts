@@ -1,4 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  mapStudentDirectoryRow,
+  mapStudentImportMetadataRows,
+} from "@/lib/live-portal";
+import type { User } from "@/lib/domain";
+
+vi.mock("server-only", () => ({}));
 import {
   canAccessSection,
   canManageAdminAnnouncements,
@@ -173,6 +180,8 @@ describe("roster privacy", () => {
         school: "Great Valley",
         targetTest: "SAT" as const,
         focus: "Reading timing",
+        customFields: {},
+        demo: false,
       },
       {
         id: "student-2",
@@ -183,6 +192,8 @@ describe("roster privacy", () => {
         school: "Conestoga",
         targetTest: "SAT" as const,
         focus: "Math pacing",
+        customFields: {},
+        demo: false,
       },
       {
         id: "student-3",
@@ -193,6 +204,8 @@ describe("roster privacy", () => {
         school: "Radnor",
         targetTest: "SAT" as const,
         focus: "Module accuracy",
+        customFields: {},
+        demo: false,
       },
     ],
     families: [
@@ -369,7 +382,7 @@ describe("roster privacy", () => {
 });
 
 describe("sync alerts", () => {
-  it("prioritizes sync failures for staff dashboards", () => {
+  it("prioritizes sync failures and omits the unused QuickBooks job", () => {
     const alerts = getAlertsFromSyncJobs("staff", [
       {
         id: "sync-forms",
@@ -397,9 +410,174 @@ describe("sync alerts", () => {
       },
     ]);
 
-    expect(alerts.map((alert) => alert.label)).toEqual([
-      "Scheduling bridge fallback",
-      "QuickBooks invoice snapshot",
+    expect(alerts.map((alert) => alert.label)).toEqual(["Scheduling bridge fallback"]);
+  });
+});
+
+describe("student import directory mapping", () => {
+  const demoAdmin: User = {
+    id: "admin-demo",
+    name: "Demo Admin",
+    role: "admin",
+    title: "Administrator",
+    assignedCohortIds: [],
+    demo: true,
+  };
+
+  it("maps imported student details and keeps field metadata in the viewer partition", () => {
+    const student = mapStudentDirectoryRow(
+      {
+        id: "student-1",
+        family_id: "family-1",
+        first_name: "Ava",
+        last_name: "Stone",
+        email: "ava@example.com",
+        phone: "555-0100",
+        grade_level: "11",
+        school: "Great Valley",
+        target_test: "SAT",
+        focus: "Reading timing",
+        external_id: "S-100",
+        custom_fields: { graduation_year: 2027 },
+        demo: true,
+      },
+      true,
+    );
+    const metadata = mapStudentImportMetadataRows({
+      viewer: demoAdmin,
+      definitions: [
+        {
+          id: "field-demo",
+          key: "graduation_year",
+          label: "Graduation year",
+          data_type: "number",
+          header_aliases: ["Grad year"],
+          required: false,
+          sensitive: true,
+          sort_order: 10,
+          demo: true,
+          archived_at: null,
+          created_by: null,
+          created_at: "2026-07-09T10:00:00.000Z",
+          updated_at: "2026-07-09T10:00:00.000Z",
+        },
+        {
+          id: "field-main",
+          key: "student_note",
+          label: "Student note",
+          data_type: "text",
+          header_aliases: [],
+          required: false,
+          sensitive: true,
+          sort_order: 20,
+          demo: false,
+          archived_at: null,
+          created_by: null,
+          created_at: "2026-07-09T10:00:00.000Z",
+          updated_at: "2026-07-09T10:00:00.000Z",
+        },
+      ],
+      runs: [
+        {
+          id: "run-demo",
+          filename: "demo.xlsx",
+          worksheet: "Students",
+          status: "completed",
+          created_count: 1,
+          updated_count: 0,
+          enrollment_count: 0,
+          skipped_count: 0,
+          warning_count: 0,
+          demo: true,
+          created_at: "2026-07-09T12:00:00.000Z",
+          file_digest: "demo-digest",
+          mapping: {},
+          total_rows: 1,
+          error_samples: [],
+          workbook_profile: "simple",
+          workbook_mapping: {},
+          workbook_setup: {},
+          cohort_count: 0,
+          session_count: 0,
+          assessment_count: 0,
+          result_count: 0,
+          created_by: null,
+        },
+        {
+          id: "run-main",
+          filename: "main.xlsx",
+          worksheet: "Students",
+          status: "completed",
+          created_count: 1,
+          updated_count: 0,
+          enrollment_count: 0,
+          skipped_count: 0,
+          warning_count: 0,
+          demo: false,
+          created_at: "2026-07-09T11:00:00.000Z",
+          file_digest: "main-digest",
+          mapping: {},
+          total_rows: 1,
+          error_samples: [],
+          workbook_profile: "simple",
+          workbook_mapping: {},
+          workbook_setup: {},
+          cohort_count: 0,
+          session_count: 0,
+          assessment_count: 0,
+          result_count: 0,
+          created_by: null,
+        },
+      ],
+    });
+
+    expect(student).toMatchObject({
+      externalId: "S-100",
+      customFields: { graduation_year: 2027 },
+      demo: true,
+    });
+    expect(metadata.definitions.map((definition) => definition.id)).toEqual(["field-demo"]);
+    expect(metadata.runs.map((run) => run.id)).toEqual(["run-demo"]);
+
+    const engineerMetadata = mapStudentImportMetadataRows({
+      viewer: { ...demoAdmin, role: "engineer", demo: false },
+      definitions: [
+        {
+          id: "field-demo",
+          key: "graduation_year",
+          label: "Graduation year",
+          data_type: "number",
+          header_aliases: [],
+          required: false,
+          sensitive: true,
+          sort_order: 10,
+          demo: true,
+          archived_at: null,
+          created_by: null,
+          created_at: "2026-07-09T10:00:00.000Z",
+          updated_at: "2026-07-09T10:00:00.000Z",
+        },
+        {
+          id: "field-main",
+          key: "student_note",
+          label: "Student note",
+          data_type: "text",
+          header_aliases: [],
+          required: false,
+          sensitive: true,
+          sort_order: 20,
+          demo: false,
+          archived_at: null,
+          created_by: null,
+          created_at: "2026-07-09T10:00:00.000Z",
+          updated_at: "2026-07-09T10:00:00.000Z",
+        },
+      ],
+      runs: [],
+    });
+    expect(engineerMetadata.definitions.map((definition) => definition.id)).toEqual([
+      "field-demo",
+      "field-main",
     ]);
   });
 });

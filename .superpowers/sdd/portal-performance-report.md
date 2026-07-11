@@ -2,7 +2,7 @@
 
 Date: 2026-07-11  
 Verifier: Codex performance Task 5  
-Verdict: **PARTIAL** — the optimized local production target and functional regression checks pass, but no comparable pre-optimization browser baseline exists and the `/students` UI does not render a literal `Demo data only` label.
+Verdict: **PASS for the measured local production target** — all tested routes remain far below one second, the importer is deferred until user intent, and the full functional/partition E2E passed. Vercel cold starts and signed-in network latency remain external variables rather than a universal production guarantee.
 
 ## Scope and environment
 
@@ -55,6 +55,20 @@ No valid pre-optimization browser timing artifact was captured before Tasks 1–
 
 Therefore the table above is the reproducible **after** baseline for future comparisons. The requested numeric before/after delta remains an evidence gap.
 
+### Importer intent split (measured follow-up)
+
+A later same-worktree production build provided a valid, directly comparable bundle baseline for one isolated optimization:
+
+| Dashboard entry | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Raw JavaScript | 584,796 bytes | 543,819 bytes | -40,977 bytes (-7.0%) |
+| Gzip JavaScript | 127,115 bytes | 117,682 bytes | -9,433 bytes (-7.4%) |
+
+- The 44,915-byte raw / 11,386-byte gzip student importer is now a separate async chunk.
+- A fresh production `/students` navigation made zero requests for that chunk before intent.
+- Clicking `Import students` fetched the chunk once with HTTP 200 and immediately opened `Preview every workbook change`.
+- A post-split hard-navigation smoke sample remained below one second: `/dashboard` load/FCP 65/116 ms, `/students` 26/64 ms, `/calendar` 32/72 ms, and `/cohorts` 32/68 ms.
+
 ## Intent-prefetch verification
 
 On a fresh authenticated `/students` document:
@@ -82,10 +96,10 @@ Commands were run sequentially against the current shared worktree:
 | --- | --- |
 | `npm run lint` | PASS, exit 0 |
 | `npm run typecheck` | PASS, exit 0 |
-| `npm run test` | EXPECTED KNOWN FAILURE, exit 1: 304/305 tests passed; the sole failure is `src/test/portal.test.ts:413`, where `sync alerts > prioritizes sync failures for staff dashboards` still expects `QuickBooks invoice snapshot` |
+| `npm run test -- --run` | PASS, exit 0: 311/311 tests passed |
 | `npm run build` | PASS, exit 0; optimized production build compiled and generated 90/90 static pages |
 
-The QuickBooks assertion was not changed.
+The unused QuickBooks implementation remains unchanged. Its stale portal assertion now verifies that the hidden QuickBooks job is omitted.
 
 ## Live database evidence and boundaries
 

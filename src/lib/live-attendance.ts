@@ -29,6 +29,8 @@ type AttendanceRecordRow = Database["public"]["Tables"]["attendance_records"]["R
 type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 type FamilyRow = Database["public"]["Tables"]["families"]["Row"];
 type CohortAssignmentRow = Database["public"]["Tables"]["cohort_assignments"]["Row"];
+type SessionInstructionBlockRow =
+  Database["public"]["Tables"]["session_instruction_blocks"]["Row"];
 type SessionHandoffNoteRow = Database["public"]["Tables"]["session_handoff_notes"]["Row"];
 type AttendanceExceptionFlagRow = Database["public"]["Tables"]["attendance_exception_flags"]["Row"];
 type SessionCoverageFlagRow = Database["public"]["Tables"]["session_coverage_flags"]["Row"];
@@ -67,6 +69,7 @@ function getLocalQaAttendanceBundle(): LiveAttendanceBundle {
         {
           studentId: "qa-student-anika",
           studentName: "Anika Patel",
+          cohortId: "qa-sat-weekend",
           gradeLevel: "11",
           school: "Westfield High",
           familyEmail: "patel.family@example.com",
@@ -80,7 +83,24 @@ function getLocalQaAttendanceBundle(): LiveAttendanceBundle {
               { label: "Reading", score: 650 },
               { label: "Math", score: 670 },
             ],
+            date: "2026-06-20",
+            notes: "Strong algebra recovery after targeted drill set; keep pacing work in reading.",
           },
+          practiceTests: [
+            {
+              resultId: "qa-result-anika",
+              assessmentId: "qa-assessment-baseline",
+              title: "SAT baseline diagnostic",
+              date: "2026-06-20",
+              totalScore: 1320,
+              deltaFromPrevious: 40,
+              sectionScores: [
+                { label: "Reading", score: 650 },
+                { label: "Math", score: 670 },
+              ],
+              notes: "Strong algebra recovery after targeted drill set; keep pacing work in reading.",
+            },
+          ],
           trend: [
             { label: "Jun 8", score: 1280 },
             { label: "Jun 20", score: 1320 },
@@ -89,6 +109,7 @@ function getLocalQaAttendanceBundle(): LiveAttendanceBundle {
         {
           studentId: "qa-student-leo",
           studentName: "Leo Patel",
+          cohortId: "qa-sat-weekend",
           gradeLevel: "10",
           school: "Westfield High",
           familyEmail: "patel.family@example.com",
@@ -102,7 +123,24 @@ function getLocalQaAttendanceBundle(): LiveAttendanceBundle {
               { label: "Reading", score: 590 },
               { label: "Math", score: 620 },
             ],
+            date: "2026-06-20",
+            notes: "Needs another pass on systems of equations before the next full practice test.",
           },
+          practiceTests: [
+            {
+              resultId: "qa-result-leo",
+              assessmentId: "qa-assessment-baseline",
+              title: "SAT baseline diagnostic",
+              date: "2026-06-20",
+              totalScore: 1210,
+              deltaFromPrevious: 30,
+              sectionScores: [
+                { label: "Reading", score: 590 },
+                { label: "Math", score: 620 },
+              ],
+              notes: "Needs another pass on systems of equations before the next full practice test.",
+            },
+          ],
           trend: [
             { label: "Jun 8", score: 1180 },
             { label: "Jun 20", score: 1210 },
@@ -220,23 +258,49 @@ async function loadLiveAttendanceBundle(
   const serviceClient = createSupabaseServiceClient();
   const currentDate = getNewYorkDate();
   const nextDate = getNextDate(currentDate);
-  const accessibleCohortIds = await getAccessibleCohortIds(viewer);
+  const sessionsResult =
+    viewer.role === "instructor"
+      ? await (async () => {
+          const { data: instructionBlocks } = await serviceClient
+            .from("session_instruction_blocks")
+            .select("*")
+            .eq("instructor_id", viewer.id);
+          const sessionIds = Array.from(
+            new Set(
+              ((instructionBlocks ?? []) as SessionInstructionBlockRow[])
+                .filter((block) => isSameDemoPartition(viewer, block))
+                .map((block) => block.session_id),
+            ),
+          );
 
-  const sessionsQuery = serviceClient
-    .from("sessions")
-    .select("*")
-    .gte("start_at", `${currentDate}T00:00:00-04:00`)
-    .lt("start_at", `${nextDate}T00:00:00-04:00`)
-    .order("start_at", { ascending: true });
+          return sessionIds.length > 0
+            ? serviceClient
+                .from("sessions")
+                .select("*")
+                .in("id", sessionIds)
+                .gte("start_at", `${currentDate}T00:00:00-04:00`)
+                .lt("start_at", `${nextDate}T00:00:00-04:00`)
+                .order("start_at", { ascending: true })
+            : { data: [] };
+        })()
+      : await (async () => {
+          const accessibleCohortIds = await getAccessibleCohortIds(viewer);
+          const sessionsQuery = serviceClient
+            .from("sessions")
+            .select("*")
+            .gte("start_at", `${currentDate}T00:00:00-04:00`)
+            .lt("start_at", `${nextDate}T00:00:00-04:00`)
+            .order("start_at", { ascending: true });
 
-  const scopedSessionsQuery =
-    accessibleCohortIds && accessibleCohortIds.length > 0
-      ? sessionsQuery.in("cohort_id", accessibleCohortIds)
-      : accessibleCohortIds?.length === 0
-        ? null
-        : sessionsQuery;
+          const scopedSessionsQuery =
+            accessibleCohortIds && accessibleCohortIds.length > 0
+              ? sessionsQuery.in("cohort_id", accessibleCohortIds)
+              : accessibleCohortIds?.length === 0
+                ? null
+                : sessionsQuery;
 
-  const sessionsResult = scopedSessionsQuery ? await scopedSessionsQuery : { data: [] };
+          return scopedSessionsQuery ? scopedSessionsQuery : { data: [] };
+        })();
   const sessions = ((sessionsResult.data ?? []) as SessionRow[]).filter((session) =>
     isSameDemoPartition(viewer, session),
   );
@@ -380,10 +444,33 @@ async function loadLiveAttendanceBundle(
         )?.status ?? "present";
       const result = todayResultByStudent.get(studentId);
       const todayAssessment = todayAssessmentByCohort.get(session.cohort_id);
+      const practiceTests = historicalResults
+        .filter((historicalResult) => historicalResult.student_id === studentId)
+        .map((historicalResult) => {
+          const assessment = allAssessments.find((item) => item.id === historicalResult.assessment_id);
+
+          return assessment && assessment.cohort_id === session.cohort_id
+            ? {
+                resultId: historicalResult.id,
+                assessmentId: historicalResult.assessment_id,
+                title: assessment.title,
+                date: assessment.date,
+                totalScore: historicalResult.total_score,
+                deltaFromPrevious: historicalResult.delta_from_previous,
+                sectionScores: Array.isArray(historicalResult.section_scores)
+                  ? (historicalResult.section_scores as { label: string; score: number }[])
+                  : [],
+                notes: historicalResult.notes,
+              }
+            : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+        .sort((left, right) => right.date.localeCompare(left.date));
 
       rows.push({
         studentId,
         studentName: `${student.first_name} ${student.last_name}`,
+        cohortId: session.cohort_id,
         gradeLevel: viewer.role === "instructor" ? undefined : student.grade_level,
         school: viewer.role === "instructor" ? undefined : student.school,
         familyEmail: family?.email,
@@ -398,8 +485,11 @@ async function loadLiveAttendanceBundle(
                 sectionScores: Array.isArray(result.section_scores)
                   ? (result.section_scores as { label: string; score: number }[])
                   : [],
+                date: todayAssessment.date,
+                notes: result.notes,
               }
             : undefined,
+        practiceTests,
         trend: trendMap.get(studentId) ?? [],
       });
     });
@@ -480,7 +570,7 @@ const getCachedLiveAttendanceBundle = unstable_cache(
   },
   ["live-attendance-bundle-v2"],
   {
-    revalidate: 15,
+    revalidate: 30,
     tags: ["portal-live"],
   },
 );

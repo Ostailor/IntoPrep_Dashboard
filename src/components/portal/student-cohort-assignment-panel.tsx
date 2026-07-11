@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type {
@@ -12,13 +13,35 @@ import type {
   ProgramTrack,
   Session,
   Student,
+  StudentFieldDefinition,
+  StudentImportRun,
   UserRole,
 } from "@/lib/domain";
 import { TrendSparkline } from "@/components/portal/trend-sparkline";
 import { StudentWorkbookExportActions } from "@/components/portal/student-workbook-export-actions";
+import { canRunStudentImports } from "@/lib/permissions";
+
+const StudentImportPanel = dynamic(() =>
+  import("@/components/portal/student-import-panel").then(
+    (module) => module.StudentImportPanel,
+  ),
+  {
+    loading: () => (
+      <button
+        type="button"
+        disabled
+        className="rounded-full border border-[color:var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--muted)]"
+      >
+        Opening importer…
+      </button>
+    ),
+  },
+);
 
 type TrendMetric = "total" | "rw" | "math";
 type TrendFilter = "all" | "declining" | "plateauing" | "increasing";
+type PartitionFilter = "all" | "demo" | "main";
+type StudentCustomFieldEditValue = string | number | boolean | null;
 
 interface StudentCohortAssignmentPanelProps {
   viewerMode: "preview" | "live" | "live-role-preview";
@@ -31,6 +54,8 @@ interface StudentCohortAssignmentPanelProps {
   enrollments: Enrollment[];
   assessments: Assessment[];
   results: AssessmentResult[];
+  fieldDefinitions: StudentFieldDefinition[];
+  importRuns: StudentImportRun[];
 }
 
 type StudentFormState = {
@@ -41,9 +66,16 @@ type StudentFormState = {
   school: string;
   targetTest: ProgramTrack;
   focus: string;
-  guardianName: string;
-  familyEmail: string;
-  familyPhone: string;
+  parent1Name: string;
+  parent1Email: string;
+  parent1Phone: string;
+  parent2Name: string;
+  parent2Email: string;
+  parent2Phone: string;
+  studentEmail: string;
+  studentPhone: string;
+  externalId: string;
+  customFields: Record<string, StudentCustomFieldEditValue>;
   familyNotes: string;
 };
 
@@ -55,6 +87,7 @@ type ScoreFormState = {
   rwScore: string;
   mathScore: string;
   totalScore: string;
+  notes: string;
 };
 
 function getDateOnly(value: string) {
@@ -102,6 +135,30 @@ function getTrendFilterValue(points: { label: string; score: number }[]): Exclud
   return tone === "declining" || tone === "increasing" ? tone : "plateauing";
 }
 
+const CONTACT_BLOCK_START = "Student and parent contacts:";
+type StoredContactFieldLabel =
+  | "Parent 1 email"
+  | "Parent 1 phone"
+  | "Parent 2 email"
+  | "Parent 2 phone"
+  | "Student email"
+  | "Student phone";
+
+function getStoredContactValue(notes: string | undefined, label: StoredContactFieldLabel) {
+  const line = notes
+    ?.split(/\r?\n/)
+    .find((entry) => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+
+  return line?.slice(label.length + 1).trim() ?? "";
+}
+
+function stripStoredContactBlock(notes: string | undefined) {
+  const normalized = notes ?? "";
+  const index = normalized.indexOf(CONTACT_BLOCK_START);
+
+  return (index >= 0 ? normalized.slice(0, index) : normalized).trim();
+}
+
 function emptyStudentForm(): StudentFormState {
   return {
     studentId: null,
@@ -111,9 +168,16 @@ function emptyStudentForm(): StudentFormState {
     school: "",
     targetTest: "SAT",
     focus: "",
-    guardianName: "",
-    familyEmail: "",
-    familyPhone: "",
+    parent1Name: "",
+    parent1Email: "",
+    parent1Phone: "",
+    parent2Name: "",
+    parent2Email: "",
+    parent2Phone: "",
+    studentEmail: "",
+    studentPhone: "",
+    externalId: "",
+    customFields: {},
     familyNotes: "",
   };
 }
@@ -129,6 +193,8 @@ export function StudentCohortAssignmentPanel({
   enrollments,
   assessments,
   results,
+  fieldDefinitions,
+  importRuns,
 }: StudentCohortAssignmentPanelProps) {
   const router = useRouter();
   const readOnly = viewerMode === "live-role-preview";
@@ -140,15 +206,20 @@ export function StudentCohortAssignmentPanel({
   const [classFilter, setClassFilter] = useState("all");
   const [schoolFilter, setSchoolFilter] = useState("all");
   const [trendFilter, setTrendFilter] = useState<TrendFilter>("all");
+  const [partitionFilter, setPartitionFilter] = useState<PartitionFilter>(
+    role === "engineer" ? "main" : "all",
+  );
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkCohortId, setBulkCohortId] = useState(cohorts[0]?.id ?? "");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [studentImportRequested, setStudentImportRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [studentForm, setStudentForm] = useState<StudentFormState | null>(null);
   const [scoreForm, setScoreForm] = useState<ScoreFormState | null>(null);
   const [trendStudentId, setTrendStudentId] = useState<string | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("total");
+  const [selectedTrendResultId, setSelectedTrendResultId] = useState<string | null>(null);
 
   const familyById = useMemo(() => new Map(families.map((family) => [family.id, family])), [families]);
   const cohortById = useMemo(() => new Map(cohorts.map((cohort) => [cohort.id, cohort])), [cohorts]);
@@ -242,8 +313,13 @@ export function StudentCohortAssignmentPanel({
           student.school,
           student.gradeLevel,
           student.focus,
+          student.externalId,
+          ...Object.values(student.customFields),
+          family?.familyName,
+          family?.guardianNames.join(" "),
           family?.email,
           family?.phone,
+          family?.notes,
         ]
           .filter(Boolean)
           .join(" ")
@@ -280,9 +356,18 @@ export function StudentCohortAssignmentPanel({
           return false;
         }
 
+        if (partitionFilter === "demo" && !student.demo) {
+          return false;
+        }
+
+        if (partitionFilter === "main" && student.demo) {
+          return false;
+        }
+
         return true;
       });
   })();
+  const searchSuggestions = search.trim().length > 0 ? filteredStudents.slice(0, 5) : [];
 
   const openStudentForm = (student?: Student) => {
     if (!student) {
@@ -299,10 +384,27 @@ export function StudentCohortAssignmentPanel({
       school: student.school,
       targetTest: student.targetTest,
       focus: student.focus,
-      guardianName: family?.guardianNames[0] ?? "",
-      familyEmail: family?.email ?? "",
-      familyPhone: family?.phone ?? "",
-      familyNotes: family?.notes ?? "",
+      parent1Name: family?.parent1Name ?? family?.guardianNames[0] ?? "",
+      parent1Email:
+        family?.parent1Email ??
+        (getStoredContactValue(family?.notes, "Parent 1 email") || family?.email || ""),
+      parent1Phone:
+        family?.parent1Phone ??
+        (getStoredContactValue(family?.notes, "Parent 1 phone") || family?.phone || ""),
+      parent2Name: family?.parent2Name ?? family?.guardianNames[1] ?? "",
+      parent2Email: family?.parent2Email ?? getStoredContactValue(family?.notes, "Parent 2 email"),
+      parent2Phone: family?.parent2Phone ?? getStoredContactValue(family?.notes, "Parent 2 phone"),
+      studentEmail: student.email ?? getStoredContactValue(family?.notes, "Student email"),
+      studentPhone: student.phone ?? getStoredContactValue(family?.notes, "Student phone"),
+      externalId: student.externalId ?? "",
+      customFields: Object.fromEntries(
+        fieldDefinitions.flatMap((definition) =>
+          definition.demo === student.demo && definition.key in student.customFields
+            ? [[definition.key, student.customFields[definition.key]]]
+            : [],
+        ),
+      ),
+      familyNotes: stripStoredContactBlock(family?.notes),
     });
   };
 
@@ -385,6 +487,7 @@ export function StudentCohortAssignmentPanel({
       rwScore: "",
       mathScore: "",
       totalScore: "",
+      notes: "",
     });
   };
 
@@ -407,6 +510,7 @@ export function StudentCohortAssignmentPanel({
             rwScore: Number(scoreForm.rwScore),
             mathScore: Number(scoreForm.mathScore),
             totalScore: Number(scoreForm.totalScore || Number(scoreForm.rwScore) + Number(scoreForm.mathScore)),
+            notes: scoreForm.notes,
           }),
         });
         const payload = (await response.json()) as { error?: string };
@@ -451,10 +555,27 @@ export function StudentCohortAssignmentPanel({
             Search students, filter by cohort, class, or school, update placement, and review score trends.
           </p>
         </div>
-        {canEditStudents || (["engineer", "admin", "staff"] as UserRole[]).includes(role) ? (
+        {canEditStudents || (canRunStudentImports(role) && viewerMode !== "live-role-preview") ? (
           <div className="flex flex-wrap gap-2">
-            {viewerMode !== "live-role-preview" ? (
-              <StudentWorkbookExportActions role={role} />
+            {canRunStudentImports(role) && viewerMode !== "live-role-preview" ? (
+              <>
+                {studentImportRequested ? (
+                  <StudentImportPanel
+                    role={role}
+                    onImported={refreshDirectory}
+                    defaultOpen
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setStudentImportRequested(true)}
+                    className="rounded-full border border-[color:var(--navy)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--navy)]"
+                  >
+                    Import students
+                  </button>
+                )}
+                <StudentWorkbookExportActions role={role} />
+              </>
             ) : null}
             {canEditStudents ? (
               <button
@@ -481,8 +602,43 @@ export function StudentCohortAssignmentPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
-        <label className="text-sm font-semibold text-[color:var(--navy-strong)]">
+      {importRuns.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-[color:var(--line)] bg-white/75 p-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            Recent student imports
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {importRuns
+              .filter((run) =>
+                partitionFilter === "all" ||
+                (partitionFilter === "demo" ? run.demo : !run.demo),
+              )
+              .slice(0, 6)
+              .map((run) => (
+              <div key={run.id} className="rounded-lg border border-[color:var(--line)] bg-stone-50/80 p-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="truncate font-semibold text-[color:var(--navy-strong)]">{run.filename}</span>
+                  <span className={clsx(
+                    "rounded-full px-2 py-0.5 text-xs font-semibold",
+                    run.status === "completed" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800",
+                  )}>
+                    {run.status}
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-[color:var(--muted)]">
+                  {run.demo ? "Demo" : "Main"} · {run.createdCount} created · {run.updatedCount} updated · {new Date(run.createdAt).toLocaleDateString()}
+                </div>
+              </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={clsx(
+        "mt-5 grid gap-3",
+        role === "engineer" ? "lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr_1fr]" : "lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]",
+      )}>
+        <label className="relative text-sm font-semibold text-[color:var(--navy-strong)]">
           Search
           <input
             value={search}
@@ -490,6 +646,30 @@ export function StudentCohortAssignmentPanel({
             placeholder="Name, school, phone, email, focus"
             className="mt-2 w-full rounded-lg border border-[color:var(--line)] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[rgba(23,56,75,0.12)]"
           />
+          {searchSuggestions.length > 0 ? (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-[color:var(--line)] bg-white shadow-lg">
+              {searchSuggestions.map((student) => {
+                const family = familyById.get(student.familyId);
+
+                return (
+                  <button
+                    key={student.id}
+                    type="button"
+                    onClick={() => setSearch(`${student.firstName} ${student.lastName}`)}
+                    className="block w-full border-b border-[color:var(--line)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-stone-50"
+                  >
+                    <span className="font-semibold text-[color:var(--navy-strong)]">
+                      {student.firstName} {student.lastName}
+                    </span>
+                    <span className="ml-2 text-xs font-normal text-[color:var(--muted)]">
+                      {family?.parent1Name ?? family?.guardianNames[0] ?? "Parent 1"}
+                      {family?.parent2Name || family?.guardianNames[1] ? ` / ${family?.parent2Name ?? family?.guardianNames[1]}` : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </label>
         <label className="text-sm font-semibold text-[color:var(--navy-strong)]">
           Cohort
@@ -551,6 +731,20 @@ export function StudentCohortAssignmentPanel({
             <option value="increasing">Increasing</option>
           </select>
         </label>
+        {role === "engineer" ? (
+          <label className="text-sm font-semibold text-[color:var(--navy-strong)]">
+            Data partition
+            <select
+              value={partitionFilter}
+              onChange={(event) => setPartitionFilter(event.currentTarget.value as PartitionFilter)}
+              className="mt-2 w-full rounded-lg border border-[color:var(--line)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="main">Main</option>
+              <option value="demo">Demo</option>
+              <option value="all">All (troubleshooting)</option>
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {canAssign ? (
@@ -636,10 +830,20 @@ export function StudentCohortAssignmentPanel({
                   <td className="px-4 py-4">
                     <div className="font-semibold text-[color:var(--navy-strong)]">
                       {student.firstName} {student.lastName}
+                      {role === "engineer" ? (
+                        <span className="ml-2 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)]">
+                          {student.demo ? "Demo" : "Main"}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-1 text-xs text-[color:var(--muted)]">
                       Grade {student.gradeLevel} · {student.targetTest} · {student.focus}
                     </div>
+                    {student.externalId ? (
+                      <div className="mt-1 text-xs text-[color:var(--muted)]">
+                        External ID: {student.externalId}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-[color:var(--muted)]">{student.school}</td>
                   <td className="px-4 py-4 text-[color:var(--muted)]">{family?.phone ?? "Restricted"}</td>
@@ -661,6 +865,7 @@ export function StudentCohortAssignmentPanel({
                       onClick={() => {
                         setTrendStudentId(student.id);
                         setTrendMetric("total");
+                        setSelectedTrendResultId(null);
                       }}
                     />
                   </td>
@@ -717,12 +922,18 @@ export function StudentCohortAssignmentPanel({
               {[
                 ["First name", "firstName"],
                 ["Last name", "lastName"],
+                ["External ID", "externalId"],
                 ["Grade", "gradeLevel"],
                 ["School", "school"],
                 ["Focus", "focus"],
-                ["Guardian name", "guardianName"],
-                ["Family email", "familyEmail"],
-                ["Family phone", "familyPhone"],
+                ["Parent 1 name", "parent1Name"],
+                ["Parent 1 email", "parent1Email"],
+                ["Parent 1 phone", "parent1Phone"],
+                ["Parent 2 name", "parent2Name"],
+                ["Parent 2 email", "parent2Email"],
+                ["Parent 2 phone", "parent2Phone"],
+                ["Student email", "studentEmail"],
+                ["Student phone", "studentPhone"],
               ].map(([label, field]) => (
                 <label key={field} className="text-sm font-semibold text-[color:var(--navy-strong)]">
                   {label}
@@ -763,6 +974,73 @@ export function StudentCohortAssignmentPanel({
                   className="mt-2 min-h-24 w-full rounded-lg border border-[color:var(--line)] px-3 py-2 text-sm"
                 />
               </label>
+              {fieldDefinitions.length > 0 ? (
+                <fieldset className="md:col-span-2 rounded-lg border border-[color:var(--line)] p-4">
+                  <legend className="px-2 text-sm font-semibold text-[color:var(--navy-strong)]">
+                    Additional information
+                  </legend>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {fieldDefinitions.map((definition) => {
+                      const value = studentForm.customFields[definition.key];
+                      const updateValue = (nextValue: StudentCustomFieldEditValue | undefined) => {
+                        setStudentForm((current) => {
+                          if (!current) {
+                            return current;
+                          }
+
+                          const customFields = { ...current.customFields };
+                          if (nextValue === undefined) {
+                            delete customFields[definition.key];
+                          } else {
+                            customFields[definition.key] = nextValue;
+                          }
+
+                          return { ...current, customFields };
+                        });
+                      };
+
+                      return (
+                        <label key={definition.id} className="text-sm font-semibold text-[color:var(--navy-strong)]">
+                          {definition.label}
+                          {definition.required ? " *" : ""}
+                          {definition.dataType === "boolean" ? (
+                            <select
+                              value={typeof value === "boolean" ? String(value) : ""}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                updateValue(nextValue === "" ? null : nextValue === "true");
+                              }}
+                              required={definition.required}
+                              className="mt-2 w-full rounded-lg border border-[color:var(--line)] bg-white px-3 py-2 text-sm"
+                            >
+                              <option value="">Not set</option>
+                              <option value="true">Yes</option>
+                              <option value="false">No</option>
+                            </select>
+                          ) : (
+                            <input
+                              type={definition.dataType === "number" ? "number" : definition.dataType === "date" ? "date" : "text"}
+                              value={value === undefined || value === null ? "" : String(value)}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                updateValue(
+                                  nextValue === ""
+                                    ? null
+                                    : definition.dataType === "number"
+                                      ? Number(nextValue)
+                                      : nextValue,
+                                );
+                              }}
+                              required={definition.required}
+                              className="mt-2 w-full rounded-lg border border-[color:var(--line)] px-3 py-2 text-sm"
+                            />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ) : null}
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={() => setStudentForm(null)} className="rounded-full border px-4 py-2 text-sm font-semibold">
@@ -852,6 +1130,17 @@ export function StudentCohortAssignmentPanel({
                   />
                 </label>
               ))}
+              <label className="md:col-span-2 text-sm font-semibold text-[color:var(--navy-strong)]">
+                Notes
+                <textarea
+                  value={scoreForm.notes}
+                  onChange={(event) => {
+                    const notes = event.currentTarget.value;
+                    setScoreForm((current) => current ? { ...current, notes } : current);
+                  }}
+                  className="mt-2 min-h-24 w-full rounded-lg border border-[color:var(--line)] px-3 py-2 text-sm"
+                />
+              </label>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={() => setScoreForm(null)} className="rounded-full border px-4 py-2 text-sm font-semibold">
@@ -922,7 +1211,17 @@ export function StudentCohortAssignmentPanel({
                   const rw = metricScore(result, "rw");
                   const math = metricScore(result, "math");
                   return (
-                    <div key={result.id} className="rounded-lg border border-[color:var(--line)] bg-stone-50/80 p-3 text-sm">
+                    <button
+                      key={result.id}
+                      type="button"
+                      onClick={() => setSelectedTrendResultId(result.id)}
+                      className={clsx(
+                        "w-full rounded-lg border p-3 text-left text-sm",
+                        selectedTrendResultId === result.id
+                          ? "border-[rgba(23,56,75,0.34)] bg-[rgba(23,56,75,0.08)]"
+                          : "border-[color:var(--line)] bg-stone-50/80 hover:bg-stone-100",
+                      )}
+                    >
                       <div className="font-semibold text-[color:var(--navy-strong)]">{assessment.title}</div>
                       <div className="mt-1 text-[color:var(--muted)]">{assessment.date}</div>
                       <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
@@ -930,7 +1229,15 @@ export function StudentCohortAssignmentPanel({
                         <span>Math {math ?? "-"}</span>
                         <span>Total {result.totalScore}</span>
                       </div>
-                    </div>
+                      {selectedTrendResultId === result.id ? (
+                        <div className="mt-3 rounded-lg border border-[color:var(--line)] bg-white p-3 text-sm font-normal text-[color:var(--navy-strong)]">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">
+                            Notes
+                          </div>
+                          <div className="mt-2">{result.notes || "No notes recorded."}</div>
+                        </div>
+                      ) : null}
+                    </button>
                   );
                 })}
                 {selectedTrendRows.length === 0 ? (

@@ -2,6 +2,8 @@
 
 Internal dashboard prototype for IntoPrep operations. The app is built with Next.js App Router, TypeScript, and Tailwind CSS, and it implements the role model discussed in planning:
 
+- New chat / agent handoff: read [docs/HANDOFF.md](docs/HANDOFF.md) first for Supabase, Vercel, local development, deployment, and production-data context.
+
 - `engineer`: full platform access, governance control, and admin-role management
 - `admin`: full portal visibility
 - `staff`: enrollment, academics, messaging, and billing visibility
@@ -126,6 +128,13 @@ The same `role` query parameter works on every section route:
 - Use [intake-import-template.csv](/Users/omtailor/IntoPrep_Dashboard/public/intake-import-template.csv) as the starter shape for Google Forms exports and linked-sheet columns.
 - The importer creates or updates `leads`, `families`, `students`, and `enrollments`, logs the run in `intake_import_runs`, and updates the `Google Forms registration import` sync card.
 - `registered` and `waitlist` rows create enrollments when the cohort is explicit or can be inferred from the target program and campus.
+
+## Student spreadsheet import
+
+- Start from [student-import-template.xlsx](public/student-import-template.xlsx), delete its labeled sample row, and upload the completed `.xlsx` or `.csv` from `/students`.
+- `engineer`, `admin`, and `staff` can preview and commit imports through [preview/route.ts](src/app/api/students/import/preview/route.ts) and [commit/route.ts](src/app/api/students/import/commit/route.ts). Engineers must explicitly select Demo or Main; admin and staff accounts are restricted to their own data partition.
+- The preview supports remapping or ignoring columns and proposes unknown headers as custom student fields. Blank cells preserve existing values on updates, and cohort names must match the selected partition exactly.
+- Commits are atomic and audited in `student_import_runs`; a failed import does not leave partial families, students, enrollments, or custom-field definitions.
 
 ## QuickBooks billing sync
 

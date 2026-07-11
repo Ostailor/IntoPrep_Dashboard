@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { revalidatePortalLiveCache } from "@/lib/cache-invalidation";
 import { bulkAssignStudentsToCohort } from "@/lib/student-directory-writes";
 
 export async function POST(request: NextRequest) {
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       targetCohortId: body?.targetCohortId,
     });
 
-    revalidateTag("portal-live", { expire: 0 });
+    revalidatePortalLiveCache();
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
