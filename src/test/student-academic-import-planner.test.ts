@@ -534,8 +534,12 @@ describe("buildStudentAcademicImportPlan", () => {
       id: `session-existing-${index}`,
       cohort_id: existingMwfCohort.id,
       title: "G4",
-      start_at: session.startAt.replace(".000Z", "+00:00"),
-      end_at: session.endAt.replace(".000Z", "+00:00"),
+      start_at: index === 0
+        ? session.startAt.replace(".000Z", "+00:00")
+        : session.startAt.replace("T12:00:00.000Z", "T08:00:00-04:00"),
+      end_at: index === 0
+        ? session.endAt.replace(".000Z", "+00:00")
+        : session.endAt.replace("T19:30:00.000Z", "T15:30:00-04:00"),
       mode: "In person",
       room_label: "Room 201",
       demo: true,
@@ -549,6 +553,75 @@ describe("buildStudentAcademicImportPlan", () => {
     });
 
     expect(plan.sessions).toEqual([]);
+  });
+
+  it("does not reuse invalid calendar, time, leap-second, or offset timestamps", () => {
+    const cohort = {
+      ...existingMwfCohort,
+      start_date: "2026-03-02",
+      end_date: "2026-03-02",
+    };
+    const [recurrence] = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: cohort.start_date,
+      endDate: cohort.end_date,
+    });
+    const plan = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      cohorts: [cohort],
+      setup: { cohorts: [], assessmentDates: [] },
+      sessions: [
+        ["calendar", recurrence.startAt.replace("2026-03-02", "2026-02-30")],
+        ["hour", recurrence.startAt.replace("T13:00:00", "T24:00:00")],
+        ["leap-second", recurrence.startAt.replace("T13:00:00", "T13:00:60")],
+        ["offset", recurrence.startAt.replace("Z", "+24:00")],
+      ].map(([id, startAt]) => ({
+        id: `session-invalid-${id}`,
+        cohort_id: cohort.id,
+        title: "G4",
+        start_at: startAt,
+        end_at: recurrence.endAt,
+        mode: "In person",
+        room_label: "Room 201",
+        demo: true,
+      })),
+    });
+
+    expect(plan.sessions).toEqual([
+      expect.objectContaining({ start_at: recurrence.startAt, end_at: recurrence.endAt }),
+    ]);
+  });
+
+  it("does not reuse a session that differs below JavaScript millisecond precision", () => {
+    const cohort = {
+      ...existingMwfCohort,
+      start_date: "2026-07-08",
+      end_date: "2026-07-08",
+    };
+    const [recurrence] = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: cohort.start_date,
+      endDate: cohort.end_date,
+    });
+    const plan = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      cohorts: [cohort],
+      setup: { cohorts: [], assessmentDates: [] },
+      sessions: [{
+        id: "session-one-microsecond-later",
+        cohort_id: cohort.id,
+        title: "G4",
+        start_at: recurrence.startAt.replace(".000Z", ".000001Z"),
+        end_at: recurrence.endAt,
+        mode: "In person",
+        room_label: "Room 201",
+        demo: true,
+      }],
+    });
+
+    expect(plan.sessions).toEqual([
+      expect.objectContaining({ start_at: recurrence.startAt, end_at: recurrence.endAt }),
+    ]);
   });
 
   it("does not reuse a session whose timestamps represent distinct instants", () => {
@@ -579,6 +652,113 @@ describe("buildStudentAcademicImportPlan", () => {
       start_at: firstRecurrence.startAt,
       end_at: firstRecurrence.endAt,
     }));
+  });
+
+  it("reuses all 72 existing Task 11 sessions across the MWF and TTHS cohorts", () => {
+    const task11Term = {
+      ...summerTerm,
+      id: "term-task-11",
+      name: "QA Summer 2026",
+      start_date: "2026-07-07",
+      end_date: "2026-08-20",
+    };
+    const mwfCohort = {
+      ...existingMwfCohort,
+      term_id: task11Term.id,
+      start_date: "2026-05-11",
+      end_date: "2026-09-07",
+    };
+    const tthsCohort = {
+      ...existingMwfCohort,
+      id: "cohort-tths",
+      name: "TTHS",
+      term_id: task11Term.id,
+      cadence: "TTHS",
+      start_date: task11Term.start_date,
+      end_date: task11Term.end_date,
+      room_label: "Room 202",
+    };
+    const mwfSessions = buildEasternRecurringSessions({
+      cadence: mwfCohort.cadence,
+      startDate: mwfCohort.start_date,
+      endDate: mwfCohort.end_date,
+    });
+    const tthsSessions = buildEasternRecurringSessions({
+      cadence: tthsCohort.cadence,
+      startDate: tthsCohort.start_date,
+      endDate: tthsCohort.end_date,
+    });
+    expect(mwfSessions).toHaveLength(52);
+    expect(tthsSessions).toHaveLength(20);
+
+    const existingSessions = [
+      ...mwfSessions.map((session, index) => ({
+        id: `session-mwf-${index}`,
+        cohort_id: mwfCohort.id,
+        title: "G4",
+        start_at: session.startAt.replace(".000Z", "+00:00"),
+        end_at: session.endAt.replace(".000Z", "+00:00"),
+        mode: "In person",
+        room_label: "Room 201",
+        demo: true,
+      })),
+      ...tthsSessions.map((session, index) => ({
+        id: `session-tths-${index}`,
+        cohort_id: tthsCohort.id,
+        title: "G5",
+        start_at: session.startAt.replace(".000Z", "+00:00"),
+        end_at: session.endAt.replace(".000Z", "+00:00"),
+        mode: "In person",
+        room_label: "Room 202",
+        demo: true,
+      })),
+    ];
+    const plan = build({
+      rows: [
+        { ...validMwfRow, scores: [] },
+        { ...validTthsRow, scores: [], sessionTitle: "G5", roomLabel: "Room 202" },
+      ],
+      cohorts: [mwfCohort, tthsCohort],
+      setup: { cohorts: [], assessmentDates: [] },
+      enrollments: [
+        {
+          id: "enrollment-mwf",
+          student_id: "student-ada",
+          cohort_id: mwfCohort.id,
+          status: "active",
+          registered_at: mwfCohort.start_date,
+          demo: true,
+        },
+        {
+          id: "enrollment-tths",
+          student_id: "student-grace",
+          cohort_id: tthsCohort.id,
+          status: "active",
+          registered_at: tthsCohort.start_date,
+          demo: true,
+        },
+      ],
+      sessions: existingSessions,
+      terms: [task11Term],
+    });
+
+    expect(existingSessions).toHaveLength(72);
+    expect(plan.cohorts).toEqual([]);
+    expect(plan.sessions).toEqual([]);
+    expect(plan.enrollments).toEqual([]);
+    expect(plan.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rowNumber: 2, cohortId: mwfCohort.id, errors: [] }),
+      expect.objectContaining({ rowNumber: 3, cohortId: tthsCohort.id, errors: [] }),
+    ]));
+    expect(plan.summary).toMatchObject({
+      cohorts: 0,
+      sessions: 0,
+      enrollments: 0,
+      assessments: 0,
+      resultCreates: 0,
+      resultUpdates: 0,
+      errors: 0,
+    });
   });
 
   it("filters every partitioned lookup by demo before matching or reusing", () => {

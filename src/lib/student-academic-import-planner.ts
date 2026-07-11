@@ -179,12 +179,56 @@ function validIsoDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+function daysSinceUnixEpoch(year: number, month: number, day: number): number {
+  const adjustedYear = year - (month <= 2 ? 1 : 0);
+  const era = Math.floor(adjustedYear / 400);
+  const yearOfEra = adjustedYear - era * 400;
+  const adjustedMonth = month + (month > 2 ? -3 : 9);
+  const dayOfYear = Math.floor((153 * adjustedMonth + 2) / 5) + day - 1;
+  const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) -
+    Math.floor(yearOfEra / 100) + dayOfYear;
+  return era * 146_097 + dayOfEra - 719_468;
+}
+
+function timestampMicros(value: string): bigint | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[8] === "Z" ? 0 : Number(match[10]);
+  const offsetMinute = match[8] === "Z" ? 0 : Number(match[11]);
+  if (year < 1 || month < 1 || month > 12 ||
+      day < 1 || day > daysInMonth(year, month) ||
+      hour > 23 || minute > 59 || second > 59 ||
+      offsetHour > 23 || offsetMinute > 59) {
+    return null;
+  }
+
+  const fractionalMicros = BigInt((match[7] ?? "").padEnd(6, "0") || "0");
+  const localSeconds = BigInt(daysSinceUnixEpoch(year, month, day)) * BigInt(86_400) +
+    BigInt(hour * 3_600 + minute * 60 + second);
+  const offsetDirection = match[9] === "-" ? -1 : 1;
+  const offsetSeconds = BigInt(offsetDirection * (offsetHour * 3_600 + offsetMinute * 60));
+  return (localSeconds - offsetSeconds) * BigInt(1_000_000) + fractionalMicros;
+}
+
 function sameTimestampInstant(left: string, right: string): boolean {
-  const leftInstant = Date.parse(left);
-  const rightInstant = Date.parse(right);
-  return Number.isFinite(leftInstant) &&
-    Number.isFinite(rightInstant) &&
-    leftInstant === rightInstant;
+  const leftInstant = timestampMicros(left);
+  const rightInstant = timestampMicros(right);
+  return leftInstant !== null && rightInstant !== null && leftInstant === rightInstant;
 }
 
 function sameSession(
