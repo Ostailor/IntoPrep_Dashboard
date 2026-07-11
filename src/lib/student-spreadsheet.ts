@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import readXlsxFile from "read-excel-file/node";
 import { parseCsv } from "@/lib/intake-import-shared";
 import type { StudentImportCell } from "@/lib/student-import-schema";
+import { detectStudentWorkbook } from "@/lib/student-workbook-profile";
 
 export const STUDENT_IMPORT_MAX_BYTES = 4 * 1024 * 1024;
 export const STUDENT_IMPORT_MAX_ROWS = 2000;
@@ -102,6 +103,31 @@ function getCsvPhysicalRowNumbers(text: string) {
   return rowNumbers;
 }
 
+function assertDetectedTableRowLimits(
+  sheets: StudentWorkbookSheet[],
+  selectedSheet: string,
+) {
+  const detected = detectStudentWorkbook({ sheets, selectedSheet });
+  const tables = [detected.directory, detected.academic].filter(
+    (table) => table !== null,
+  );
+  const checkedTables = new Set<string>();
+
+  for (const table of tables) {
+    const tableKey = `${table.sheetName}\0${table.dataStartRow}`;
+    if (checkedTables.has(tableKey)) continue;
+    checkedTables.add(tableKey);
+
+    const sheet = sheets.find((candidate) => candidate.name === table.sheetName);
+    const dataRowCount = sheet?.rows.filter(
+      (row) => row.rowNumber >= table.dataStartRow,
+    ).length ?? 0;
+    if (dataRowCount > STUDENT_IMPORT_MAX_ROWS) {
+      throw new Error("Student imports are limited to 2,000 rows at a time.");
+    }
+  }
+}
+
 export async function readStudentSpreadsheet(input: {
   filename: string;
   bytes: Buffer;
@@ -162,12 +188,10 @@ export async function readStudentSpreadsheet(input: {
   if (selectedRows.length < 2) {
     throw new Error("The spreadsheet must contain headers and at least one student row.");
   }
+  assertDetectedTableRowLimits(sheets, selectedSheet);
 
   const headers = selectedRows[0]!.cells.map((cell) => String(cell ?? "").trim());
   const rows = selectedRows.slice(1);
-  if (rows.length > STUDENT_IMPORT_MAX_ROWS) {
-    throw new Error("Student imports are limited to 2,000 rows at a time.");
-  }
 
   return {
     sheetNames,

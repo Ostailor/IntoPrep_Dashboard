@@ -1,7 +1,25 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 
+const xlsxFixtures = vi.hoisted(() => new Map<string, Array<{
+  sheet: string;
+  data: unknown[][];
+}>>());
+
 vi.mock("server-only", () => ({}));
+vi.mock("read-excel-file/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("read-excel-file/node")>();
+  const readActual = actual.default as (input: Buffer) => Promise<Array<{
+    sheet: string;
+    data: unknown[][];
+  }>>;
+
+  return {
+    ...actual,
+    default: async (input: Buffer) => xlsxFixtures.get(input.toString("utf8"))
+      ?? readActual(input),
+  };
+});
 
 import {
   STUDENT_IMPORT_MAX_ROWS,
@@ -103,6 +121,68 @@ describe("student spreadsheet decoding", () => {
       readStudentSpreadsheet({
         filename: "students.csv",
         bytes: Buffer.from(["Student Name", ...rows].join("\n")),
+      }),
+    ).rejects.toThrow("Student imports are limited to 2,000 rows at a time.");
+  });
+
+  it("accepts a wide workbook with title headers and exactly 2,000 data rows", async () => {
+    const marker = "wide-exact-row-limit";
+    xlsxFixtures.set(marker, [{
+      sheet: "Camp Scores",
+      data: [
+        ["SAT Summer Camp 2026"],
+        ["Name", "Class", "Level", "Room", "HW1"],
+        [null, null, null, null, "PSAT"],
+        [null, null, null, null, "RW"],
+        ...Array.from({ length: STUDENT_IMPORT_MAX_ROWS }, (_, index) => [
+          `Student ${index + 1}`,
+          "MWF",
+          "G4",
+          "201",
+          720,
+        ]),
+      ],
+    }]);
+
+    const result = await readStudentSpreadsheet({
+      filename: "wide.xlsx",
+      bytes: Buffer.from(marker),
+    });
+
+    expect(result.sheets[0]?.rows.filter((row) => row.rowNumber >= 5)).toHaveLength(
+      STUDENT_IMPORT_MAX_ROWS,
+    );
+  });
+
+  it("rejects normalized score data above the row limit when another sheet is selected", async () => {
+    const marker = "normalized-score-overflow";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Parent Email"],
+          ["Maya Demo", "parent@example.com"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Class", "Assessment", "RW"],
+          ...Array.from({ length: STUDENT_IMPORT_MAX_ROWS + 1 }, (_, index) => [
+            `Student ${index + 1}`,
+            "MWF",
+            "HW1 – PSAT",
+            720,
+          ]),
+        ],
+      },
+    ]);
+
+    await expect(
+      readStudentSpreadsheet({
+        filename: "normalized.xlsx",
+        bytes: Buffer.from(marker),
+        sheetName: "Student Information",
       }),
     ).rejects.toThrow("Student imports are limited to 2,000 rows at a time.");
   });
