@@ -35,7 +35,7 @@ import {
   type StudentImportFieldKey,
   type StudentImportMapping,
 } from "@/lib/student-import-schema";
-import { readStudentSpreadsheet } from "@/lib/student-spreadsheet";
+import { readStudentSpreadsheet, STUDENT_IMPORT_MAX_ROWS } from "@/lib/student-spreadsheet";
 import { detectStudentWorkbook, type StudentWorkbookProfile } from "@/lib/student-workbook-profile";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -202,6 +202,14 @@ export interface StudentImportPreviewRow {
   errors: string[];
 }
 
+export interface StudentWorkbookSourceAssessmentDateSuggestion {
+  sheetName: string;
+  rowNumber: number;
+  sourceClass: string;
+  assessmentTitle: string;
+  date: string;
+}
+
 export interface StudentWorkbookPreview {
   profile: StudentWorkbookProfile;
   targetDemo: boolean;
@@ -216,6 +224,7 @@ export interface StudentWorkbookPreview {
   summary: StudentImportPlan["summary"];
   definitions: StudentImportFieldDefinitionRow[];
   academic: StudentAcademicImportPlan;
+  sourceAssessmentDateSuggestions: StudentWorkbookSourceAssessmentDateSuggestion[];
   options: {
     programs: StudentImportPartitionData["programs"];
     campuses: StudentImportPartitionData["campuses"];
@@ -555,6 +564,12 @@ async function prepareStudentImport(
     terms: data.terms,
     createId: () => createUuid(),
   });
+  const sourceAssessmentDateSuggestions = mappingPlan.academic
+    ? collectSourceAssessmentDateSuggestions(
+        mappingPlan.academic.sheetName,
+        normalizedAcademicRows,
+      )
+    : [];
   const normalizedByRow = new Map(normalizedRows.map((row) => [row.rowNumber, row]));
   const blocking = plan.rows.some((row) => row.errors.length > 0) ||
     academic.rows.some((row) => row.errors.length > 0) ||
@@ -585,15 +600,49 @@ async function prepareStudentImport(
       summary: plan.summary,
       definitions: data.fieldDefinitions,
       academic,
+      sourceAssessmentDateSuggestions,
       options: {
         programs: data.programs.filter((program) => !program.is_archived),
         campuses: data.campuses,
         terms: data.terms,
-        cohorts: data.cohorts.filter((cohort) => !cohort.is_archived),
+        cohorts: data.cohorts.filter(
+          (cohort) => cohort.demo === targetDemo && !cohort.is_archived,
+        ),
       },
       blocking,
     },
   };
+}
+
+function collectSourceAssessmentDateSuggestions(
+  sheetName: string,
+  rows: ReturnType<typeof normalizeAcademicRows>,
+): StudentWorkbookSourceAssessmentDateSuggestion[] {
+  const suggestions = new Map<string, StudentWorkbookSourceAssessmentDateSuggestion>();
+  for (const row of rows) {
+    for (const score of row.scores) {
+      if (!score.assessmentDate) continue;
+      const suggestion = {
+        sheetName,
+        rowNumber: row.rowNumber,
+        sourceClass: row.cohortName,
+        assessmentTitle: score.assessmentTitle,
+        date: score.assessmentDate,
+      };
+      const key = [
+        suggestion.sheetName,
+        suggestion.rowNumber,
+        suggestion.sourceClass,
+        suggestion.assessmentTitle,
+        suggestion.date,
+      ].join("\0");
+      suggestions.set(key, suggestion);
+      if (suggestions.size >= STUDENT_IMPORT_MAX_ROWS) {
+        return [...suggestions.values()];
+      }
+    }
+  }
+  return [...suggestions.values()];
 }
 
 function rowsForDetectedTable(

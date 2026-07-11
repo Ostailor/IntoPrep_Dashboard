@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@/lib/domain";
+import { buildEasternRecurringSessions } from "@/lib/eastern-recurring-sessions";
 import {
   commitStudentSpreadsheetImport,
   createProductionStudentImportRepository,
@@ -60,6 +61,55 @@ const mainEngineer = {
   role: "engineer",
   demo: false,
 } satisfies User;
+
+const existingDemoFamily = {
+  id: "family-maya",
+  family_name: "Demo",
+  guardian_names: [],
+  email: "",
+  phone: "",
+  preferred_campus_id: "campus-default",
+  notes: "",
+  parent1_name: null,
+  parent1_email: null,
+  parent1_phone: null,
+  parent2_name: null,
+  parent2_email: null,
+  parent2_phone: null,
+  demo: true,
+} satisfies StudentImportPartitionData["families"][number];
+
+const existingDemoStudent = {
+  id: "student-maya",
+  family_id: existingDemoFamily.id,
+  first_name: "Maya",
+  last_name: "Demo",
+  email: "maya@example.com",
+  phone: null,
+  grade_level: "",
+  school: "",
+  target_test: "",
+  focus: "",
+  external_id: null,
+  custom_fields: {},
+  demo: true,
+} satisfies StudentImportPartitionData["students"][number];
+
+const existingMwfCohort = {
+  id: "cohort-mwf",
+  name: "MWF",
+  program_id: "program-sat",
+  campus_id: "campus-default",
+  term_id: "term-summer",
+  capacity: 24,
+  cadence: "MWF",
+  cohort_mode: "In person",
+  start_date: "2026-07-06",
+  end_date: "2026-07-11",
+  room_label: "201",
+  is_archived: false,
+  demo: true,
+} satisfies StudentImportPartitionData["cohorts"][number];
 
 const mappings = [
   { sourceHeader: "Student First Name", kind: "known", field: "firstName" },
@@ -141,6 +191,27 @@ function makeRepository(options: {
 function makeIds() {
   let sequence = 10;
   return () => `30000000-0000-4000-8000-${String(sequence++).padStart(12, "0")}`;
+}
+
+function setNormalizedOperationFixture(marker: string, sourceDates: string[] = ["2026-07-09"]) {
+  xlsxFixtures.set(marker, [
+    {
+      sheet: "Student Information",
+      data: [
+        ["Student Name", "Student Email"],
+        ["Maya Demo", "maya@example.com"],
+      ],
+    },
+    {
+      sheet: "Scores",
+      data: [
+        ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+        ...sourceDates.map((date) => [
+          "Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", date, 720, 760, 1480,
+        ]),
+      ],
+    },
+  ]);
 }
 
 function makeCommitInput(repository: StudentImportRepository, overrides: Record<string, unknown> = {}) {
@@ -281,6 +352,7 @@ describe("student import preview and commit operations", () => {
       },
     });
     expect(preview.summary.creates).toBe(0);
+    expect(preview.sourceAssessmentDateSuggestions).toEqual([]);
   });
 
   it("previews normalized directory and score sheets from one workbook digest", async () => {
@@ -318,6 +390,162 @@ describe("student import preview and commit operations", () => {
     expect(preview.rows.map((row) => row.rowNumber)).toEqual([2]);
     expect(preview.academic.rows.map((row) => row.rowNumber)).toEqual([2]);
     expect(preview.sheetNames).toEqual(["Student Information", "Scores"]);
+  });
+
+  it("exposes conflicting normalized source dates as suggestions while setup stays authoritative", async () => {
+    const marker = "normalized-source-date-suggestions";
+    setNormalizedOperationFixture(marker, ["2026-07-09", "2026-07-08"]);
+    const setup = {
+      cohorts: [],
+      assessmentDates: [{
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-10",
+      }],
+    };
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      setup,
+      repository: makeRepository({
+        partition: {
+          families: [existingDemoFamily],
+          students: [existingDemoStudent],
+          cohorts: [existingMwfCohort],
+        },
+      }),
+      createUuid: makeIds(),
+    });
+
+    expect(preview.sourceAssessmentDateSuggestions).toEqual([
+      {
+        sheetName: "Scores",
+        rowNumber: 2,
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-09",
+      },
+      {
+        sheetName: "Scores",
+        rowNumber: 3,
+        sourceClass: "MWF",
+        assessmentTitle: "HW1 – PSAT",
+        date: "2026-07-08",
+      },
+    ]);
+    expect(preview.setup).toEqual(setup);
+    expect(preview.academic.assessments).toEqual([
+      expect.objectContaining({ title: "HW1 – PSAT", date: "2026-07-10" }),
+    ]);
+    expect(preview.academic.assessments).not.toEqual([
+      expect.objectContaining({ date: "2026-07-09" }),
+    ]);
+  });
+
+  it("builds academic reuse and result updates from the one target partition snapshot", async () => {
+    const marker = "normalized-full-partition-snapshot";
+    setNormalizedOperationFixture(marker);
+    const sessions = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: existingMwfCohort.start_date!,
+      endDate: existingMwfCohort.end_date!,
+    }).map((session, index) => ({
+      id: `session-existing-${index}`,
+      cohort_id: existingMwfCohort.id,
+      title: "G4",
+      start_at: session.startAt,
+      end_at: session.endAt,
+      mode: "In person",
+      room_label: "201",
+      demo: true,
+    }));
+    const assessment = {
+      id: "assessment-existing",
+      cohort_id: existingMwfCohort.id,
+      title: "HW1 – PSAT",
+      date: "2026-07-10",
+      sections: [{ label: "RW", score: 800 }, { label: "Math", score: 800 }],
+      demo: true,
+    };
+    const enrollment = {
+      id: "enrollment-existing",
+      student_id: existingDemoStudent.id,
+      cohort_id: existingMwfCohort.id,
+      status: "active",
+      registered_at: "2026-07-06",
+      demo: true,
+    };
+    const result = {
+      id: "result-existing",
+      assessment_id: assessment.id,
+      student_id: existingDemoStudent.id,
+      total_score: 1400,
+      section_scores: [{ label: "RW", score: 700 }, { label: "Math", score: 700 }],
+      delta_from_previous: 20,
+      demo: true,
+    };
+    const repository = makeRepository({
+      partition: {
+        families: [existingDemoFamily],
+        students: [
+          existingDemoStudent,
+          { ...existingDemoStudent, id: "student-main", demo: false },
+        ],
+        cohorts: [
+          existingMwfCohort,
+          { ...existingMwfCohort, id: "cohort-main", demo: false },
+        ],
+        enrollments: [enrollment, { ...enrollment, id: "enrollment-main", demo: false }],
+        sessions: [
+          ...sessions,
+          ...sessions.map((session) => ({ ...session, id: `${session.id}-main`, demo: false })),
+        ],
+        assessments: [assessment, { ...assessment, id: "assessment-main", demo: false }],
+        results: [result, { ...result, id: "result-main", demo: false }],
+      },
+    });
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      setup: {
+        cohorts: [],
+        assessmentDates: [{
+          sourceClass: "MWF",
+          assessmentTitle: "HW1 – PSAT",
+          date: "2026-07-10",
+        }],
+      },
+      repository,
+      createUuid: makeIds(),
+    });
+
+    expect(repository.loadedPartitions).toEqual([true]);
+    expect(preview.options.cohorts.map((cohort) => cohort.id)).toEqual([existingMwfCohort.id]);
+    expect(preview.academic).toMatchObject({
+      cohorts: [],
+      sessions: [],
+      enrollments: [],
+      assessments: [],
+      results: [expect.objectContaining({ id: result.id, total_score: 1480 })],
+      summary: {
+        cohorts: 0,
+        sessions: 0,
+        enrollments: 0,
+        assessments: 0,
+        resultCreates: 0,
+        resultUpdates: 1,
+        errors: 0,
+      },
+    });
+    expect(preview.academic.rows[0]).toMatchObject({
+      studentId: existingDemoStudent.id,
+      cohortId: existingMwfCohort.id,
+      actions: ["Reuse active cohort enrollment.", "Update assessment result."],
+      errors: [],
+    });
   });
 
   it.each([
