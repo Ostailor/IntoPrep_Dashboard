@@ -320,6 +320,119 @@ describe("student import preview and commit operations", () => {
     expect(preview.sheetNames).toEqual(["Student Information", "Scores"]);
   });
 
+  it.each([
+    {
+      label: "score row",
+      excludedRows: [{ sheetName: "Scores", rowNumber: 2 }],
+      directoryRows: [2],
+      academicRows: [],
+    },
+    {
+      label: "directory row",
+      excludedRows: [{ sheetName: "Student Information", rowNumber: 2 }],
+      directoryRows: [],
+      academicRows: [2],
+    },
+  ])("excludes only the normalized $label selected by its sheet reference", async ({
+    label,
+    excludedRows,
+    directoryRows,
+    academicRows,
+  }) => {
+    const marker = `normalized-sheet-exclusion-${label}`;
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [
+          ["Student Name", "Student Email"],
+          ["Maya Demo", "maya@example.com"],
+        ],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+
+    const preview = await previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      excludedRows,
+      repository: makeRepository(),
+      createUuid: makeIds(),
+    });
+
+    expect(preview.rows.map((row) => row.rowNumber)).toEqual(directoryRows);
+    expect(preview.academic.rows.map((row) => row.rowNumber)).toEqual(academicRows);
+  });
+
+  it("rejects stale or unknown sheet-aware exclusions before loading partition data", async () => {
+    const marker = "normalized-unknown-sheet-exclusion";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [["Student Name", "Student Email"], ["Maya Demo", "maya@example.com"]],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+    const repository = makeRepository();
+
+    await expect(previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      excludedRows: [{ sheetName: "Missing", rowNumber: 2 }],
+      repository,
+      createUuid: makeIds(),
+    })).rejects.toThrow("Excluded workbook rows changed. Preview the file again.");
+    await expect(previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      excludedRows: [{ sheetName: "Scores", rowNumber: 99 }],
+      repository,
+      createUuid: makeIds(),
+    })).rejects.toThrow("Excluded workbook rows changed. Preview the file again.");
+
+    expect(repository.loadedPartitions).toEqual([]);
+  });
+
+  it("requires normalized imports to use sheet-aware exclusions", async () => {
+    const marker = "normalized-legacy-exclusion";
+    xlsxFixtures.set(marker, [
+      {
+        sheet: "Student Information",
+        data: [["Student Name", "Student Email"], ["Maya Demo", "maya@example.com"]],
+      },
+      {
+        sheet: "Scores",
+        data: [
+          ["Student Name", "Cohort", "Class", "Room", "Test Name", "Test Date", "RW", "Math", "Total"],
+          ["Maya Demo", "MWF", "G4", "201", "HW1 – PSAT", "2026-07-10", 720, 760, 1480],
+        ],
+      },
+    ]);
+
+    await expect(previewStudentSpreadsheetImport({
+      viewer: demoAdmin,
+      filename: "normalized.xlsx",
+      bytes: Buffer.from(marker),
+      excludedRowNumbers: [2],
+      repository: makeRepository(),
+      createUuid: makeIds(),
+    })).rejects.toThrow("Use sheet-aware exclusions for normalized workbooks.");
+  });
+
   it("rejects stale source-header mappings before querying directory data", async () => {
     const repository = makeRepository();
 

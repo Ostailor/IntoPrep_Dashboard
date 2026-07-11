@@ -3,6 +3,7 @@ import { getAuthenticatedViewerForRequest } from "@/lib/auth";
 import { canRunStudentImports } from "@/lib/permissions";
 import {
   parseExcludedStudentImportRows,
+  parseExcludedStudentWorkbookRows,
   parseStudentImportMappings,
   previewStudentSpreadsheetImport,
   StudentImportInputError,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/student-import-operations";
 import {
   readBoundedStudentImportFormData,
+  STUDENT_IMPORT_MAX_EXCLUDED_ROWS_BYTES,
   STUDENT_IMPORT_MAX_MAPPING_PLAN_BYTES,
   STUDENT_IMPORT_MAX_SETUP_BYTES,
 } from "@/lib/student-import-request";
@@ -76,6 +78,12 @@ export async function POST(request: Request) {
       20_000,
       parseExcludedStudentImportRows,
     ) ?? [];
+    const excludedRows = parseJsonField(
+      form,
+      "excludedRows",
+      STUDENT_IMPORT_MAX_EXCLUDED_ROWS_BYTES,
+      parseExcludedStudentWorkbookRows,
+    ) ?? [];
     const result = await previewStudentSpreadsheetImport({
       viewer: viewer.user,
       filename: file.name,
@@ -85,6 +93,7 @@ export async function POST(request: Request) {
       mappingPlan,
       setup,
       excludedRowNumbers,
+      excludedRows,
       requestedTarget: parseTarget(form),
     });
 

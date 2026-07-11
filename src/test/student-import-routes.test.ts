@@ -144,6 +144,37 @@ describe("student spreadsheet import routes", () => {
     expect(mocks.preview.mock.calls[0]![0].bytes).toBeInstanceOf(Buffer);
   });
 
+  it("strictly parses and forwards sheet-aware excluded rows", async () => {
+    const excludedRows = [
+      { sheetName: "Student Information", rowNumber: 2 },
+      { sheetName: "Scores", rowNumber: 2 },
+    ];
+    const response = await previewPost(makeRequest("preview", {
+      excludedRows: JSON.stringify(excludedRows),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ excludedRows }));
+  });
+
+  it.each([
+    ["object", "{}"],
+    ["extra keys", JSON.stringify([{ sheetName: "Scores", rowNumber: 2, rows: [3] }])],
+    ["missing sheet", JSON.stringify([{ rowNumber: 2 }])],
+    ["overlong sheet", JSON.stringify([{ sheetName: "x".repeat(201), rowNumber: 2 }])],
+    ["non-integer row", JSON.stringify([{ sheetName: "Scores", rowNumber: 2.5 }])],
+    ["excessive entries", JSON.stringify(Array.from(
+      { length: 4001 },
+      (_, index) => ({ sheetName: "Scores", rowNumber: index + 2 }),
+    ))],
+    ["oversized JSON", JSON.stringify({ padding: "x".repeat(100_000) })],
+  ])("rejects invalid sheet-aware excluded rows: %s", async (_label, excludedRows) => {
+    const response = await previewPost(makeRequest("preview", { excludedRows }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.preview).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["mapping array", { mappingPlan: "[]" }],
     ["mapping object shape", { mappingPlan: JSON.stringify({ profile: "simple" }) }],

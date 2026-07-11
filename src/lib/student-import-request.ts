@@ -6,6 +6,7 @@ export const STUDENT_IMPORT_MAX_MULTIPART_BYTES = 5 * 1024 * 1024;
 export const STUDENT_IMPORT_MAX_MULTIPART_PARTS = 16;
 export const STUDENT_IMPORT_MAX_MAPPING_PLAN_BYTES = 250 * 1024;
 export const STUDENT_IMPORT_MAX_SETUP_BYTES = 100 * 1024;
+export const STUDENT_IMPORT_MAX_EXCLUDED_ROWS_BYTES = 100 * 1024;
 
 export async function readBoundedStudentImportFormData(request: Request) {
   const claimedLength = request.headers.get("content-length");

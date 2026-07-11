@@ -160,6 +160,11 @@ export interface StudentImportRepository {
   insertFailedRun(run: FailedStudentImportRun): Promise<void>;
 }
 
+export interface StudentWorkbookExcludedRowReference {
+  sheetName: string;
+  rowNumber: number;
+}
+
 interface StudentImportBaseInput {
   viewer: Pick<User, "id" | "role" | "demo">;
   requestedTarget?: boolean;
@@ -170,6 +175,7 @@ interface StudentImportBaseInput {
   mappingPlan?: StudentWorkbookMappingPlan;
   setup?: StudentWorkbookSetup;
   excludedRowNumbers?: number[];
+  excludedRows?: StudentWorkbookExcludedRowReference[];
   repository?: StudentImportRepository;
   createUuid?: () => string;
   now?: () => Date;
@@ -288,6 +294,39 @@ export function parseExcludedStudentImportRows(value: unknown): number[] {
   return [...new Set(rows)];
 }
 
+export function parseExcludedStudentWorkbookRows(
+  value: unknown,
+): StudentWorkbookExcludedRowReference[] {
+  if (value === undefined || value === null || value === "") {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length > 4000) {
+    throw new StudentImportInputError("Excluded workbook rows are invalid.");
+  }
+
+  const references = value.map((entry) => {
+    if (
+      !isPlainRecord(entry) ||
+      Object.keys(entry).some((key) => key !== "sheetName" && key !== "rowNumber") ||
+      typeof entry.sheetName !== "string" ||
+      entry.sheetName.trim().length === 0 ||
+      entry.sheetName.length > 200 ||
+      !Number.isInteger(entry.rowNumber) ||
+      (entry.rowNumber as number) < 2 ||
+      (entry.rowNumber as number) > 1_000_000
+    ) {
+      throw new StudentImportInputError("Excluded workbook rows are invalid.");
+    }
+    return {
+      sheetName: entry.sheetName,
+      rowNumber: entry.rowNumber as number,
+    };
+  });
+  return [...new Map(
+    references.map((entry) => [`${entry.sheetName}\0${entry.rowNumber}`, entry]),
+  ).values()];
+}
+
 export async function previewStudentSpreadsheetImport(
   input: PreviewStudentSpreadsheetImportInput,
 ): Promise<StudentImportPreview> {
@@ -382,7 +421,8 @@ async function prepareStudentImport(
   resolvedTarget?: boolean,
 ): Promise<PreparedStudentImport> {
   const targetDemo = resolvedTarget ?? resolveTarget(input.viewer, input.requestedTarget);
-  const excludedRows = parseExcludedStudentImportRows(input.excludedRowNumbers);
+  const excludedRowNumbers = parseExcludedStudentImportRows(input.excludedRowNumbers);
+  const excludedRows = parseExcludedStudentWorkbookRows(input.excludedRows);
   let spreadsheet;
   try {
     spreadsheet = await readStudentSpreadsheet({
@@ -408,12 +448,15 @@ async function prepareStudentImport(
   const academicRows = detected.academic
     ? rowsForDetectedTable(spreadsheet.sheets, detected.academic)
     : [];
-  const spreadsheetRowNumbers = new Set(
-    [...directoryRows, ...academicRows].map((row) => row.rowNumber),
-  );
-  if (excludedRows.some((rowNumber) => !spreadsheetRowNumbers.has(rowNumber))) {
-    throw new StudentImportInputError("Excluded rows changed. Preview the file again.");
-  }
+  const excludedRowKeys = resolveExcludedWorkbookRows({
+    profile: detected.profile,
+    directory: { sheetName: detected.directory.sheetName, rows: directoryRows },
+    academic: detected.academic
+      ? { sheetName: detected.academic.sheetName, rows: academicRows }
+      : null,
+    excludedRowNumbers,
+    excludedRows,
+  });
 
   const suppliedMappings = input.mappings
     ? parseStudentImportMappings(input.mappings)!
@@ -467,13 +510,18 @@ async function prepareStudentImport(
   }
   assertExistingCustomMappings(mappings, data.fieldDefinitions);
 
-  const excluded = new Set(excludedRows);
   const normalizedRows = directoryRows
-    .filter((row) => !excluded.has(row.rowNumber))
+    .filter((row) => !excludedRowKeys.has(rowReferenceKey(
+      detected.directory.sheetName,
+      row.rowNumber,
+    )))
     .map((row) => normalizeMappedStudentRow(row, mappings, data.fieldDefinitions));
   const normalizedAcademicRows = mappingPlan.academic
     ? normalizeAcademicRows({
-        rows: academicRows.filter((row) => !excluded.has(row.rowNumber)),
+        rows: academicRows.filter((row) => !excludedRowKeys.has(rowReferenceKey(
+          mappingPlan.academic!.sheetName,
+          row.rowNumber,
+        ))),
         mappings: mappingPlan.academic.columns,
       })
     : [];
@@ -555,6 +603,51 @@ function rowsForDetectedTable(
   return sheets.find((sheet) => sheet.name === table.sheetName)?.rows.filter(
     (row) => row.rowNumber >= table.dataStartRow,
   ) ?? [];
+}
+
+function resolveExcludedWorkbookRows(input: {
+  profile: StudentWorkbookProfile;
+  directory: { sheetName: string; rows: Array<{ rowNumber: number }> };
+  academic: { sheetName: string; rows: Array<{ rowNumber: number }> } | null;
+  excludedRowNumbers: number[];
+  excludedRows: StudentWorkbookExcludedRowReference[];
+}) {
+  if (input.profile === "normalized" && input.excludedRowNumbers.length > 0) {
+    throw new StudentImportInputError("Use sheet-aware exclusions for normalized workbooks.");
+  }
+  if (input.excludedRowNumbers.length > 0 && input.excludedRows.length > 0) {
+    throw new StudentImportInputError("Choose one student row exclusion format.");
+  }
+
+  const references = input.excludedRows.length > 0
+    ? input.excludedRows
+    : input.excludedRowNumbers.map((rowNumber) => ({
+        sheetName: input.directory.sheetName,
+        rowNumber,
+      }));
+  const detectedRows = new Set<string>();
+  for (const table of [input.directory, input.academic].filter(
+    (table): table is NonNullable<typeof table> => table !== null,
+  )) {
+    for (const row of table.rows) {
+      detectedRows.add(rowReferenceKey(table.sheetName, row.rowNumber));
+    }
+  }
+  const stale = references.find(
+    (entry) => !detectedRows.has(rowReferenceKey(entry.sheetName, entry.rowNumber)),
+  );
+  if (stale) {
+    throw new StudentImportInputError(
+      input.excludedRows.length > 0
+        ? "Excluded workbook rows changed. Preview the file again."
+        : "Excluded rows changed. Preview the file again.",
+    );
+  }
+  return new Set(references.map((entry) => rowReferenceKey(entry.sheetName, entry.rowNumber)));
+}
+
+function rowReferenceKey(sheetName: string, rowNumber: number) {
+  return `${sheetName}\0${rowNumber}`;
 }
 
 function normalizeMappedStudentRow(
