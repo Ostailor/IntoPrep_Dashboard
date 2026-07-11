@@ -137,7 +137,7 @@ describe("student spreadsheet import routes", () => {
       filename: "students.csv",
       mappings,
       mappingPlan,
-      setup,
+      setup: { catalog: { programs: [], campuses: [], terms: [] }, ...setup },
       excludedRowNumbers: [3],
       requestedTarget: true,
     }));
@@ -372,7 +372,7 @@ describe("student spreadsheet import routes", () => {
       sheetName: "CSV",
       mappings,
       mappingPlan,
-      setup,
+      setup: { catalog: { programs: [], campuses: [], terms: [] }, ...setup },
       excludedRows,
       requestedTarget: true,
       expectedDigest: "b".repeat(64),

@@ -390,7 +390,10 @@ describe("student workbook schema", () => {
       assessmentDates: [{ sourceClass: "MWF", assessmentTitle: "HW1 – PSAT", date: "2026-07-10" }],
     };
 
-    expect(parseStudentWorkbookSetup(setup)).toEqual(setup);
+    expect(parseStudentWorkbookSetup(setup)).toEqual({
+      catalog: { programs: [], campuses: [], terms: [] },
+      ...setup,
+    });
     expect(() => parseStudentWorkbookSetup({
       ...setup,
       cohorts: Array.from({ length: 101 }, () => ({ sourceClass: "MWF" })),
@@ -407,5 +410,167 @@ describe("student workbook schema", () => {
       cohorts: [],
       assessmentDates: [{ sourceClass: "MWF", assessmentTitle: "PSAT", date: "2026-02-30" }],
     })).toThrow("Student workbook setup is invalid.");
+  });
+
+  it("parses reusable Program, Campus, and Term drafts from setup JSON", () => {
+    const setup = parseStudentWorkbookSetup(JSON.stringify({
+      catalog: {
+        programs: [{ key: "program-1", name: "Summer SAT", track: "SAT", format: "Small group" }],
+        campuses: [{ key: "campus-1", name: "Main Campus", location: "Wayne", modality: "In person" }],
+        terms: [{ key: "term-1", name: "Summer 2026", startDate: "2026-06-22", endDate: "2026-08-07" }],
+      },
+      cohorts: [{
+        sourceClass: "MWF",
+        programDraftKey: "program-1",
+        campusDraftKey: "campus-1",
+        termDraftKey: "term-1",
+        capacity: 20,
+      }],
+      assessmentDates: [],
+    }));
+
+    expect(setup.catalog.programs[0].format).toBe("Small group");
+    expect(setup.catalog.campuses[0].modality).toBe("In person");
+    expect(setup.catalog.terms[0].endDate).toBe("2026-08-07");
+  });
+
+  it.each([
+    {
+      label: "unknown setup keys",
+      setup: { catalog: { programs: [], campuses: [], terms: [] }, cohorts: [], assessmentDates: [], extra: true },
+    },
+    {
+      label: "unknown catalog keys",
+      setup: { catalog: { programs: [], campuses: [], terms: [], extra: [] }, cohorts: [], assessmentDates: [] },
+    },
+    {
+      label: "unknown draft keys",
+      setup: {
+        catalog: {
+          programs: [{ key: "program-1", name: "Summer SAT", track: "SAT", format: "Small group", extra: true }],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "duplicate Program draft keys",
+      setup: {
+        catalog: {
+          programs: [
+            { key: "program-1", name: "Summer SAT", track: "SAT", format: "Small group" },
+            { key: "program-1", name: "Summer ACT", track: "ACT", format: "Small group" },
+          ],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "duplicate normalized Campus names",
+      setup: {
+        catalog: {
+          programs: [],
+          campuses: [
+            { key: "campus-1", name: "Main   Campus", location: "Wayne", modality: "In person" },
+            { key: "campus-2", name: " main campus ", location: "Malvern", modality: "Hybrid" },
+          ],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "invalid Program track",
+      setup: {
+        catalog: {
+          programs: [{ key: "program-1", name: "Summer SAT", track: "GRE", format: "Small group" }],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "invalid Campus modality",
+      setup: {
+        catalog: {
+          programs: [],
+          campuses: [{ key: "campus-1", name: "Main Campus", location: "Wayne", modality: "Teleport" }],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "invalid Term range",
+      setup: {
+        catalog: {
+          programs: [],
+          campuses: [],
+          terms: [{ key: "term-1", name: "Summer 2026", startDate: "2026-08-07", endDate: "2026-06-22" }],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "overlong draft text",
+      setup: {
+        catalog: {
+          programs: [{ key: "program-1", name: "x".repeat(201), track: "SAT", format: "Small group" }],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "excessive draft counts",
+      setup: {
+        catalog: {
+          programs: Array.from({ length: 101 }, (_, index) => ({
+            key: `program-${index}`,
+            name: `Program ${index}`,
+            track: "SAT",
+            format: "Small group",
+          })),
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "dangling draft references",
+      setup: {
+        catalog: { programs: [], campuses: [], terms: [] },
+        cohorts: [{ sourceClass: "MWF", programDraftKey: "missing-program" }],
+        assessmentDates: [],
+      },
+    },
+    {
+      label: "existing IDs combined with draft keys",
+      setup: {
+        catalog: {
+          programs: [{ key: "program-1", name: "Summer SAT", track: "SAT", format: "Small group" }],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [{ sourceClass: "MWF", programId: "existing-program", programDraftKey: "program-1" }],
+        assessmentDates: [],
+      },
+    },
+  ])("rejects $label", ({ setup }) => {
+    expect(() => parseStudentWorkbookSetup(setup)).toThrow("Student workbook setup is invalid.");
   });
 });

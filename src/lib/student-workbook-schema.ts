@@ -30,17 +30,52 @@ export interface StudentWorkbookMappingPlan {
   academic: { sheetName: string; columns: AcademicColumnMapping[] } | null;
 }
 
+export interface PlannedProgramInput {
+  key: string;
+  name: string;
+  track: "SAT" | "ACT" | "Admissions" | "Support";
+  format: string;
+}
+
+export interface PlannedCampusInput {
+  key: string;
+  name: string;
+  location: string;
+  modality: "In person" | "Hybrid" | "Online";
+}
+
+export interface PlannedTermInput {
+  key: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface StudentWorkbookCatalogSetup {
+  programs: PlannedProgramInput[];
+  campuses: PlannedCampusInput[];
+  terms: PlannedTermInput[];
+}
+
 export interface StudentWorkbookSetup {
+  catalog?: StudentWorkbookCatalogSetup;
   cohorts: Array<{
     sourceClass: string;
     selectedCohortId?: string;
     programId?: string;
+    programDraftKey?: string;
     campusId?: string;
+    campusDraftKey?: string;
     termId?: string;
+    termDraftKey?: string;
     capacity?: number;
   }>;
   assessmentDates: Array<{ sourceClass: string; assessmentTitle: string; date: string }>;
 }
+
+export type ParsedStudentWorkbookSetup = StudentWorkbookSetup & {
+  catalog: StudentWorkbookCatalogSetup;
+};
 
 export interface NormalizedAcademicRow {
   rowNumber: number;
@@ -85,6 +120,7 @@ export const SCORE_COMPONENT_ALIASES: Record<ScoreComponent, readonly string[]> 
 
 const MAX_COLUMNS = 400;
 const MAX_TEXT_LENGTH = 200;
+const MAX_CATALOG_DRAFTS = 100;
 const MAX_COHORTS = 100;
 const MAX_ASSESSMENT_DATES = 500;
 const MAPPING_ERROR = "Student workbook mappings are invalid.";
@@ -629,22 +665,37 @@ function normalizeSourceDate(cell: StudentImportCell | undefined): string | null
   return validIsoDate(value) ? value : null;
 }
 
-export function parseStudentWorkbookSetup(value: unknown): StudentWorkbookSetup {
+export function parseStudentWorkbookSetup(value: unknown): ParsedStudentWorkbookSetup {
   try {
-    if (!isPlainRecord(value) || !hasOnlyKeys(value, ["cohorts", "assessmentDates"])) failSetup();
-    if (!Array.isArray(value.cohorts) || value.cohorts.length > MAX_COHORTS) failSetup();
-    if (!Array.isArray(value.assessmentDates) || value.assessmentDates.length > MAX_ASSESSMENT_DATES) failSetup();
+    const input = typeof value === "string" ? JSON.parse(value) as unknown : value;
+    if (!isPlainRecord(input) || !hasOnlyKeys(input, ["catalog", "cohorts", "assessmentDates"])) failSetup();
+    if (!Array.isArray(input.cohorts) || input.cohorts.length > MAX_COHORTS) failSetup();
+    if (!Array.isArray(input.assessmentDates) || input.assessmentDates.length > MAX_ASSESSMENT_DATES) failSetup();
 
-    const cohorts = value.cohorts.map((entry) => {
-      const keys = ["sourceClass", "selectedCohortId", "programId", "campusId", "termId", "capacity"];
+    const catalog = parseStudentWorkbookCatalog(input.catalog);
+    const programDraftKeys = new Set(catalog.programs.map((draft) => draft.key));
+    const campusDraftKeys = new Set(catalog.campuses.map((draft) => draft.key));
+    const termDraftKeys = new Set(catalog.terms.map((draft) => draft.key));
+
+    const cohorts = input.cohorts.map((entry) => {
+      const keys = [
+        "sourceClass", "selectedCohortId", "programId", "programDraftKey",
+        "campusId", "campusDraftKey", "termId", "termDraftKey", "capacity",
+      ];
       if (!isPlainRecord(entry) || !hasOnlyKeys(entry, keys) || !boundedText(entry.sourceClass)) failSetup();
       const parsed: StudentWorkbookSetup["cohorts"][number] = { sourceClass: entry.sourceClass.trim() };
-      for (const key of ["selectedCohortId", "programId", "campusId", "termId"] as const) {
+      for (const key of [
+        "selectedCohortId", "programId", "programDraftKey", "campusId",
+        "campusDraftKey", "termId", "termDraftKey",
+      ] as const) {
         if (entry[key] !== undefined) {
           if (!boundedText(entry[key])) failSetup();
           parsed[key] = entry[key].trim();
         }
       }
+      validateCatalogReference(parsed.programId, parsed.programDraftKey, programDraftKeys);
+      validateCatalogReference(parsed.campusId, parsed.campusDraftKey, campusDraftKeys);
+      validateCatalogReference(parsed.termId, parsed.termDraftKey, termDraftKeys);
       if (entry.capacity !== undefined) {
         if (!Number.isInteger(entry.capacity) || (entry.capacity as number) <= 0) failSetup();
         parsed.capacity = entry.capacity as number;
@@ -652,7 +703,7 @@ export function parseStudentWorkbookSetup(value: unknown): StudentWorkbookSetup 
       return parsed;
     });
 
-    const assessmentDates = value.assessmentDates.map((entry) => {
+    const assessmentDates = input.assessmentDates.map((entry) => {
       if (
         !isPlainRecord(entry) ||
         !hasOnlyKeys(entry, ["sourceClass", "assessmentTitle", "date"]) ||
@@ -665,10 +716,85 @@ export function parseStudentWorkbookSetup(value: unknown): StudentWorkbookSetup 
         date: entry.date,
       };
     });
-    return { cohorts, assessmentDates };
+    return { catalog, cohorts, assessmentDates };
   } catch {
     throw new Error(SETUP_ERROR);
   }
+}
+
+function parseStudentWorkbookCatalog(value: unknown): StudentWorkbookCatalogSetup {
+  if (value === undefined) return { programs: [], campuses: [], terms: [] };
+  if (!isPlainRecord(value) || !hasOnlyKeys(value, ["programs", "campuses", "terms"])) failSetup();
+  if (
+    !Array.isArray(value.programs) || value.programs.length > MAX_CATALOG_DRAFTS ||
+    !Array.isArray(value.campuses) || value.campuses.length > MAX_CATALOG_DRAFTS ||
+    !Array.isArray(value.terms) || value.terms.length > MAX_CATALOG_DRAFTS
+  ) failSetup();
+
+  const programs = value.programs.map((draft): PlannedProgramInput => {
+    if (
+      !isPlainRecord(draft) || !hasOnlyKeys(draft, ["key", "name", "track", "format"]) ||
+      !boundedText(draft.key) || !boundedText(draft.name) || !boundedText(draft.format) ||
+      !["SAT", "ACT", "Admissions", "Support"].includes(String(draft.track))
+    ) failSetup();
+    return {
+      key: draft.key.trim(),
+      name: draft.name.trim(),
+      track: draft.track as PlannedProgramInput["track"],
+      format: draft.format.trim(),
+    };
+  });
+  const campuses = value.campuses.map((draft): PlannedCampusInput => {
+    if (
+      !isPlainRecord(draft) || !hasOnlyKeys(draft, ["key", "name", "location", "modality"]) ||
+      !boundedText(draft.key) || !boundedText(draft.name) || !boundedText(draft.location) ||
+      !["In person", "Hybrid", "Online"].includes(String(draft.modality))
+    ) failSetup();
+    return {
+      key: draft.key.trim(),
+      name: draft.name.trim(),
+      location: draft.location.trim(),
+      modality: draft.modality as PlannedCampusInput["modality"],
+    };
+  });
+  const terms = value.terms.map((draft): PlannedTermInput => {
+    if (
+      !isPlainRecord(draft) || !hasOnlyKeys(draft, ["key", "name", "startDate", "endDate"]) ||
+      !boundedText(draft.key) || !boundedText(draft.name) ||
+      typeof draft.startDate !== "string" || !validIsoDate(draft.startDate) ||
+      typeof draft.endDate !== "string" || !validIsoDate(draft.endDate) ||
+      draft.startDate > draft.endDate
+    ) failSetup();
+    return {
+      key: draft.key.trim(),
+      name: draft.name.trim(),
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+    };
+  });
+
+  validateUniqueCatalogDrafts(programs);
+  validateUniqueCatalogDrafts(campuses);
+  validateUniqueCatalogDrafts(terms);
+  return { programs, campuses, terms };
+}
+
+function validateUniqueCatalogDrafts(drafts: Array<{ key: string; name: string }>) {
+  if (new Set(drafts.map((draft) => draft.key)).size !== drafts.length) failSetup();
+  if (new Set(drafts.map((draft) => normalizedCatalogName(draft.name))).size !== drafts.length) failSetup();
+}
+
+function validateCatalogReference(
+  existingId: string | undefined,
+  draftKey: string | undefined,
+  validDraftKeys: ReadonlySet<string>,
+) {
+  if (existingId && draftKey) failSetup();
+  if (draftKey && !validDraftKeys.has(draftKey)) failSetup();
+}
+
+function normalizedCatalogName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function validIsoDate(value: string): boolean {

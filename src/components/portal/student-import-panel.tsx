@@ -19,11 +19,12 @@ import {
   type StudentImportMapping,
   type StudentImportSummaryCounts,
 } from "@/lib/student-import-schema";
-import type {
-  AcademicColumnMapping,
-  ScoreComponent,
-  StudentWorkbookMappingPlan,
-  StudentWorkbookSetup,
+import {
+  parseStudentWorkbookSetup,
+  type AcademicColumnMapping,
+  type ScoreComponent,
+  type StudentWorkbookMappingPlan,
+  type StudentWorkbookSetup,
 } from "@/lib/student-workbook-schema";
 
 interface StudentImportPanelProps {
@@ -41,6 +42,11 @@ export interface PreviewSnapshot {
 
 const KNOWN_FIELDS = Object.keys(STUDENT_IMPORT_FIELD_LABELS) as StudentImportFieldKey[];
 const CUSTOM_FIELD_TYPES: StudentCustomFieldType[] = ["text", "number", "date", "boolean"];
+const createEmptyWorkbookSetup = (): StudentWorkbookSetup => ({
+  catalog: { programs: [], campuses: [], terms: [] },
+  cohorts: [],
+  assessmentDates: [],
+});
 const ACADEMIC_MAPPING_LABELS: Record<Exclude<AcademicColumnMapping["kind"], "score">, string> = {
   "student-name": "Student name",
   cohort: "Cohort / source Class",
@@ -63,7 +69,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
   const [targetDemo, setTargetDemo] = useState<boolean | undefined>(undefined);
   const [preview, setPreview] = useState<StudentWorkbookPreview | null>(null);
   const [mappingPlan, setMappingPlan] = useState<StudentWorkbookMappingPlan | null>(null);
-  const [setup, setSetup] = useState<StudentWorkbookSetup>({ cohorts: [], assessmentDates: [] });
+  const [setup, setSetup] = useState<StudentWorkbookSetup>(createEmptyWorkbookSetup);
   const [excludedRows, setExcludedRows] = useState<StudentWorkbookExcludedRowReference[]>([]);
   const [snapshot, setSnapshot] = useState<PreviewSnapshot | null>(null);
   const [snapshotExcludedRows, setSnapshotExcludedRows] = useState<StudentWorkbookExcludedRowReference[]>([]);
@@ -89,7 +95,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
     setTargetDemo(undefined);
     setPreview(null);
     setMappingPlan(null);
-    setSetup({ cohorts: [], assessmentDates: [] });
+    setSetup(createEmptyWorkbookSetup());
     setExcludedRows([]);
     setSnapshot(null);
     setSnapshotExcludedRows([]);
@@ -417,7 +423,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
                       setPending(null);
                       setPreview(null);
                       setMappingPlan(null);
-                      setSetup({ cohorts: [], assessmentDates: [] });
+                      setSetup(createEmptyWorkbookSetup());
                       setExcludedRows([]);
                       setSnapshot(null);
                       setSnapshotExcludedRows([]);
@@ -442,7 +448,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
                               setTargetDemo(demo);
                               setPreview(null);
                               setMappingPlan(null);
-                              setSetup({ cohorts: [], assessmentDates: [] });
+                              setSetup(createEmptyWorkbookSetup());
                               setExcludedRows([]);
                               setSnapshot(null);
                               setSnapshotExcludedRows([]);
@@ -749,7 +755,7 @@ export function isStudentImportPreviewResponse(value: unknown): value is Student
     !Array.isArray(value.rows) || !value.rows.every(isDirectoryPreviewRow) ||
     !isStudentImportSummary(value.summary) ||
     !isWorkbookMappingPlan(value.mappingPlan, value.profile as StudentWorkbookPreview["profile"]) ||
-    !isWorkbookSetup(value.setup) ||
+    !isStudentWorkbookSetup(value.setup) ||
     !isAcademicPlan(value.academic) ||
     !Array.isArray(value.academicSourceRows) || value.academicSourceRows.length > 2_000 ||
     !value.academicSourceRows.every(isAcademicSourceRow) ||
@@ -840,18 +846,14 @@ function isAcademicMapping(value: unknown): value is AcademicColumnMapping {
     typeof value.assessmentTitle === "string" && ["rw", "math", "total"].includes(String(value.component));
 }
 
-function isWorkbookSetup(value: unknown): value is StudentWorkbookSetup {
-  return isRecord(value) && hasOnlyKeys(value, ["cohorts", "assessmentDates"]) &&
-    Array.isArray(value.cohorts) && value.cohorts.every((entry) => isRecord(entry) &&
-      hasOnlyKeys(entry, ["sourceClass", "selectedCohortId", "programId", "campusId", "termId", "capacity"]) &&
-      typeof entry.sourceClass === "string" && entry.sourceClass.length > 0 &&
-      [entry.selectedCohortId, entry.programId, entry.campusId, entry.termId].every((field) => field === undefined || typeof field === "string") &&
-      (entry.capacity === undefined || (Number.isInteger(entry.capacity) && (entry.capacity as number) > 0))) &&
-    Array.isArray(value.assessmentDates) && value.assessmentDates.every((entry) => isRecord(entry) &&
-      hasOnlyKeys(entry, ["sourceClass", "assessmentTitle", "date"]) &&
-      typeof entry.sourceClass === "string" && entry.sourceClass.length > 0 &&
-      typeof entry.assessmentTitle === "string" && entry.assessmentTitle.length > 0 &&
-      typeof entry.date === "string" && isIsoDate(entry.date));
+function isStudentWorkbookSetup(value: unknown): value is StudentWorkbookSetup {
+  if (!isRecord(value)) return false;
+  try {
+    parseStudentWorkbookSetup(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academic"] {

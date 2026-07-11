@@ -720,7 +720,10 @@ describe("student import preview and commit operations", () => {
         date: "2026-07-08",
       },
     ]);
-    expect(preview.setup).toEqual(setup);
+    expect(preview.setup).toEqual({
+      catalog: { programs: [], campuses: [], terms: [] },
+      ...setup,
+    });
     expect(preview.academic.assessments).toEqual([
       expect.objectContaining({ title: "HW1 – PSAT", date: "2026-07-10" }),
     ]);
@@ -1051,7 +1054,7 @@ describe("student import preview and commit operations", () => {
       importRun: expect.objectContaining({
         workbookProfile: "wide",
         workbookMapping: preview.mappingPlan,
-        workbookSetup: setup,
+        workbookSetup: { catalog: { programs: [], campuses: [], terms: [] }, ...setup },
         assessmentCount: 1,
         resultCount: 1,
       }),
