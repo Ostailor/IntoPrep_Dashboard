@@ -168,6 +168,35 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(plan.rows[0].errors).toEqual([]);
   });
 
+  it("drops stale catalog drafts when an exact cohort appears before the next preview", () => {
+    const plan = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: {
+          programs: [{ key: "stale-program", name: "Stale Program", track: "SAT", format: "Small group" }],
+          campuses: [{ key: "stale-campus", name: "Stale Campus", location: "Westfield, NJ", modality: "In person" }],
+          terms: [{ key: "stale-term", name: "Stale Term", startDate: "2026-07-07", endDate: "2026-07-11" }],
+        },
+        cohorts: [{
+          sourceClass: "MWF",
+          programDraftKey: "stale-program",
+          campusDraftKey: "stale-campus",
+          termDraftKey: "stale-term",
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+      cohorts: [existingMwfCohort],
+    });
+
+    expect(plan.programs).toEqual([]);
+    expect(plan.campuses).toEqual([]);
+    expect(plan.terms).toEqual([]);
+    expect(plan.cohorts).toEqual([]);
+    expect(plan.summary).toMatchObject({ programs: 0, campuses: 0, terms: 0, cohorts: 0 });
+    expect(plan.rows[0]).toMatchObject({ cohortId: existingMwfCohort.id, errors: [] });
+  });
+
   it("plans each shared catalog draft once and uses only server-generated IDs", () => {
     const catalogSetup = {
       catalog: {

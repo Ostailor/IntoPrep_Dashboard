@@ -615,12 +615,16 @@ export function buildStudentAcademicImportPlan(
   const catalog = input.setup.catalog ?? { programs: [], campuses: [], terms: [] };
   const sourceClasses = new Set(input.rows.map((row) => normalized(row.cohortName)));
   const ambiguousSetups = ambiguousSetupClasses(input.setup, sourceClasses);
-  const resolvableSourceClasses = new Set(
-    [...sourceClasses].filter((sourceClass) => !ambiguousSetups.has(sourceClass)),
+  const sourceClassesRequiringCreation = new Set(
+    [...sourceClasses].filter((sourceClass) =>
+      !ambiguousSetups.has(sourceClass) &&
+      !setupForClass(input.setup, sourceClass).some((entry) => Boolean(entry.selectedCohortId)) &&
+      !cohorts.some((cohort) => normalized(cohort.name) === sourceClass),
+    ),
   );
   const programDrafts = resolveProgramDrafts({
     drafts: catalog.programs,
-    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "programDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, sourceClassesRequiringCreation, "programDraftKey"),
     existing: programs,
     targetDemo: input.targetDemo,
     createId: input.createId,
@@ -628,7 +632,7 @@ export function buildStudentAcademicImportPlan(
   });
   const campusDrafts = resolveCampusDrafts({
     drafts: catalog.campuses,
-    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "campusDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, sourceClassesRequiringCreation, "campusDraftKey"),
     existing: campuses,
     targetDemo: input.targetDemo,
     createId: input.createId,
@@ -636,7 +640,7 @@ export function buildStudentAcademicImportPlan(
   });
   const termDrafts = resolveTermDrafts({
     drafts: catalog.terms,
-    referencedKeys: referencedDraftKeys(input.setup, resolvableSourceClasses, "termDraftKey"),
+    referencedKeys: referencedDraftKeys(input.setup, sourceClassesRequiringCreation, "termDraftKey"),
     existing: terms,
     targetDemo: input.targetDemo,
     createId: input.createId,
