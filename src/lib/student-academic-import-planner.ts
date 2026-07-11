@@ -195,19 +195,20 @@ function dateForScore(input: {
   setup: StudentWorkbookSetup;
   sourceClass: string;
   assessmentTitle: string;
-  rowDate: string;
 }): { date: string | null; error: string | null } {
-  if (input.rowDate) {
-    return validIsoDate(input.rowDate)
-      ? { date: input.rowDate, error: null }
-      : { date: null, error: `Assessment date for "${display(input.assessmentTitle)}" is invalid.` };
-  }
-  const dates = [...new Set(input.setup.assessmentDates
+  const matchingDates = input.setup.assessmentDates
     .filter((entry) =>
       normalized(entry.sourceClass) === normalized(input.sourceClass) &&
       normalized(entry.assessmentTitle) === normalized(input.assessmentTitle),
     )
-    .map((entry) => entry.date))];
+    .map((entry) => entry.date);
+  if (matchingDates.some((date) => !validIsoDate(date))) {
+    return {
+      date: null,
+      error: `Assessment date for "${display(input.assessmentTitle)}" is invalid.`,
+    };
+  }
+  const dates = [...new Set(matchingDates)];
   if (dates.length === 0) return { date: null, error: null };
   if (dates.length > 1) {
     return {
@@ -377,7 +378,7 @@ export function buildStudentAcademicImportPlan(
     let recurrences;
     try {
       recurrences = buildEasternRecurringSessions({
-        cadence: group.sourceClass,
+        cadence: resolvedCohort?.cadence ?? group.sourceClass,
         startDate,
         endDate,
       });
@@ -428,7 +429,6 @@ export function buildStudentAcademicImportPlan(
         setup: input.setup,
         sourceClass: row.cohortName,
         assessmentTitle: score.assessmentTitle,
-        rowDate: score.assessmentDate,
       });
       if (resolution.date || resolution.error) continue;
       const key = `${normalized(row.cohortName)}\0${normalized(score.assessmentTitle)}`;
@@ -508,7 +508,6 @@ export function buildStudentAcademicImportPlan(
         setup: input.setup,
         sourceClass: academicRow.cohortName,
         assessmentTitle: score.assessmentTitle,
-        rowDate: score.assessmentDate,
       });
       if (dateResolution.error) {
         addRowError(planRow, dateResolution.error);

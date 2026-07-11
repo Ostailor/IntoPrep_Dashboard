@@ -280,6 +280,112 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(plan.results).toEqual([]);
   });
 
+  it("uses the reviewed setup date instead of a differing source-row suggestion", () => {
+    const suggestedDateRow = {
+      ...validMwfRow,
+      scores: [{ ...validMwfRow.scores[0], assessmentDate: "2026-07-09" }],
+    } satisfies NormalizedAcademicRow;
+    const plan = build({ rows: [suggestedDateRow] });
+
+    expect(plan.requirements.assessmentDates).toEqual([]);
+    expect(plan.assessments).toEqual([
+      expect.objectContaining({ title: "HW1 – PSAT", date: "2026-07-10" }),
+    ]);
+    expect(plan.results).toEqual([
+      expect.objectContaining({ assessment_id: "assessment-1" }),
+    ]);
+  });
+
+  it("groups conflicting source-row dates under one reviewed setup date", () => {
+    const rows = [
+      {
+        ...validMwfRow,
+        scores: [{ ...validMwfRow.scores[0], assessmentDate: "2026-07-09" }],
+      },
+      {
+        ...validMwfRow,
+        rowNumber: 4,
+        studentName: "Grace Hopper",
+        scores: [{ ...validMwfRow.scores[0], assessmentDate: "2026-07-11" }],
+      },
+    ] satisfies NormalizedAcademicRow[];
+    const plan = build({ rows });
+
+    expect(plan.assessments).toEqual([
+      expect.objectContaining({ date: "2026-07-10" }),
+    ]);
+    expect(plan.results).toHaveLength(2);
+    expect(new Set(plan.results.map((result) => result.assessment_id))).toEqual(
+      new Set(["assessment-1"]),
+    );
+  });
+
+  it("deduplicates conflicting source-row dates into one unresolved setup requirement", () => {
+    const rows = [
+      {
+        ...validMwfRow,
+        scores: [{ ...validMwfRow.scores[0], assessmentDate: "2026-07-09" }],
+      },
+      {
+        ...validMwfRow,
+        rowNumber: 4,
+        studentName: "Grace Hopper",
+        scores: [{ ...validMwfRow.scores[0], assessmentDate: "2026-07-11" }],
+      },
+    ] satisfies NormalizedAcademicRow[];
+    const plan = build({
+      rows,
+      setup: { cohorts: [setup.cohorts[0]], assessmentDates: [] },
+    });
+
+    expect(plan.requirements.assessmentDates).toEqual([
+      { sourceClass: "MWF", assessmentTitle: "HW1 – PSAT" },
+    ]);
+    expect(plan.assessments).toEqual([]);
+    expect(plan.results).toEqual([]);
+  });
+
+  it("blocks a complete import before generated sessions exceed 1,000", () => {
+    const longTerm = {
+      id: "term-long",
+      name: "Long term",
+      start_date: "2026-01-01",
+      end_date: "2028-03-01",
+    };
+    const sessionsPerCohort = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: longTerm.start_date,
+      endDate: longTerm.end_date,
+    }).length;
+    expect(sessionsPerCohort).toBeLessThanOrEqual(366);
+    expect(sessionsPerCohort * 3).toBeGreaterThan(1_000);
+
+    const sourceClasses = ["Cohort A", "Cohort B", "Cohort C"];
+    const plan = build({
+      rows: sourceClasses.map((cohortName, index) => ({
+        ...validMwfRow,
+        rowNumber: index + 2,
+        studentName: index === 1 ? "Grace Hopper" : "Ada Lovelace",
+        cohortName,
+        scores: [],
+      })),
+      setup: { cohorts: [], assessmentDates: [] },
+      cohorts: sourceClasses.map((name, index) => ({
+        ...existingMwfCohort,
+        id: `cohort-long-${index}`,
+        name,
+        term_id: longTerm.id,
+        start_date: longTerm.start_date,
+        end_date: longTerm.end_date,
+      })),
+      terms: [longTerm],
+    });
+
+    expect(plan.summary.sessions).toBe(sessionsPerCohort * 2);
+    expect(plan.summary.sessions).toBeLessThanOrEqual(1_000);
+    expect(plan.rows[2].errors).toContain("An import cannot plan more than 1,000 sessions.");
+  });
+
   it("blocks the affected cohort when Level or Room values conflict", () => {
     const conflict = {
       ...validMwfRow,
