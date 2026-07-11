@@ -22,6 +22,7 @@ import {
   normalizeAcademicRows,
   parseStudentWorkbookMappings,
   parseStudentWorkbookSetup,
+  type NormalizedAcademicRow,
   type StudentWorkbookMappingPlan,
   type StudentWorkbookSetup,
 } from "@/lib/student-workbook-schema";
@@ -232,6 +233,17 @@ export interface StudentWorkbookSourceAssessmentDateSuggestion {
   date: string;
 }
 
+export interface StudentWorkbookAcademicSourceRow {
+  sheetName: string;
+  rowNumber: number;
+  studentName: string;
+  cohortName: string;
+  sessionTitle: string;
+  roomLabel: string;
+  scores: NormalizedAcademicRow["scores"];
+  errors: string[];
+}
+
 export interface StudentWorkbookPreview {
   profile: StudentWorkbookProfile;
   targetDemo: boolean;
@@ -246,6 +258,7 @@ export interface StudentWorkbookPreview {
   summary: StudentImportPlan["summary"];
   definitions: StudentImportFieldDefinitionRow[];
   academic: StudentAcademicImportPlan;
+  academicSourceRows: StudentWorkbookAcademicSourceRow[];
   sourceAssessmentDateSuggestions: StudentWorkbookSourceAssessmentDateSuggestion[];
   options: {
     programs: StudentImportPartitionData["programs"];
@@ -640,6 +653,9 @@ async function prepareStudentImport(
         normalizedAcademicRows,
       )
     : [];
+  const academicSourceRows = mappingPlan.academic
+    ? buildAcademicSourceRows(mappingPlan.academic.sheetName, normalizedAcademicRows)
+    : [];
   const normalizedByRow = new Map(normalizedRows.map((row) => [row.rowNumber, row]));
   const blocking = plan.rows.some((row) => row.errors.length > 0) ||
     academic.rows.some((row) => row.errors.length > 0) ||
@@ -671,6 +687,7 @@ async function prepareStudentImport(
       summary: plan.summary,
       definitions: data.fieldDefinitions,
       academic,
+      academicSourceRows,
       sourceAssessmentDateSuggestions,
       options: {
         programs: data.programs.filter((program) => !program.is_archived),
@@ -683,6 +700,25 @@ async function prepareStudentImport(
       blocking,
     },
   };
+}
+
+function buildAcademicSourceRows(
+  sheetName: string,
+  rows: readonly NormalizedAcademicRow[],
+): StudentWorkbookAcademicSourceRow[] {
+  return rows.slice(0, STUDENT_IMPORT_MAX_ROWS).map((row) => ({
+    sheetName,
+    rowNumber: row.rowNumber,
+    studentName: row.studentName,
+    cohortName: row.cohortName,
+    sessionTitle: row.sessionTitle,
+    roomLabel: row.roomLabel,
+    scores: row.scores.map((score) => ({
+      ...score,
+      warnings: [...score.warnings],
+    })),
+    errors: [...row.errors],
+  }));
 }
 
 function collectSourceAssessmentDateSuggestions(

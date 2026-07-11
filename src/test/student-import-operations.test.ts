@@ -371,6 +371,31 @@ describe("student import preview and commit operations", () => {
     });
     expect(preview.summary.creates).toBe(0);
     expect(preview.sourceAssessmentDateSuggestions).toEqual([]);
+    expect(preview.academicSourceRows).toEqual([
+      {
+        sheetName: "Camp Scores",
+        rowNumber: 5,
+        studentName: "Maya Demo",
+        cohortName: "MWF",
+        sessionTitle: "G4",
+        roomLabel: "201",
+        scores: [{
+          assessmentTitle: "HW1 – PSAT",
+          assessmentDate: "",
+          rw: 720,
+          math: 760,
+          total: 1480,
+          warnings: [],
+        }],
+        errors: [],
+      },
+      expect.objectContaining({
+        sheetName: "Camp Scores",
+        rowNumber: 6,
+        studentName: "Rohan Demo",
+        cohortName: "TTHS",
+      }),
+    ]);
   });
 
   it("previews normalized directory and score sheets from one workbook digest", async () => {
@@ -407,6 +432,23 @@ describe("student import preview and commit operations", () => {
     expect(preview.mappingPlan.academic?.sheetName).toBe("Scores");
     expect(preview.rows.map((row) => row.rowNumber)).toEqual([2]);
     expect(preview.academic.rows.map((row) => row.rowNumber)).toEqual([2]);
+    expect(preview.academicSourceRows).toEqual([
+      expect.objectContaining({
+        sheetName: "Scores",
+        rowNumber: 2,
+        studentName: "Maya Demo",
+        cohortName: "MWF",
+        sessionTitle: "G4",
+        roomLabel: "201",
+        scores: [expect.objectContaining({
+          assessmentTitle: "HW1 – PSAT",
+          assessmentDate: "2026-07-10",
+          rw: 720,
+          math: 760,
+          total: 1480,
+        })],
+      }),
+    ]);
     expect(preview.sheetNames).toEqual(["Student Information", "Scores"]);
   });
 
