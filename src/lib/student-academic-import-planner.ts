@@ -179,14 +179,22 @@ function validIsoDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function sameTimestampInstant(left: string, right: string): boolean {
+  const leftInstant = Date.parse(left);
+  const rightInstant = Date.parse(right);
+  return Number.isFinite(leftInstant) &&
+    Number.isFinite(rightInstant) &&
+    leftInstant === rightInstant;
+}
+
 function sameSession(
   existing: ExistingAcademicSession,
   desired: { cohortId: string; title: string; startAt: string; endAt: string; roomLabel: string },
 ): boolean {
   return existing.cohort_id === desired.cohortId &&
     normalized(existing.title) === normalized(desired.title) &&
-    existing.start_at === desired.startAt &&
-    existing.end_at === desired.endAt &&
+    sameTimestampInstant(existing.start_at, desired.startAt) &&
+    sameTimestampInstant(existing.end_at, desired.endAt) &&
     normalized(existing.room_label) === normalized(desired.roomLabel);
 }
 

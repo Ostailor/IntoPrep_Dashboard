@@ -525,6 +525,62 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(plan.summary).toMatchObject({ resultCreates: 0, resultUpdates: 1, errors: 0 });
   });
 
+  it("reuses sessions when Supabase serializes the same timestamps with UTC offsets", () => {
+    const existingSessions = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: summerTerm.start_date,
+      endDate: summerTerm.end_date,
+    }).map((session, index) => ({
+      id: `session-existing-${index}`,
+      cohort_id: existingMwfCohort.id,
+      title: "G4",
+      start_at: session.startAt.replace(".000Z", "+00:00"),
+      end_at: session.endAt.replace(".000Z", "+00:00"),
+      mode: "In person",
+      room_label: "Room 201",
+      demo: true,
+    }));
+
+    const plan = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      cohorts: [existingMwfCohort],
+      setup: { cohorts: [], assessmentDates: [] },
+      sessions: existingSessions,
+    });
+
+    expect(plan.sessions).toEqual([]);
+  });
+
+  it("does not reuse a session whose timestamps represent distinct instants", () => {
+    const [firstRecurrence] = buildEasternRecurringSessions({
+      cadence: "MWF",
+      startDate: summerTerm.start_date,
+      endDate: summerTerm.end_date,
+    });
+    const shiftedStart = new Date(Date.parse(firstRecurrence.startAt) + 60_000).toISOString();
+    const plan = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      cohorts: [existingMwfCohort],
+      setup: { cohorts: [], assessmentDates: [] },
+      sessions: [{
+        id: "session-existing",
+        cohort_id: existingMwfCohort.id,
+        title: "G4",
+        start_at: shiftedStart,
+        end_at: firstRecurrence.endAt,
+        mode: "In person",
+        room_label: "Room 201",
+        demo: true,
+      }],
+    });
+
+    expect(plan.sessions).toHaveLength(2);
+    expect(plan.sessions).toContainEqual(expect.objectContaining({
+      start_at: firstRecurrence.startAt,
+      end_at: firstRecurrence.endAt,
+    }));
+  });
+
   it("filters every partitioned lookup by demo before matching or reusing", () => {
     const recurrences = buildEasternRecurringSessions({
       cadence: "MWF",
