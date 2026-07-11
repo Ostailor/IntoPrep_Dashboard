@@ -8,17 +8,25 @@ import type { StudentImportCell } from "@/lib/student-import-schema";
 export const STUDENT_IMPORT_MAX_BYTES = 4 * 1024 * 1024;
 export const STUDENT_IMPORT_MAX_ROWS = 2000;
 
+export interface NumberedSpreadsheetRow {
+  rowNumber: number;
+  cells: StudentImportCell[];
+}
+
+export interface StudentWorkbookSheet {
+  name: string;
+  rows: NumberedSpreadsheetRow[];
+}
+
 export interface StudentSpreadsheetReadResult {
   sheetNames: string[];
   selectedSheet: string;
+  sheets: StudentWorkbookSheet[];
+  /** @deprecated Use profile detection over `sheets` for new workbook flows. */
   headers: string[];
-  rows: Array<{ rowNumber: number; cells: StudentImportCell[] }>;
+  /** @deprecated Use profile detection over `sheets` for new workbook flows. */
+  rows: NumberedSpreadsheetRow[];
   digest: string;
-}
-
-interface NumberedSpreadsheetRow {
-  rowNumber: number;
-  cells: StudentImportCell[];
 }
 
 function rowHasContent(row: readonly StudentImportCell[]) {
@@ -112,7 +120,7 @@ export async function readStudentSpreadsheet(input: {
 
   let sheetNames: string[];
   let selectedSheet: string;
-  let numberedRows: NumberedSpreadsheetRow[];
+  let sheets: StudentWorkbookSheet[];
 
   if (isCsv) {
     const text = input.bytes.toString("utf8");
@@ -120,32 +128,43 @@ export async function readStudentSpreadsheet(input: {
     const physicalRowNumbers = getCsvPhysicalRowNumbers(text);
     sheetNames = ["CSV"];
     selectedSheet = input.sheetName ?? "CSV";
-    numberedRows = matrix.map((cells, index) => ({
-      rowNumber: physicalRowNumbers[index] ?? index + 1,
-      cells,
-    }));
+    sheets = [{
+      name: "CSV",
+      rows: matrix
+        .map((cells, index) => ({
+          rowNumber: physicalRowNumbers[index] ?? index + 1,
+          cells,
+        }))
+        .filter((row) => rowHasContent(row.cells)),
+    }];
   } else {
-    const sheets = await readXlsxFile(input.bytes);
-    sheetNames = sheets.map((sheet) => sheet.sheet);
+    const workbook = await readXlsxFile(input.bytes);
+    sheetNames = workbook.map((sheet) => sheet.sheet);
     selectedSheet = input.sheetName ?? sheetNames[0] ?? "";
-    const matrix = sheets.find((sheet) => sheet.sheet === selectedSheet)?.data ?? [];
-    numberedRows = matrix.map((cells, index) => ({
-      rowNumber: index + 1,
-      cells: toStudentImportCells(cells),
-    }));
+    sheets = workbook
+      .map((sheet) => ({
+        name: sheet.sheet,
+        rows: sheet.data
+          .map((cells, index) => ({
+            rowNumber: index + 1,
+            cells: toStudentImportCells(cells),
+          }))
+          .filter((row) => rowHasContent(row.cells)),
+      }))
+      .filter((sheet) => sheet.rows.length > 0);
   }
 
   if (!selectedSheet || !sheetNames.includes(selectedSheet)) {
     throw new Error("Choose a worksheet from the uploaded workbook.");
   }
 
-  const nonEmptyRows = numberedRows.filter((row) => rowHasContent(row.cells));
-  if (nonEmptyRows.length < 2) {
+  const selectedRows = sheets.find((sheet) => sheet.name === selectedSheet)?.rows ?? [];
+  if (selectedRows.length < 2) {
     throw new Error("The spreadsheet must contain headers and at least one student row.");
   }
 
-  const headers = nonEmptyRows[0]!.cells.map((cell) => String(cell ?? "").trim());
-  const rows = nonEmptyRows.slice(1);
+  const headers = selectedRows[0]!.cells.map((cell) => String(cell ?? "").trim());
+  const rows = selectedRows.slice(1);
   if (rows.length > STUDENT_IMPORT_MAX_ROWS) {
     throw new Error("Student imports are limited to 2,000 rows at a time.");
   }
@@ -153,6 +172,7 @@ export async function readStudentSpreadsheet(input: {
   return {
     sheetNames,
     selectedSheet,
+    sheets,
     headers,
     rows,
     digest: createHash("sha256").update(input.bytes).digest("hex"),

@@ -51,6 +51,18 @@ describe("student spreadsheet decoding", () => {
     expect(result.rows[1]?.cells[0]).toBe("Rohan Demo Import");
   });
 
+  it("retains every worksheet matrix including its header row", async () => {
+    const bytes = await readFile("src/test/fixtures/student-import-demo.xlsx");
+    const result = await readStudentSpreadsheet({
+      filename: "student-import-demo.xlsx",
+      bytes,
+    });
+
+    expect(result.sheets.map((sheet) => sheet.name)).toEqual(result.sheetNames);
+    expect(result.sheets[0]?.rows[0]?.cells[0]).toBe("Student Name");
+    expect(result.sheets[0]?.rows.some((row) => row.cells.includes("Needs Bus"))).toBe(true);
+  });
+
   it("rejects files larger than four megabytes", async () => {
     await expect(
       readStudentSpreadsheet({
