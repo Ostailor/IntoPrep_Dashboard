@@ -9,13 +9,27 @@ import type {
   StudentWorkbookSetup,
 } from "@/lib/student-workbook-schema";
 
-const satProgram = { id: "program-sat", name: "SAT", track: "SAT", is_archived: false };
-const campus = { id: "campus-main", name: "Main", modality: "In person" };
+const satProgram = {
+  id: "program-sat",
+  name: "SAT",
+  track: "SAT",
+  format: "Small group",
+  is_archived: false,
+  demo: true,
+};
+const campus = {
+  id: "campus-main",
+  name: "Main",
+  location: "Westfield, NJ",
+  modality: "In person",
+  demo: true,
+};
 const summerTerm = {
   id: "term-summer",
   name: "Summer 2026",
   start_date: "2026-07-07",
   end_date: "2026-07-11",
+  demo: true,
 };
 
 const validMwfRow = {
@@ -125,6 +139,283 @@ const existingMwfCohort = {
 };
 
 describe("buildStudentAcademicImportPlan", () => {
+  it("plans each shared catalog draft once and uses only server-generated IDs", () => {
+    const catalogSetup = {
+      catalog: {
+        programs: [{ key: "review-program", name: "Summer SAT", track: "SAT", format: "Small group" }],
+        campuses: [{
+          key: "review-campus",
+          name: "Westfield",
+          location: "Westfield, NJ",
+          modality: "In person",
+        }],
+        terms: [{
+          key: "review-term",
+          name: "Summer 2026",
+          startDate: "2026-07-07",
+          endDate: "2026-07-11",
+        }],
+      },
+      cohorts: ["MWF", "TTHS"].map((sourceClass) => ({
+        sourceClass,
+        programDraftKey: "review-program",
+        campusDraftKey: "review-campus",
+        termDraftKey: "review-term",
+        capacity: 24,
+      })),
+      assessmentDates: setup.assessmentDates,
+    } satisfies StudentWorkbookSetup;
+
+    const plan = build({
+      setup: catalogSetup,
+      programs: [],
+      campuses: [],
+      terms: [],
+    });
+
+    expect(plan.programs).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^program-/),
+      name: "Summer SAT",
+      track: "SAT",
+      format: "Small group",
+      demo: true,
+    })]);
+    expect(plan.campuses).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^campus-/),
+      name: "Westfield",
+      location: "Westfield, NJ",
+      modality: "In person",
+      demo: true,
+    })]);
+    expect(plan.terms).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^term-/),
+      name: "Summer 2026",
+      start_date: "2026-07-07",
+      end_date: "2026-07-11",
+      demo: true,
+    })]);
+    expect(plan.cohorts).toHaveLength(2);
+    expect(plan.cohorts.every((cohort) => cohort.program_id === plan.programs[0].id)).toBe(true);
+    expect(plan.cohorts.every((cohort) => cohort.campus_id === plan.campuses[0].id)).toBe(true);
+    expect(plan.cohorts.every((cohort) => cohort.term_id === plan.terms[0].id)).toBe(true);
+    expect(plan.programs[0].id).not.toBe("review-program");
+    expect(plan.summary).toMatchObject({ programs: 1, campuses: 1, terms: 1, errors: 0 });
+  });
+
+  it("reuses exact-name catalog records only when every material field matches", () => {
+    const existingProgram = { ...satProgram, id: "program-existing", name: "Summer SAT" };
+    const existingCampus = { ...campus, id: "campus-existing", name: "Westfield" };
+    const existingTerm = { ...summerTerm, id: "term-existing" };
+    const plan = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: {
+          programs: [{ key: "program-draft", name: "  summer   sat ", track: "SAT", format: "Small group" }],
+          campuses: [{
+            key: "campus-draft",
+            name: " westfield ",
+            location: "Westfield, NJ",
+            modality: "In person",
+          }],
+          terms: [{
+            key: "term-draft",
+            name: " SUMMER 2026 ",
+            startDate: summerTerm.start_date,
+            endDate: summerTerm.end_date,
+          }],
+        },
+        cohorts: [{
+          sourceClass: "MWF",
+          programDraftKey: "program-draft",
+          campusDraftKey: "campus-draft",
+          termDraftKey: "term-draft",
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+      programs: [existingProgram],
+      campuses: [existingCampus],
+      terms: [existingTerm],
+    });
+
+    expect(plan.programs).toEqual([]);
+    expect(plan.campuses).toEqual([]);
+    expect(plan.terms).toEqual([]);
+    expect(plan.cohorts[0]).toMatchObject({
+      program_id: existingProgram.id,
+      campus_id: existingCampus.id,
+      term_id: existingTerm.id,
+    });
+    expect(plan.rows[0].errors).toEqual([]);
+  });
+
+  it("blocks an exact-name draft whose material fields conflict", () => {
+    const plan = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: {
+          programs: [{ key: "program-draft", name: "SAT", track: "SAT", format: "One-to-one" }],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [{
+          sourceClass: "MWF",
+          programDraftKey: "program-draft",
+          campusId: campus.id,
+          termId: summerTerm.id,
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+    });
+
+    expect(plan.programs).toEqual([]);
+    expect(plan.cohorts).toEqual([]);
+    expect(plan.requirements.cohorts).toEqual(["MWF"]);
+    expect(plan.rows[0].errors).toContain(
+      'Program draft "SAT" conflicts with an existing Demo Program with the same name for Source cohort (Excel Class) "MWF".',
+    );
+  });
+
+  it("blocks duplicate normalized planned names and dangling draft keys", () => {
+    const duplicate = build({
+      setup: {
+        catalog: {
+          programs: [
+            { key: "program-one", name: "Summer SAT", track: "SAT", format: "Small group" },
+            { key: "program-two", name: " summer   sat ", track: "SAT", format: "Small group" },
+          ],
+          campuses: [],
+          terms: [],
+        },
+        cohorts: [
+          {
+            sourceClass: "MWF",
+            programDraftKey: "program-one",
+            campusId: campus.id,
+            termId: summerTerm.id,
+            capacity: 24,
+          },
+          {
+            sourceClass: "TTHS",
+            programDraftKey: "program-two",
+            campusId: campus.id,
+            termId: summerTerm.id,
+            capacity: 24,
+          },
+        ],
+        assessmentDates: setup.assessmentDates,
+      },
+    });
+    expect(duplicate.programs).toEqual([]);
+    expect(duplicate.rows.every((row) => row.errors.some((error) =>
+      error.includes('More than one planned Program uses the name "Summer SAT"'),
+    ))).toBe(true);
+
+    const dangling = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: { programs: [], campuses: [], terms: [] },
+        cohorts: [{
+          sourceClass: "MWF",
+          programDraftKey: "missing-program",
+          campusId: campus.id,
+          termId: summerTerm.id,
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+    });
+    expect(dangling.rows[0].errors).toContain(
+      'Program draft key "missing-program" is unavailable for Source cohort (Excel Class) "MWF".',
+    );
+    expect(dangling.cohorts).toEqual([]);
+  });
+
+  it("never resolves catalog records from the opposite partition", () => {
+    const mainProgram = { ...satProgram, id: "program-main", name: "Summer SAT", demo: false };
+    const mainCampus = { ...campus, id: "campus-main-only", name: "Westfield", demo: false };
+    const mainTerm = { ...summerTerm, id: "term-main", demo: false };
+    const planned = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: {
+          programs: [{ key: "program-draft", name: "Summer SAT", track: "SAT", format: "Small group" }],
+          campuses: [{
+            key: "campus-draft",
+            name: "Westfield",
+            location: "Westfield, NJ",
+            modality: "In person",
+          }],
+          terms: [{
+            key: "term-draft",
+            name: "Summer 2026",
+            startDate: summerTerm.start_date,
+            endDate: summerTerm.end_date,
+          }],
+        },
+        cohorts: [{
+          sourceClass: "MWF",
+          programDraftKey: "program-draft",
+          campusDraftKey: "campus-draft",
+          termDraftKey: "term-draft",
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+      programs: [mainProgram],
+      campuses: [mainCampus],
+      terms: [mainTerm],
+    });
+    expect(planned.programs[0].id).not.toBe(mainProgram.id);
+    expect(planned.campuses[0].id).not.toBe(mainCampus.id);
+    expect(planned.terms[0].id).not.toBe(mainTerm.id);
+    expect(planned.cohorts[0]).toMatchObject({
+      program_id: planned.programs[0].id,
+      campus_id: planned.campuses[0].id,
+      term_id: planned.terms[0].id,
+    });
+
+    const explicit = build({
+      rows: [validMwfRow],
+      setup: {
+        catalog: { programs: [], campuses: [], terms: [] },
+        cohorts: [{
+          sourceClass: "MWF",
+          programId: mainProgram.id,
+          campusId: mainCampus.id,
+          termId: mainTerm.id,
+          capacity: 24,
+        }],
+        assessmentDates: [setup.assessmentDates[0]],
+      },
+      programs: [mainProgram],
+      campuses: [mainCampus],
+      terms: [mainTerm],
+    });
+    expect(explicit.cohorts).toEqual([]);
+    expect(explicit.rows[0].errors).toContain(
+      'Cohort setup references unavailable metadata for Source cohort (Excel Class) "MWF".',
+    );
+
+    const existingCohortWithMainCatalog = build({
+      rows: [{ ...validMwfRow, scores: [] }],
+      setup: { catalog: { programs: [], campuses: [], terms: [] }, cohorts: [], assessmentDates: [] },
+      cohorts: [{
+        ...existingMwfCohort,
+        program_id: mainProgram.id,
+        campus_id: mainCampus.id,
+      }],
+      programs: [mainProgram],
+      campuses: [mainCampus],
+      terms: [summerTerm],
+    });
+    expect(existingCohortWithMainCatalog.rows[0]).toMatchObject({ cohortId: null });
+    expect(existingCohortWithMainCatalog.rows[0].errors).toContain(
+      'The selected cohort catalog is unavailable for Source cohort (Excel Class) "MWF".',
+    );
+  });
+
   it("plans cohorts, Eastern sessions, enrollments, assessments, and results", () => {
     const plan = build();
 
@@ -233,7 +524,7 @@ describe("buildStudentAcademicImportPlan", () => {
     ]);
   });
 
-  it("requires missing cohort metadata once per normalized source Class", () => {
+  it("requires missing cohort metadata once per normalized source cohort", () => {
     const plan = build({
       rows: [validMwfRow, { ...validMwfRow, rowNumber: 4, studentName: "Grace Hopper", cohortName: " mwf " }],
       setup: { cohorts: [], assessmentDates: [] },
@@ -241,7 +532,9 @@ describe("buildStudentAcademicImportPlan", () => {
 
     expect(plan.requirements.cohorts).toEqual(["MWF"]);
     expect(plan.cohorts).toEqual([]);
-    expect(plan.rows.every((row) => row.errors.includes('Cohort setup is required for source Class "MWF".'))).toBe(true);
+    expect(plan.rows.every((row) => row.errors.includes(
+      'Cohort setup is required for Source cohort (Excel Class) "MWF".',
+    ))).toBe(true);
   });
 
   it("requires selectedCohortId when multiple active target cohorts match", () => {
@@ -256,7 +549,7 @@ describe("buildStudentAcademicImportPlan", () => {
       setup: { cohorts: [], assessmentDates: setup.assessmentDates },
     });
     expect(ambiguous.rows[0].errors).toContain(
-      'More than one Demo cohort matches source Class "MWF". Choose selectedCohortId.',
+      'More than one Demo cohort matches Source cohort (Excel Class) "MWF". Choose selectedCohortId.',
     );
     expect(ambiguous.requirements.cohorts).toEqual(["MWF"]);
 
@@ -315,7 +608,7 @@ describe("buildStudentAcademicImportPlan", () => {
     ]);
   });
 
-  it("keeps assessment-date requirements distinct by source Class and title", () => {
+  it("keeps assessment-date requirements distinct by source cohort and title", () => {
     const plan = build({
       setup: { cohorts: setup.cohorts, assessmentDates: [] },
     });
@@ -447,7 +740,7 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(plan.cohorts).toEqual([]);
     expect(plan.sessions).toEqual([]);
     expect(plan.rows.every((row) => row.errors.includes(
-      'Source Class "MWF" has conflicting Level or Room values.',
+      'Source cohort (Excel Class) "MWF" has conflicting Level or Room values.',
     ))).toBe(true);
   });
 
@@ -463,7 +756,7 @@ describe("buildStudentAcademicImportPlan", () => {
     expect(plan.cohorts).toEqual([]);
     expect(plan.sessions).toEqual([]);
     expect(plan.rows.every((row) => row.errors.includes(
-      'Source Class "MWF" has conflicting Level or Room values.',
+      'Source cohort (Excel Class) "MWF" has conflicting Level or Room values.',
     ))).toBe(true);
   });
 

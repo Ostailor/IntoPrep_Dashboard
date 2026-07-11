@@ -388,7 +388,7 @@ describe("student import preview and commit operations", () => {
         total: 1480,
         action: "Blocked",
         warnings: [],
-        errors: ['Cohort setup is required for source Class "MWF".'],
+        errors: ['Cohort setup is required for Source cohort (Excel Class) "MWF".'],
       },
       expect.objectContaining({
         sheetName: "Camp Scores",
@@ -411,7 +411,7 @@ describe("student import preview and commit operations", () => {
         action: "Blocked",
         errors: [
           "HW1 – PSAT: RW must be a number.",
-          'Cohort setup is required for source Class "MWF".',
+          'Cohort setup is required for Source cohort (Excel Class) "MWF".',
         ],
       }),
     ]);

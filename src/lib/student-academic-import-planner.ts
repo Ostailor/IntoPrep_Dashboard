@@ -1,6 +1,10 @@
 import { buildEasternRecurringSessions } from "@/lib/eastern-recurring-sessions";
+import type { ProgramTrack } from "@/lib/domain";
 import type {
   NormalizedAcademicRow,
+  PlannedCampusInput,
+  PlannedProgramInput,
+  PlannedTermInput,
   StudentWorkbookSetup,
 } from "@/lib/student-workbook-schema";
 
@@ -70,13 +74,17 @@ export interface AcademicProgram {
   id: string;
   name: string;
   track: string;
+  format?: string;
   is_archived: boolean;
+  demo?: boolean;
 }
 
 export interface AcademicCampus {
   id: string;
   name: string;
+  location?: string;
   modality: string;
+  demo?: boolean;
 }
 
 export interface AcademicTerm {
@@ -84,6 +92,31 @@ export interface AcademicTerm {
   name: string;
   start_date: string;
   end_date: string;
+  demo?: boolean;
+}
+
+export interface PlannedAcademicProgram {
+  id: string;
+  name: string;
+  track: ProgramTrack;
+  format: string;
+  demo: boolean;
+}
+
+export interface PlannedAcademicCampus {
+  id: string;
+  name: string;
+  location: string;
+  modality: PlannedCampusInput["modality"];
+  demo: boolean;
+}
+
+export interface PlannedAcademicTerm {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  demo: boolean;
 }
 
 export interface StudentAcademicImportPlannerInput {
@@ -120,12 +153,18 @@ export interface StudentAcademicImportPlan {
     cohorts: string[];
     assessmentDates: Array<{ sourceClass: string; assessmentTitle: string }>;
   };
+  programs: PlannedAcademicProgram[];
+  campuses: PlannedAcademicCampus[];
+  terms: PlannedAcademicTerm[];
   cohorts: Array<Record<string, unknown>>;
   sessions: Array<Record<string, unknown>>;
   enrollments: Array<Record<string, unknown>>;
   assessments: Array<Record<string, unknown>>;
   results: Array<Record<string, unknown>>;
   summary: {
+    programs: number;
+    campuses: number;
+    terms: number;
     cohorts: number;
     sessions: number;
     enrollments: number;
@@ -147,6 +186,15 @@ interface CohortGroup {
   registrationDate: string | null;
 }
 
+type CatalogIssue =
+  | { kind: "duplicate"; name: string }
+  | { kind: "conflict"; name: string };
+
+interface CatalogResolution<T> {
+  value: T | null;
+  issue: CatalogIssue | null;
+}
+
 const MAX_IMPORT_SESSIONS = 1_000;
 const ASSESSMENT_SECTIONS = [
   { label: "RW", score: 800 },
@@ -159,6 +207,14 @@ function normalized(value: string): string {
 
 function display(value: string): string {
   return value.trim().replace(/\s+/g, " ");
+}
+
+function sourceCohortLabel(sourceClass: string): string {
+  return `Source cohort (Excel Class) "${display(sourceClass)}"`;
+}
+
+function inTargetPartition(record: { demo?: boolean }, targetDemo: boolean): boolean {
+  return record.demo === undefined || record.demo === targetDemo;
 }
 
 function addUnique(values: string[], value: string) {
@@ -248,6 +304,237 @@ function setupForClass(setup: StudentWorkbookSetup, sourceClass: string) {
   );
 }
 
+function referencedDraftKeys(
+  setup: StudentWorkbookSetup,
+  sourceClasses: ReadonlySet<string>,
+  field: "programDraftKey" | "campusDraftKey" | "termDraftKey",
+): Set<string> {
+  return new Set(setup.cohorts
+    .filter((entry) => sourceClasses.has(normalized(entry.sourceClass)))
+    .map((entry) => entry[field])
+    .filter((key): key is string => Boolean(key)));
+}
+
+function duplicateDraftNames<T extends { key: string; name: string }>(
+  drafts: readonly T[],
+): Map<string, string> {
+  const names = new Map<string, T[]>();
+  for (const draft of drafts) {
+    const key = normalized(draft.name);
+    names.set(key, [...(names.get(key) ?? []), draft]);
+  }
+  const duplicates = new Map<string, string>();
+  for (const matching of names.values()) {
+    if (matching.length < 2) continue;
+    const canonicalName = display(matching[0].name);
+    matching.forEach((draft) => duplicates.set(draft.key, canonicalName));
+  }
+  return duplicates;
+}
+
+function programMaterialMatches(existing: AcademicProgram, draft: PlannedProgramInput): boolean {
+  return !existing.is_archived && existing.track === draft.track &&
+    normalized(existing.format ?? "") === normalized(draft.format);
+}
+
+function campusMaterialMatches(existing: AcademicCampus, draft: PlannedCampusInput): boolean {
+  return existing.modality === draft.modality &&
+    normalized(existing.location ?? "") === normalized(draft.location);
+}
+
+function termMaterialMatches(existing: AcademicTerm, draft: PlannedTermInput): boolean {
+  return existing.start_date === draft.startDate && existing.end_date === draft.endDate;
+}
+
+function resolveProgramDrafts(input: {
+  drafts: readonly PlannedProgramInput[];
+  referencedKeys: ReadonlySet<string>;
+  existing: readonly AcademicProgram[];
+  targetDemo: boolean;
+  createId: (prefix: string) => string;
+  output: PlannedAcademicProgram[];
+}): Map<string, CatalogResolution<AcademicProgram | PlannedAcademicProgram>> {
+  const drafts = input.drafts.filter((draft) => input.referencedKeys.has(draft.key));
+  const duplicates = duplicateDraftNames(drafts);
+  const resolutions = new Map<string, CatalogResolution<AcademicProgram | PlannedAcademicProgram>>();
+  for (const draft of drafts) {
+    const duplicateName = duplicates.get(draft.key);
+    if (duplicateName) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "duplicate", name: duplicateName },
+      });
+      continue;
+    }
+    const matching = input.existing.filter((record) =>
+      normalized(record.name) === normalized(draft.name),
+    );
+    if (matching.length === 1 && programMaterialMatches(matching[0], draft)) {
+      resolutions.set(draft.key, { value: matching[0], issue: null });
+      continue;
+    }
+    if (matching.length > 0) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "conflict", name: display(draft.name) },
+      });
+      continue;
+    }
+    const planned: PlannedAcademicProgram = {
+      id: input.createId("program"),
+      name: display(draft.name),
+      track: draft.track,
+      format: display(draft.format),
+      demo: input.targetDemo,
+    };
+    input.output.push(planned);
+    resolutions.set(draft.key, { value: planned, issue: null });
+  }
+  return resolutions;
+}
+
+function resolveCampusDrafts(input: {
+  drafts: readonly PlannedCampusInput[];
+  referencedKeys: ReadonlySet<string>;
+  existing: readonly AcademicCampus[];
+  targetDemo: boolean;
+  createId: (prefix: string) => string;
+  output: PlannedAcademicCampus[];
+}): Map<string, CatalogResolution<AcademicCampus | PlannedAcademicCampus>> {
+  const drafts = input.drafts.filter((draft) => input.referencedKeys.has(draft.key));
+  const duplicates = duplicateDraftNames(drafts);
+  const resolutions = new Map<string, CatalogResolution<AcademicCampus | PlannedAcademicCampus>>();
+  for (const draft of drafts) {
+    const duplicateName = duplicates.get(draft.key);
+    if (duplicateName) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "duplicate", name: duplicateName },
+      });
+      continue;
+    }
+    const matching = input.existing.filter((record) =>
+      normalized(record.name) === normalized(draft.name),
+    );
+    if (matching.length === 1 && campusMaterialMatches(matching[0], draft)) {
+      resolutions.set(draft.key, { value: matching[0], issue: null });
+      continue;
+    }
+    if (matching.length > 0) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "conflict", name: display(draft.name) },
+      });
+      continue;
+    }
+    const planned: PlannedAcademicCampus = {
+      id: input.createId("campus"),
+      name: display(draft.name),
+      location: display(draft.location),
+      modality: draft.modality,
+      demo: input.targetDemo,
+    };
+    input.output.push(planned);
+    resolutions.set(draft.key, { value: planned, issue: null });
+  }
+  return resolutions;
+}
+
+function resolveTermDrafts(input: {
+  drafts: readonly PlannedTermInput[];
+  referencedKeys: ReadonlySet<string>;
+  existing: readonly AcademicTerm[];
+  targetDemo: boolean;
+  createId: (prefix: string) => string;
+  output: PlannedAcademicTerm[];
+}): Map<string, CatalogResolution<AcademicTerm | PlannedAcademicTerm>> {
+  const drafts = input.drafts.filter((draft) => input.referencedKeys.has(draft.key));
+  const duplicates = duplicateDraftNames(drafts);
+  const resolutions = new Map<string, CatalogResolution<AcademicTerm | PlannedAcademicTerm>>();
+  for (const draft of drafts) {
+    const duplicateName = duplicates.get(draft.key);
+    if (duplicateName) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "duplicate", name: duplicateName },
+      });
+      continue;
+    }
+    const matching = input.existing.filter((record) =>
+      normalized(record.name) === normalized(draft.name),
+    );
+    if (matching.length === 1 && termMaterialMatches(matching[0], draft)) {
+      resolutions.set(draft.key, { value: matching[0], issue: null });
+      continue;
+    }
+    if (matching.length > 0) {
+      resolutions.set(draft.key, {
+        value: null,
+        issue: { kind: "conflict", name: display(draft.name) },
+      });
+      continue;
+    }
+    const planned: PlannedAcademicTerm = {
+      id: input.createId("term"),
+      name: display(draft.name),
+      start_date: draft.startDate,
+      end_date: draft.endDate,
+      demo: input.targetDemo,
+    };
+    input.output.push(planned);
+    resolutions.set(draft.key, { value: planned, issue: null });
+  }
+  return resolutions;
+}
+
+function catalogIssueError(
+  noun: "Program" | "Campus" | "Term",
+  issue: CatalogIssue,
+  sourceClass: string,
+  targetLabel: string,
+): string {
+  if (issue.kind === "duplicate") {
+    return `More than one planned ${noun} uses the name "${issue.name}" for ${sourceCohortLabel(sourceClass)}. Reuse one draft.`;
+  }
+  return `${noun} draft "${issue.name}" conflicts with an existing ${targetLabel} ${noun} with the same name for ${sourceCohortLabel(sourceClass)}.`;
+}
+
+function resolveCatalogReference<T extends { id: string }>(input: {
+  noun: "Program" | "Campus" | "Term";
+  existingId?: string;
+  draftKey?: string;
+  existing: readonly T[];
+  drafts: ReadonlyMap<string, CatalogResolution<T>>;
+  sourceClass: string;
+  targetLabel: string;
+}): { value: T | null; error: string | null } {
+  if (input.existingId) {
+    return {
+      value: input.existing.find((record) => record.id === input.existingId) ?? null,
+      error: null,
+    };
+  }
+  if (!input.draftKey) return { value: null, error: null };
+  const resolution = input.drafts.get(input.draftKey);
+  if (!resolution) {
+    return {
+      value: null,
+      error: `${input.noun} draft key "${input.draftKey}" is unavailable for ${sourceCohortLabel(input.sourceClass)}.`,
+    };
+  }
+  return {
+    value: resolution.value,
+    error: resolution.issue
+      ? catalogIssueError(
+          input.noun,
+          resolution.issue,
+          input.sourceClass,
+          input.targetLabel,
+        )
+      : null,
+  };
+}
+
 function dateForScore(input: {
   setup: StudentWorkbookSetup;
   sourceClass: string;
@@ -270,7 +557,7 @@ function dateForScore(input: {
   if (dates.length > 1) {
     return {
       date: null,
-      error: `Assessment dates conflict for source Class "${display(input.sourceClass)}" and "${display(input.assessmentTitle)}".`,
+      error: `Assessment dates conflict for ${sourceCohortLabel(input.sourceClass)} and "${display(input.assessmentTitle)}".`,
     };
   }
   return { date: dates[0], error: null };
@@ -297,6 +584,12 @@ export function buildStudentAcademicImportPlan(
   const sessions = input.sessions.filter((row) => row.demo === input.targetDemo);
   const assessments = input.assessments.filter((row) => row.demo === input.targetDemo);
   const results = input.results.filter((row) => row.demo === input.targetDemo);
+  const programs = input.programs.filter((row) => inTargetPartition(row, input.targetDemo));
+  const campuses = input.campuses.filter((row) => inTargetPartition(row, input.targetDemo));
+  const terms = input.terms.filter((row) => inTargetPartition(row, input.targetDemo));
+  const outputPrograms: PlannedAcademicProgram[] = [];
+  const outputCampuses: PlannedAcademicCampus[] = [];
+  const outputTerms: PlannedAcademicTerm[] = [];
   const outputCohorts: Array<Record<string, unknown>> = [];
   const outputSessions: Array<Record<string, unknown>> = [];
   const outputEnrollments: Array<Record<string, unknown>> = [];
@@ -306,12 +599,38 @@ export function buildStudentAcademicImportPlan(
     cohorts: [],
     assessmentDates: [],
   };
+  const catalog = input.setup.catalog ?? { programs: [], campuses: [], terms: [] };
+  const sourceClasses = new Set(input.rows.map((row) => normalized(row.cohortName)));
+  const programDrafts = resolveProgramDrafts({
+    drafts: catalog.programs,
+    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "programDraftKey"),
+    existing: programs,
+    targetDemo: input.targetDemo,
+    createId: input.createId,
+    output: outputPrograms,
+  });
+  const campusDrafts = resolveCampusDrafts({
+    drafts: catalog.campuses,
+    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "campusDraftKey"),
+    existing: campuses,
+    targetDemo: input.targetDemo,
+    createId: input.createId,
+    output: outputCampuses,
+  });
+  const termDrafts = resolveTermDrafts({
+    drafts: catalog.terms,
+    referencedKeys: referencedDraftKeys(input.setup, sourceClasses, "termDraftKey"),
+    existing: terms,
+    targetDemo: input.targetDemo,
+    createId: input.createId,
+    output: outputTerms,
+  });
 
   const groupsByName = new Map<string, CohortGroup>();
   input.rows.forEach((row, index) => {
     const key = normalized(row.cohortName);
     if (!key) {
-      addRowError(rows[index], "Class is required for academic import.");
+      addRowError(rows[index], "Source cohort (Excel Class) is required for academic import.");
       return;
     }
     const group = groupsByName.get(key) ?? {
@@ -341,7 +660,7 @@ export function buildStudentAcademicImportPlan(
       addGroupError(
         group,
         rows,
-        `Source Class "${display(group.sourceClass)}" has conflicting Level or Room values.`,
+        `${sourceCohortLabel(group.sourceClass)} has conflicting Level or Room values.`,
       );
       continue;
     }
@@ -355,7 +674,7 @@ export function buildStudentAcademicImportPlan(
     );
     let resolvedCohort: ExistingAcademicCohort | null = null;
     let newCohort: Record<string, unknown> | null = null;
-    let term: AcademicTerm | null = null;
+    let term: AcademicTerm | PlannedAcademicTerm | null = null;
 
     if (selectedId) {
       resolvedCohort = matchingCohorts.find((cohort) => cohort.id === selectedId) ?? null;
@@ -363,7 +682,7 @@ export function buildStudentAcademicImportPlan(
         addGroupError(
           group,
           rows,
-          `selectedCohortId does not identify an active ${targetLabel} cohort for source Class "${display(group.sourceClass)}".`,
+          `selectedCohortId does not identify an active ${targetLabel} cohort for ${sourceCohortLabel(group.sourceClass)}.`,
         );
         continue;
       }
@@ -372,7 +691,7 @@ export function buildStudentAcademicImportPlan(
       addGroupError(
         group,
         rows,
-        `More than one ${targetLabel} cohort matches source Class "${display(group.sourceClass)}". Choose selectedCohortId.`,
+        `More than one ${targetLabel} cohort matches ${sourceCohortLabel(group.sourceClass)}. Choose selectedCohortId.`,
       );
       continue;
     } else if (matchingCohorts.length === 1) {
@@ -380,37 +699,80 @@ export function buildStudentAcademicImportPlan(
     }
 
     if (resolvedCohort) {
-      term = input.terms.find((candidate) => candidate.id === resolvedCohort!.term_id) ?? null;
-      if (!term) {
-        addGroupError(group, rows, `The selected cohort term is unavailable for source Class "${display(group.sourceClass)}".`);
+      const program = programs.find(
+        (candidate) => candidate.id === resolvedCohort!.program_id,
+      );
+      const campus = campuses.find(
+        (candidate) => candidate.id === resolvedCohort!.campus_id,
+      );
+      term = terms.find((candidate) => candidate.id === resolvedCohort!.term_id) ?? null;
+      if (!program || !campus || !term) {
+        addGroupError(
+          group,
+          rows,
+          `The selected cohort catalog is unavailable for ${sourceCohortLabel(group.sourceClass)}.`,
+        );
         continue;
       }
       group.cohortId = resolvedCohort.id;
     } else {
       const completeSetup = classSetup.find((entry) =>
-        entry.programId && entry.campusId && entry.termId && entry.capacity,
+        (entry.programId || entry.programDraftKey) &&
+        (entry.campusId || entry.campusDraftKey) &&
+        (entry.termId || entry.termDraftKey) &&
+        entry.capacity,
       );
       if (!completeSetup) {
         addUnique(requirements.cohorts, group.sourceClass);
         addGroupError(
           group,
           rows,
-          `Cohort setup is required for source Class "${display(group.sourceClass)}".`,
+          `Cohort setup is required for ${sourceCohortLabel(group.sourceClass)}.`,
         );
         continue;
       }
-      const program = input.programs.find(
-        (candidate) => candidate.id === completeSetup.programId && !candidate.is_archived,
-      );
-      const selectedCampus = input.campuses.find(
-        (candidate) => candidate.id === completeSetup.campusId,
-      );
-      term = input.terms.find((candidate) => candidate.id === completeSetup.termId) ?? null;
+      const programResolution = resolveCatalogReference({
+        noun: "Program",
+        existingId: completeSetup.programId,
+        draftKey: completeSetup.programDraftKey,
+        existing: programs.filter((program) => !program.is_archived),
+        drafts: programDrafts,
+        sourceClass: group.sourceClass,
+        targetLabel,
+      });
+      const campusResolution = resolveCatalogReference({
+        noun: "Campus",
+        existingId: completeSetup.campusId,
+        draftKey: completeSetup.campusDraftKey,
+        existing: campuses,
+        drafts: campusDrafts,
+        sourceClass: group.sourceClass,
+        targetLabel,
+      });
+      const termResolution = resolveCatalogReference({
+        noun: "Term",
+        existingId: completeSetup.termId,
+        draftKey: completeSetup.termDraftKey,
+        existing: terms,
+        drafts: termDrafts,
+        sourceClass: group.sourceClass,
+        targetLabel,
+      });
+      const catalogError = programResolution.error ?? campusResolution.error ?? termResolution.error;
+      if (catalogError) {
+        addUnique(requirements.cohorts, group.sourceClass);
+        addGroupError(group, rows, catalogError);
+        continue;
+      }
+      const program = programResolution.value;
+      const selectedCampus = campusResolution.value;
+      term = termResolution.value;
       if (!program || !selectedCampus || !term) {
+        addUnique(requirements.cohorts, group.sourceClass);
         addGroupError(
           group,
           rows,
-          `Cohort setup references unavailable metadata for source Class "${display(group.sourceClass)}".`,
+          `Cohort setup references unavailable metadata for ${sourceCohortLabel(group.sourceClass)}.`,
         );
         continue;
       }
@@ -575,7 +937,7 @@ export function buildStudentAcademicImportPlan(
       if (!dateResolution.date) {
         addRowError(
           planRow,
-          `Assessment date is required for source Class "${display(group.sourceClass)}" and "${display(score.assessmentTitle)}".`,
+          `Assessment date is required for ${sourceCohortLabel(group.sourceClass)} and "${display(score.assessmentTitle)}".`,
         );
         continue;
       }
@@ -665,12 +1027,18 @@ export function buildStudentAcademicImportPlan(
   return {
     rows,
     requirements,
+    programs: outputPrograms,
+    campuses: outputCampuses,
+    terms: outputTerms,
     cohorts: outputCohorts,
     sessions: outputSessions,
     enrollments: outputEnrollments,
     assessments: outputAssessments,
     results: outputResults,
     summary: {
+      programs: outputPrograms.length,
+      campuses: outputCampuses.length,
+      terms: outputTerms.length,
       cohorts: outputCohorts.length,
       sessions: outputSessions.length,
       enrollments: outputEnrollments.length,
