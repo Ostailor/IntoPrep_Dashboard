@@ -1,3 +1,5 @@
+import { constants as BUFFER_CONSTANTS } from "node:buffer";
+
 export type XlsxCell = string | number | boolean | Date | null;
 
 export interface XlsxSheet {
@@ -5,6 +7,20 @@ export interface XlsxSheet {
   headers: string[];
   rows: XlsxCell[][];
   columnWidths?: number[];
+}
+
+export interface ClassicZipEntryMetadata {
+  nameSize: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localOffset: number;
+}
+
+export interface ClassicZipMetadata {
+  entryCount: number;
+  entries: ClassicZipEntryMetadata[];
+  centralDirectorySize: number;
+  centralDirectoryOffset: number;
 }
 
 interface ZipEntry {
@@ -18,9 +34,19 @@ const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const UTF8_ZIP_FLAG = 0x0800;
 const ZIP_VERSION = 20;
 const ZIP_DOS_DATE_1980_01_01 = 0x0021;
-const EXCEL_UNIX_EPOCH_OFFSET_DAYS = 25569;
 const MILLISECONDS_PER_DAY = 86_400_000;
 const MAX_COLUMN_WIDTH = 255;
+const MAX_XLSX_COLUMNS = 16_384;
+const MAX_XLSX_ROWS = 1_048_576;
+const MAX_UINT16 = 0xffff;
+const MAX_UINT32 = 0xffff_ffff;
+const FIXED_PACKAGE_ENTRY_COUNT = 5;
+const LOCAL_FILE_HEADER_SIZE = 30;
+const CENTRAL_DIRECTORY_HEADER_SIZE = 46;
+const END_OF_CENTRAL_DIRECTORY_SIZE = 22;
+const EXCEL_1900_EPOCH = Date.UTC(1899, 11, 31);
+const MIN_EXCEL_DATE = Date.UTC(1900, 0, 1);
+const MAX_EXCEL_DATE = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
 const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   let value = index;
@@ -30,9 +56,28 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   return value >>> 0;
 });
 
+function sanitizeXml(value: string): string {
+  let sanitized = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    const validXmlCharacter =
+      codePoint === 0x09 ||
+      codePoint === 0x0a ||
+      codePoint === 0x0d ||
+      (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+      (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+      (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    const unicodeNoncharacter =
+      (codePoint >= 0xfdd0 && codePoint <= 0xfdef) ||
+      (codePoint & 0xffff) === 0xfffe ||
+      (codePoint & 0xffff) === 0xffff;
+    sanitized += validXmlCharacter && !unicodeNoncharacter ? character : "\uFFFD";
+  }
+  return sanitized;
+}
+
 function escapeXml(value: string): string {
-  return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "\uFFFD")
+  return sanitizeXml(value)
     .replace(/[&<>"']/g, (character) => {
       switch (character) {
         case "&":
@@ -49,13 +94,78 @@ function escapeXml(value: string): string {
     });
 }
 
+function assertClassicZipInteger(label: string, value: number, maximum: number): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
+    throw new Error(`${label} must be an integer between 0 and ${maximum.toLocaleString("en-US")}.`);
+  }
+}
+
+export function assertClassicZipMetadata(metadata: ClassicZipMetadata): void {
+  assertClassicZipInteger("Classic ZIP entry count", metadata.entryCount, MAX_UINT16);
+  if (metadata.entries.length !== metadata.entryCount) {
+    throw new Error("Classic ZIP entry count must match its entry metadata.");
+  }
+  metadata.entries.forEach((entry, index) => {
+    const suffix = ` for entry ${index + 1}`;
+    assertClassicZipInteger(`Classic ZIP entry name size${suffix}`, entry.nameSize, MAX_UINT16);
+    assertClassicZipInteger(
+      `Classic ZIP compressed size${suffix}`,
+      entry.compressedSize,
+      MAX_UINT32,
+    );
+    assertClassicZipInteger(
+      `Classic ZIP uncompressed size${suffix}`,
+      entry.uncompressedSize,
+      MAX_UINT32,
+    );
+    assertClassicZipInteger(`Classic ZIP local offset${suffix}`, entry.localOffset, MAX_UINT32);
+  });
+  assertClassicZipInteger(
+    "Classic ZIP central directory size",
+    metadata.centralDirectorySize,
+    MAX_UINT32,
+  );
+  assertClassicZipInteger(
+    "Classic ZIP central directory offset",
+    metadata.centralDirectoryOffset,
+    MAX_UINT32,
+  );
+}
+
+function sheetColumnCount(sheet: XlsxSheet): number {
+  let columnCount = Math.max(sheet.headers.length, sheet.columnWidths?.length ?? 0);
+  if (columnCount > MAX_XLSX_COLUMNS) return columnCount;
+  for (const row of sheet.rows) {
+    columnCount = Math.max(columnCount, row.length);
+    if (columnCount > MAX_XLSX_COLUMNS) return columnCount;
+  }
+  return columnCount;
+}
+
+function assertWorksheetDimensions(columnCount: number, rowCount: number): void {
+  if (columnCount > MAX_XLSX_COLUMNS) {
+    throw new Error("XLSX worksheets are limited to 16,384 columns (XFD).");
+  }
+  if (rowCount > MAX_XLSX_ROWS) {
+    throw new Error("XLSX worksheets are limited to 1,048,576 rows including the header.");
+  }
+}
+
 function assertValidSheets(sheets: XlsxSheet[]): void {
   if (sheets.length === 0) {
     throw new Error("An XLSX workbook must contain at least one sheet.");
   }
+  if (sheets.length + FIXED_PACKAGE_ENTRY_COUNT > MAX_UINT16) {
+    throw new Error("Classic ZIP workbooks are limited to 65,535 ZIP entries.");
+  }
 
   const names = new Set<string>();
   for (const sheet of sheets) {
+    const columnCount = Math.max(sheet.headers.length, sheet.columnWidths?.length ?? 0);
+    assertWorksheetDimensions(columnCount, sheet.rows.length + 1);
+    const completeColumnCount = sheetColumnCount(sheet);
+    assertWorksheetDimensions(completeColumnCount, sheet.rows.length + 1);
+
     if (
       sheet.name.length === 0 ||
       sheet.name.length > 31 ||
@@ -66,7 +176,7 @@ function assertValidSheets(sheets: XlsxSheet[]): void {
       throw new Error(`Invalid XLSX sheet name: ${JSON.stringify(sheet.name)}.`);
     }
 
-    const normalizedName = sheet.name.toLocaleLowerCase("en-US");
+    const normalizedName = sanitizeXml(sheet.name).toLocaleLowerCase("en-US");
     if (names.has(normalizedName)) {
       throw new Error(`Duplicate sheet name: ${JSON.stringify(sheet.name)}.`);
     }
@@ -95,6 +205,22 @@ function safeString(value: string): string {
   return value.startsWith("=") ? `'${value}` : value;
 }
 
+function excelDateSerial(date: Date, reference: string): number {
+  const timestamp = date.getTime();
+  if (
+    !Number.isFinite(timestamp) ||
+    timestamp < MIN_EXCEL_DATE ||
+    timestamp > MAX_EXCEL_DATE
+  ) {
+    throw new Error(
+      `XLSX date at ${reference} must be between 1900-01-01 and 9999-12-31.`,
+    );
+  }
+
+  const elapsedDays = (timestamp - EXCEL_1900_EPOCH) / MILLISECONDS_PER_DAY;
+  return elapsedDays >= 60 ? elapsedDays + 1 : elapsedDays;
+}
+
 function inlineStringCell(reference: string, value: string, style?: number): string {
   const safeValue = safeString(value);
   const preserveWhitespace = /^\s|\s$/u.test(safeValue) ? ' xml:space="preserve"' : "";
@@ -109,11 +235,7 @@ function cellXml(reference: string, value: XlsxCell): string {
     return `<c r="${reference}" t="b"><v>${value ? 1 : 0}</v></c>`;
   }
   if (value instanceof Date) {
-    const timestamp = value.getTime();
-    if (!Number.isFinite(timestamp)) {
-      throw new Error(`Invalid XLSX date at ${reference}.`);
-    }
-    const serial = timestamp / MILLISECONDS_PER_DAY + EXCEL_UNIX_EPOCH_OFFSET_DAYS;
+    const serial = excelDateSerial(value, reference);
     return `<c r="${reference}" t="n" s="2"><v>${serial}</v></c>`;
   }
   if (!Number.isFinite(value)) {
@@ -142,11 +264,7 @@ function worksheetColumnWidths(sheet: XlsxSheet, columnCount: number): number[] 
 }
 
 function worksheetXml(sheet: XlsxSheet): string {
-  const columnCount = Math.max(
-    sheet.headers.length,
-    sheet.columnWidths?.length ?? 0,
-    ...sheet.rows.map((row) => row.length),
-  );
+  const columnCount = sheetColumnCount(sheet);
   const lastColumn = columnName(Math.max(0, columnCount - 1));
   const lastRow = sheet.rows.length + 1;
   const dimension = columnCount === 0 ? "A1" : `A1:${lastColumn}${lastRow}`;
@@ -257,33 +375,67 @@ function centralDirectoryHeader(entry: ZipEntry): Buffer {
 }
 
 function zipStore(files: Array<{ name: string; contents: string }>): Buffer {
+  if (files.length > MAX_UINT16) {
+    throw new Error("Classic ZIP archives are limited to 65,535 ZIP entries.");
+  }
+
+  let localOffset = 0;
+  let centralDirectorySize = 0;
+  const metadataEntries = files.map((file) => {
+    const nameSize = Buffer.byteLength(file.name, "utf8");
+    const contentsSize = Buffer.byteLength(file.contents, "utf8");
+    const metadata = {
+      nameSize,
+      compressedSize: contentsSize,
+      uncompressedSize: contentsSize,
+      localOffset,
+    };
+    localOffset += LOCAL_FILE_HEADER_SIZE + nameSize + contentsSize;
+    centralDirectorySize += CENTRAL_DIRECTORY_HEADER_SIZE + nameSize;
+    return metadata;
+  });
+  const metadata = {
+    entryCount: files.length,
+    entries: metadataEntries,
+    centralDirectorySize,
+    centralDirectoryOffset: localOffset,
+  };
+  assertClassicZipMetadata(metadata);
+  const archiveSize = localOffset + centralDirectorySize + END_OF_CENTRAL_DIRECTORY_SIZE;
+  if (!Number.isSafeInteger(archiveSize) || archiveSize > BUFFER_CONSTANTS.MAX_LENGTH) {
+    throw new Error("Classic ZIP archive size exceeds the Node.js Buffer limit.");
+  }
+
   const entries: ZipEntry[] = [];
   const localParts: Buffer[] = [];
-  let offset = 0;
 
-  for (const file of files) {
+  files.forEach((file, index) => {
     const name = Buffer.from(file.name, "utf8");
     const contents = Buffer.from(file.contents, "utf8");
-    const entry = { name, contents, crc32: crc32(contents), offset };
+    const entry = {
+      name,
+      contents,
+      crc32: crc32(contents),
+      offset: metadataEntries[index]!.localOffset,
+    };
     const header = localFileHeader(entry);
     entries.push(entry);
     localParts.push(header, name, contents);
-    offset += header.length + name.length + contents.length;
-  }
+  });
 
   const centralParts = entries.flatMap((entry) => [centralDirectoryHeader(entry), entry.name]);
   const centralDirectory = Buffer.concat(centralParts);
-  const end = Buffer.alloc(22);
+  const end = Buffer.alloc(END_OF_CENTRAL_DIRECTORY_SIZE);
   end.writeUInt32LE(0x06054b50, 0);
   end.writeUInt16LE(0, 4);
   end.writeUInt16LE(0, 6);
   end.writeUInt16LE(entries.length, 8);
   end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(centralDirectory.length, 12);
-  end.writeUInt32LE(offset, 16);
+  end.writeUInt32LE(localOffset, 16);
   end.writeUInt16LE(0, 20);
 
-  return Buffer.concat([...localParts, centralDirectory, end]);
+  return Buffer.concat([...localParts, centralDirectory, end], archiveSize);
 }
 
 export function createXlsxWorkbook(sheets: XlsxSheet[]): Buffer {
