@@ -1510,30 +1510,45 @@ export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashbo
   const isStaff = role === "staff";
   const isTa = role === "ta";
   const isInstructor = role === "instructor";
+  const isAdminDashboard = isDashboard && isAdmin;
   const hasAnyRole = (...roles: UserRole[]) => roles.includes(role);
   const isAnySection = (...sections: PortalSection[]) => sections.includes(section);
 
   return {
     section,
     sessions: isAnySection("dashboard", "calendar", "cohorts", "attendance", "students", "programs", "academics"),
-    enrollments: isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
-    students: isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
+    enrollments:
+      !isAdminDashboard &&
+      isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
+    students:
+      !isAdminDashboard &&
+      isAnySection("dashboard", "calendar", "attendance", "students", "families", "academics", "messaging", "billing"),
     studentImportMetadata:
       hasAnyRole("engineer", "admin", "staff") && section === "students",
-    assessments: isAnySection("dashboard", "attendance", "students", "academics"),
-    families: isAnySection("dashboard", "students", "families", "messaging", "billing"),
-    academicNotes: !isInstructor && isAnySection("dashboard", "students", "academics"),
-    sessionInstructionNotes: isAnySection("dashboard", "academics"),
+    assessments:
+      !isAdminDashboard && isAnySection("dashboard", "attendance", "students", "academics"),
+    families:
+      !isAdminDashboard && isAnySection("dashboard", "students", "families", "messaging", "billing"),
+    academicNotes:
+      !isAdminDashboard && !isInstructor && isAnySection("dashboard", "students", "academics"),
+    sessionInstructionNotes: !isAdminDashboard && isAnySection("dashboard", "academics"),
     instructionalAccommodations:
       isInstructor && isAnySection("dashboard", "attendance", "academics"),
     instructorFollowUpFlags: isAnySection("dashboard", "attendance", "academics"),
-    resources: hasAnyRole("engineer", "admin", "staff", "ta") && isAnySection("dashboard", "academics"),
-    invoices: hasAnyRole("engineer", "admin", "staff") && isAnySection("dashboard", "families", "billing"),
+    resources:
+      !isAdminDashboard &&
+      hasAnyRole("engineer", "admin", "staff", "ta") &&
+      isAnySection("dashboard", "academics"),
+    invoices:
+      !isAdminDashboard &&
+      hasAnyRole("engineer", "admin", "staff") &&
+      isAnySection("dashboard", "families", "billing"),
     messageThreads:
       hasAnyRole("engineer", "admin", "staff", "ta") &&
       isAnySection("dashboard", "families", "messaging"),
-    leads: hasAnyRole("engineer", "admin", "staff") && isDashboard,
-    integrations: canRunIntakeImports(role) && isAnySection("dashboard", "integrations"),
+    leads: !isAdminDashboard && hasAnyRole("engineer", "admin", "staff") && isDashboard,
+    integrations:
+      !isAdminDashboard && canRunIntakeImports(role) && isAnySection("dashboard", "integrations"),
     allProfiles:
       ((isEngineer || isAdmin) &&
         isAnySection("dashboard", "calendar", "settings", "integrations")) ||
@@ -1552,6 +1567,7 @@ export function getPortalLoadPlan(viewer: User, section: PortalSection = "dashbo
     sessionInstructionBlocks: section === "calendar",
     adminAnnouncements: hasAnyRole("admin", "staff", "ta", "instructor"),
     sessionChecklists:
+      !isAdminDashboard &&
       hasAnyRole("admin", "staff", "ta") &&
       isAnySection("dashboard", "attendance"),
     handoffNotes: hasAnyRole("ta", "instructor") && isAnySection("dashboard", "attendance"),

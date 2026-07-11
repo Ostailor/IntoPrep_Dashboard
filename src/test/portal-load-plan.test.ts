@@ -32,18 +32,28 @@ describe("portal load plan", () => {
     });
   });
 
-  it("retains the admin dashboard load plan", () => {
+  it("loads only data rendered by the admin dashboard", () => {
     expect(getPortalLoadPlan(adminViewer, "dashboard")).toMatchObject({
       sessions: true,
-      enrollments: true,
-      students: true,
-      assessments: true,
-      academicNotes: true,
+      enrollments: false,
+      students: false,
+      assessments: false,
+      families: false,
+      academicNotes: false,
+      sessionInstructionNotes: false,
       instructorFollowUpFlags: true,
+      resources: false,
+      invoices: false,
+      messageThreads: true,
+      leads: false,
+      integrations: false,
       allProfiles: true,
       adminTasks: true,
       savedViews: true,
-      sessionChecklists: true,
+      adminAnnouncements: true,
+      sessionChecklists: false,
+      approvalRequests: true,
+      escalations: true,
       attendanceExceptionFlags: false,
       archivedCohorts: false,
     });
