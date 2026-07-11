@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudentImportAcademicSetup } from "@/components/portal/student-import-academic-setup";
+import { hasStudentImportServerBlockers } from "@/components/portal/student-import-catalog-drafts";
 import { StudentImportPreviewTabs } from "@/components/portal/student-import-preview-tabs";
 import type { UserRole } from "@/lib/domain";
 import type {
@@ -87,6 +88,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
       targetDemo,
     }) && sameExcludedRows(snapshotExcludedRows, excludedRows);
   }, [excludedRows, mappingPlan, preview, setup, snapshot, snapshotExcludedRows, targetDemo]);
+  const serverBlockers = preview ? hasStudentImportServerBlockers(preview) : true;
 
   const reset = useCallback(() => {
     previewRequestIdRef.current += 1;
@@ -338,7 +340,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
   };
 
   const commit = async () => {
-    if (!file || !preview || !snapshotCurrent || !snapshot ||
+    if (!file || !preview || !snapshotCurrent || !snapshot || serverBlockers ||
       (engineer && confirmation !== expectedConfirmation)) return;
     setPending("commit");
     setError(null);
@@ -553,10 +555,10 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
                   <h4 id="student-import-review" className="font-semibold text-[color:var(--navy-strong)]">3. Review and import</h4>
                   <p className="mt-2 text-sm text-[color:var(--muted)]">{formatStudentImportSummary(preview.summary)}</p>
                   <p className="mt-1 text-sm text-[color:var(--muted)]">
-                    Academic plan: {preview.academic.summary.cohorts} cohorts, {preview.academic.summary.sessions} classes, {preview.academic.summary.enrollments} enrollments, {preview.academic.summary.assessments} assessments, {preview.academic.summary.resultCreates} score creates, {preview.academic.summary.resultUpdates} score updates.
+                    Academic plan: {preview.academic.summary.programs} Programs, {preview.academic.summary.campuses} Campuses, {preview.academic.summary.terms} Terms, {preview.academic.summary.cohorts} cohorts, {preview.academic.summary.sessions} classes, {preview.academic.summary.enrollments} enrollments, {preview.academic.summary.assessments} assessments, {preview.academic.summary.resultCreates} score creates, {preview.academic.summary.resultUpdates} score updates.
                   </p>
                   {!snapshotCurrent ? <p className="mt-2 text-sm font-semibold text-amber-800">Update the preview after changing mappings, academic setup, worksheet, exclusions, or target.</p> : null}
-                  {preview.blocking ? <p className="mt-2 text-sm font-semibold text-rose-700">Resolve every setup requirement and row error, or exclude the affected source row, before importing.</p> : null}
+                  {serverBlockers ? <p className="mt-2 text-sm font-semibold text-rose-700">Resolve every setup requirement and row error, or exclude the affected source row, before importing.</p> : null}
 
                   <StudentImportPreviewTabs
                     preview={preview}
@@ -575,7 +577,7 @@ export function StudentImportPanel({ role, onImported, defaultOpen = false }: St
                   <button
                     type="button"
                     onClick={() => void commit()}
-                    disabled={pending !== null || !snapshotCurrent || preview.blocking || (engineer && confirmation !== expectedConfirmation)}
+                    disabled={pending !== null || !snapshotCurrent || serverBlockers || (engineer && confirmation !== expectedConfirmation)}
                     className="mt-4 rounded-full bg-[color:var(--navy)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {pending === "commit" ? "Importing students..." : "Import reviewed changes"}
@@ -783,6 +785,7 @@ export function isStudentImportCommitResponse(value: unknown): value is StudentI
   return isRecord(value) && typeof value.runId === "string" && value.runId.length > 0 &&
     [
       value.created, value.updated, value.enrolled, value.skipped,
+      value.programsCreated, value.campusesCreated, value.termsCreated,
       value.cohorts, value.sessions, value.assessments, value.results,
     ].every(isNonNegativeInteger);
 }
@@ -860,7 +863,10 @@ function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academ
   if (!isRecord(value) || !Array.isArray(value.rows) || !isRecord(value.requirements) ||
     !isStringArray(value.requirements.cohorts) || !Array.isArray(value.requirements.assessmentDates) ||
     !value.requirements.assessmentDates.every((entry) => isRecord(entry) && typeof entry.sourceClass === "string" && typeof entry.assessmentTitle === "string") ||
-    ![value.cohorts, value.sessions, value.enrollments, value.assessments, value.results].every((rows) => Array.isArray(rows) && rows.every(isRecord)) ||
+    ![
+      value.programs, value.campuses, value.terms, value.cohorts,
+      value.sessions, value.enrollments, value.assessments, value.results,
+    ].every((rows) => Array.isArray(rows) && rows.every(isRecord)) ||
     !isRecord(value.summary)) return false;
   return value.rows.every((row) => isRecord(row) && Number.isInteger(row.rowNumber) &&
     (row.studentId === null || typeof row.studentId === "string") &&
@@ -871,6 +877,7 @@ function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academ
       ["Create assessment result.", "Update assessment result."].includes(String(entry.action))) &&
     isStringArray(row.warnings) && isStringArray(row.errors)) &&
     [
+      value.summary.programs, value.summary.campuses, value.summary.terms,
       value.summary.cohorts, value.summary.sessions, value.summary.enrollments,
       value.summary.assessments, value.summary.resultCreates, value.summary.resultUpdates,
       value.summary.errors,

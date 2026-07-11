@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  sourceCohortLegend,
+  StudentImportCatalogDraftSelect,
+} from "@/components/portal/student-import-catalog-drafts";
 import type { StudentWorkbookPreview } from "@/lib/student-import-operations";
 import type { StudentWorkbookSetup } from "@/lib/student-workbook-schema";
 
@@ -99,7 +103,7 @@ export function StudentImportAcademicSetup({
             return (
               <fieldset key={normalized(sourceClass)} className="rounded-lg border border-[color:var(--line)] bg-white p-3">
                 <legend className="px-1 text-sm font-semibold text-[color:var(--navy-strong)]">
-                  Source Class: {sourceClass}
+                  {sourceCohortLegend(sourceClass)}
                 </legend>
                 {ambiguous ? (
                   <label className="mt-2 block text-xs font-semibold text-[color:var(--muted)]">
@@ -122,26 +126,32 @@ export function StudentImportAcademicSetup({
                   </label>
                 ) : (
                   <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                    <MetadataSelect
+                    <StudentImportCatalogDraftSelect
+                      kind="programs"
                       label="Program"
-                      value={setup?.programId ?? ""}
-                      options={options.programs}
+                      sourceClass={sourceClass}
+                      existing={options.programs}
+                      setup={value}
                       disabled={disabled}
-                      onChange={(programId) => updateCohort(sourceClass, { programId: programId || undefined })}
+                      onChange={onChange}
                     />
-                    <MetadataSelect
+                    <StudentImportCatalogDraftSelect
+                      kind="campuses"
                       label="Campus"
-                      value={setup?.campusId ?? ""}
-                      options={options.campuses}
+                      sourceClass={sourceClass}
+                      existing={options.campuses}
+                      setup={value}
                       disabled={disabled}
-                      onChange={(campusId) => updateCohort(sourceClass, { campusId: campusId || undefined })}
+                      onChange={onChange}
                     />
-                    <MetadataSelect
+                    <StudentImportCatalogDraftSelect
+                      kind="terms"
                       label="Term"
-                      value={setup?.termId ?? ""}
-                      options={options.terms}
+                      sourceClass={sourceClass}
+                      existing={options.terms}
+                      setup={value}
                       disabled={disabled}
-                      onChange={(termId) => updateCohort(sourceClass, { termId: termId || undefined })}
+                      onChange={onChange}
                     />
                     <label className="text-xs font-semibold text-[color:var(--muted)]">
                       Capacity
@@ -174,7 +184,7 @@ export function StudentImportAcademicSetup({
               Assessment dates
             </caption>
             <thead className="text-xs uppercase tracking-wide text-[color:var(--muted)]">
-              <tr><th className="px-2 py-2">Source Class</th><th className="px-2 py-2">Combined test</th><th className="px-2 py-2">Import date</th></tr>
+              <tr><th className="px-2 py-2">Source cohort (Excel Class)</th><th className="px-2 py-2">Combined test</th><th className="px-2 py-2">Import date</th></tr>
             </thead>
             <tbody>
               {assessmentDates.map((entry) => {
@@ -217,36 +227,6 @@ export function StudentImportAcademicSetup({
         Update preview
       </button>
     </section>
-  );
-}
-
-function MetadataSelect({
-  label,
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ id: string; name: string }>;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="text-xs font-semibold text-[color:var(--muted)]">
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-        required
-        className="mt-1 block w-full rounded border border-[color:var(--line)] bg-white px-2 py-2 text-sm font-normal text-[color:var(--navy-strong)]"
-      >
-        <option value="">Choose {label.toLowerCase()}</option>
-        {options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-      </select>
-    </label>
   );
 }
 

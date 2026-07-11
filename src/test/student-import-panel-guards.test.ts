@@ -23,6 +23,10 @@ describe("student import panel response guards", () => {
       ...preview,
       academicSourceRows: Array.from({ length: 2_001 }, () => preview.academicSourceRows[0]),
     })).toBe(false);
+    expect(isStudentImportPreviewResponse({
+      ...preview,
+      academic: { ...preview.academic, programs: undefined },
+    })).toBe(false);
   });
 
   it("rejects preview responses from an obsolete request or file", () => {
@@ -56,13 +60,16 @@ describe("student import panel response guards", () => {
     expect(tabIndex("scores", "scores")).toBe(0);
   });
 
-  it("requires all eight non-negative commit counts", () => {
+  it("requires all directory, catalog, and academic commit counts", () => {
     const response = {
       runId: "run-1",
       created: 1,
       updated: 2,
       enrolled: 3,
       skipped: 4,
+      programsCreated: 1,
+      campusesCreated: 1,
+      termsCreated: 1,
       cohorts: 5,
       sessions: 6,
       assessments: 7,
@@ -70,6 +77,7 @@ describe("student import panel response guards", () => {
     };
     expect(isStudentImportCommitResponse(response)).toBe(true);
     expect(isStudentImportCommitResponse({ ...response, results: undefined })).toBe(false);
+    expect(isStudentImportCommitResponse({ ...response, programsCreated: undefined })).toBe(false);
   });
 });
 
@@ -109,12 +117,15 @@ function validPreview() {
     academic: {
       rows: [{ rowNumber: 2, studentId: null, cohortId: null, actions: [], scoreActions: [], warnings: [], errors: [] }],
       requirements: { cohorts: [], assessmentDates: [] },
+      programs: [],
+      campuses: [],
+      terms: [],
       cohorts: [],
       sessions: [],
       enrollments: [],
       assessments: [],
       results: [],
-      summary: { cohorts: 0, sessions: 0, enrollments: 0, assessments: 0, resultCreates: 0, resultUpdates: 0, errors: 0 },
+      summary: { programs: 0, campuses: 0, terms: 0, cohorts: 0, sessions: 0, enrollments: 0, assessments: 0, resultCreates: 0, resultUpdates: 0, errors: 0 },
     },
     academicSourceRows: [{
       sheetName: "Scores",

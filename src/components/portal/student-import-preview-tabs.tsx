@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { buildPlannedCatalogSummary } from "@/components/portal/student-import-catalog-drafts";
 import type {
   StudentWorkbookExcludedRowReference,
   StudentWorkbookPreview,
@@ -40,9 +41,17 @@ export function StudentImportPreviewTabs({
     (row) => row.errors.length > 0 || row.warnings.length > 0,
   );
   const scoreRows = buildScoreRows(preview);
+  const plannedCatalog = buildPlannedCatalogSummary(preview.setup, preview.academic);
+  const plannedCatalogGroups = [
+    { label: "Programs", entries: plannedCatalog.programs },
+    { label: "Campuses", entries: plannedCatalog.campuses },
+    { label: "Terms", entries: plannedCatalog.terms },
+  ];
+  const plannedCatalogCount = plannedCatalog.counts.programs +
+    plannedCatalog.counts.campuses + plannedCatalog.counts.terms;
   const tabs: Array<{ id: TabId; label: string; count: number }> = [
     { id: "students", label: "Student Information", count: preview.rows.length },
-    { id: "classes", label: "Cohorts & Classes", count: preview.academic.cohorts.length + preview.academic.sessions.length },
+    { id: "classes", label: "Cohorts & Classes", count: plannedCatalogCount + preview.academic.cohorts.length + preview.academic.sessions.length },
     { id: "enrollments", label: "Enrollments", count: preview.academic.enrollments.length },
     { id: "scores", label: "Scores", count: scoreRows.length },
     {
@@ -122,6 +131,32 @@ export function StudentImportPreviewTabs({
       </TabPanel>
 
       <TabPanel id="classes" active={activeTab}>
+        <section className="mb-5 rounded-lg border border-sky-200 bg-sky-50 p-3" aria-labelledby="student-import-planned-catalogs">
+          <h6 id="student-import-planned-catalogs" className="text-sm font-semibold text-sky-950">
+            Planned creations ({plannedCatalogCount})
+          </h6>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {plannedCatalogGroups.map((group) => (
+              <div key={group.label} className="rounded border border-sky-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-sky-900">
+                  {group.label} ({group.entries.length})
+                </div>
+                {group.entries.length > 0 ? (
+                  <ul className="mt-2 space-y-2 text-sm text-sky-950">
+                    {group.entries.map((entry) => (
+                      <li key={entry.key}>
+                        <span className="font-semibold">{entry.name}</span>
+                        <div className="text-xs text-sky-900">
+                          Source cohorts: {entry.sourceCohorts.join(", ")}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="mt-2 text-xs text-sky-900">None</p>}
+              </div>
+            ))}
+          </div>
+        </section>
         <PlanRecordTable
           title="Cohorts"
           records={preview.academic.cohorts}
