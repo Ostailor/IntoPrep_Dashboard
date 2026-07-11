@@ -247,13 +247,18 @@ describe("buildStudentAcademicImportPlan", () => {
   it("requires selectedCohortId when multiple active target cohorts match", () => {
     const other = { ...existingMwfCohort, id: "cohort-mwf-2" };
     const ambiguous = build({
-      rows: [validMwfRow],
+      rows: [{
+        ...validMwfRow,
+        scores: [],
+        errors: ["HW1 – PSAT: RW must be a number."],
+      }],
       cohorts: [existingMwfCohort, other],
       setup: { cohorts: [], assessmentDates: setup.assessmentDates },
     });
     expect(ambiguous.rows[0].errors).toContain(
       'More than one Demo cohort matches source Class "MWF". Choose selectedCohortId.',
     );
+    expect(ambiguous.requirements.cohorts).toEqual(["MWF"]);
 
     const selected = build({
       rows: [validMwfRow],
@@ -265,6 +270,49 @@ describe("buildStudentAcademicImportPlan", () => {
     });
     expect(selected.rows[0]).toMatchObject({ cohortId: other.id, errors: [] });
     expect(selected.cohorts).toEqual([]);
+  });
+
+  it("keeps create and update actions attached to their own score groups", () => {
+    const existingAssessment = {
+      id: "assessment-existing",
+      cohort_id: existingMwfCohort.id,
+      title: "HW1 – PSAT",
+      date: "2026-07-10",
+      sections: [],
+      demo: true,
+    };
+    const plan = build({
+      rows: [{
+        ...validMwfRow,
+        scores: [
+          validMwfRow.scores[0],
+          { ...validMwfRow.scores[0], assessmentTitle: "HW2 – SAT", total: 1490, math: 770 },
+        ],
+      }],
+      cohorts: [existingMwfCohort],
+      setup: {
+        cohorts: [],
+        assessmentDates: [
+          { sourceClass: "MWF", assessmentTitle: "HW1 – PSAT", date: "2026-07-10" },
+          { sourceClass: "MWF", assessmentTitle: "HW2 – SAT", date: "2026-07-11" },
+        ],
+      },
+      assessments: [existingAssessment],
+      results: [{
+        id: "result-existing",
+        assessment_id: existingAssessment.id,
+        student_id: "student-ada",
+        total_score: 1400,
+        section_scores: [],
+        delta_from_previous: 0,
+        demo: true,
+      }],
+    });
+
+    expect(plan.rows[0].scoreActions).toEqual([
+      { assessmentTitle: "HW1 – PSAT", assessmentDate: "2026-07-10", action: "Update assessment result." },
+      { assessmentTitle: "HW2 – SAT", assessmentDate: "2026-07-11", action: "Create assessment result." },
+    ]);
   });
 
   it("keeps assessment-date requirements distinct by source Class and title", () => {

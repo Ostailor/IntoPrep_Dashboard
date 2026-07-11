@@ -108,6 +108,11 @@ export interface StudentAcademicImportPlan {
     studentId: string | null;
     cohortId: string | null;
     actions: string[];
+    scoreActions: Array<{
+      assessmentTitle: string;
+      assessmentDate: string;
+      action: "Create assessment result." | "Update assessment result.";
+    }>;
     warnings: string[];
     errors: string[];
   }>;
@@ -227,6 +232,7 @@ export function buildStudentAcademicImportPlan(
     studentId: null,
     cohortId: null,
     actions: [],
+    scoreActions: [],
     warnings: row.scores.flatMap((score) => score.warnings),
     errors: [...row.errors],
   }));
@@ -310,6 +316,7 @@ export function buildStudentAcademicImportPlan(
         continue;
       }
     } else if (matchingCohorts.length > 1) {
+      addUnique(requirements.cohorts, group.sourceClass);
       addGroupError(
         group,
         rows,
@@ -585,8 +592,18 @@ export function buildStudentAcademicImportPlan(
         resultPayload.id = matchingResults[0].id;
         resultUpdateKeys.add(resultKey);
         addUnique(planRow.actions, "Update assessment result.");
+        planRow.scoreActions.push({
+          assessmentTitle: score.assessmentTitle,
+          assessmentDate: dateResolution.date,
+          action: "Update assessment result.",
+        });
       } else {
         addUnique(planRow.actions, "Create assessment result.");
+        planRow.scoreActions.push({
+          assessmentTitle: score.assessmentTitle,
+          assessmentDate: dateResolution.date,
+          action: "Create assessment result.",
+        });
       }
       plannedResults.set(resultKey, resultPayload);
       outputResults.push(resultPayload);

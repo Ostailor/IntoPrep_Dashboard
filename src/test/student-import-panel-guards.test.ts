@@ -3,6 +3,11 @@ import {
   isStudentImportCommitResponse,
   isStudentImportPreviewResponse,
 } from "@/components/portal/student-import-panel";
+import * as panelModule from "@/components/portal/student-import-panel";
+import * as tabsModule from "@/components/portal/student-import-preview-tabs";
+
+const panelHelpers = panelModule as unknown as Record<string, unknown>;
+const tabHelpers = tabsModule as unknown as Record<string, unknown>;
 
 describe("student import panel response guards", () => {
   it("requires bounded academic source rows with structured score groups", () => {
@@ -12,12 +17,43 @@ describe("student import panel response guards", () => {
     expect(isStudentImportPreviewResponse({ ...preview, academicSourceRows: undefined })).toBe(false);
     expect(isStudentImportPreviewResponse({
       ...preview,
-      academicSourceRows: [{ ...preview.academicSourceRows[0], scores: [{ rw: 720 }] }],
+      academicSourceRows: [{ ...preview.academicSourceRows[0], rw: "720" }],
     })).toBe(false);
     expect(isStudentImportPreviewResponse({
       ...preview,
       academicSourceRows: Array.from({ length: 2_001 }, () => preview.academicSourceRows[0]),
     })).toBe(false);
+  });
+
+  it("rejects preview responses from an obsolete request or file", () => {
+    const isCurrent = panelHelpers.isCurrentPreviewRequest as (
+      requestId: number,
+      currentRequestId: number,
+      requestedFile: object,
+      currentFile: object | null,
+    ) => boolean;
+    expect(isCurrent).toBeTypeOf("function");
+    const originalFile = {};
+    const replacementFile = {};
+
+    expect(isCurrent(2, 2, originalFile, originalFile)).toBe(true);
+    expect(isCurrent(1, 2, originalFile, originalFile)).toBe(false);
+    expect(isCurrent(2, 2, originalFile, replacementFile)).toBe(false);
+  });
+
+  it("excludes hidden tab content from modal focus containment", () => {
+    const visible = panelHelpers.isVisibleDialogControl as (control: {
+      hidden: boolean;
+      closest: (selector: string) => object | null;
+    }) => boolean;
+    const tabIndex = tabHelpers.tabPanelTabIndex as (active: string, id: string) => number;
+    expect(visible).toBeTypeOf("function");
+    expect(tabIndex).toBeTypeOf("function");
+
+    expect(visible({ hidden: false, closest: () => null })).toBe(true);
+    expect(visible({ hidden: false, closest: () => ({ hidden: true }) })).toBe(false);
+    expect(tabIndex("students", "scores")).toBe(-1);
+    expect(tabIndex("scores", "scores")).toBe(0);
   });
 
   it("requires all eight non-negative commit counts", () => {
@@ -71,7 +107,7 @@ function validPreview() {
     summary: { creates: 1, updates: 0, enrollments: 0, skips: 0, warnings: 0, errors: 0 },
     definitions: [],
     academic: {
-      rows: [{ rowNumber: 2, studentId: null, cohortId: null, actions: [], warnings: [], errors: [] }],
+      rows: [{ rowNumber: 2, studentId: null, cohortId: null, actions: [], scoreActions: [], warnings: [], errors: [] }],
       requirements: { cohorts: [], assessmentDates: [] },
       cohorts: [],
       sessions: [],
@@ -87,7 +123,13 @@ function validPreview() {
       cohortName: "MWF",
       sessionTitle: "G4",
       roomLabel: "201",
-      scores: [{ assessmentTitle: "PSAT", assessmentDate: "", rw: 720, math: 760, total: 1480, warnings: [] }],
+      assessmentTitle: "PSAT",
+      sourceAssessmentDate: "",
+      rw: 720,
+      math: 760,
+      total: 1480,
+      action: "Create assessment result.",
+      warnings: [],
       errors: [],
     }],
     sourceAssessmentDateSuggestions: [],

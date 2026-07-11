@@ -59,6 +59,17 @@ export interface NormalizedAcademicRow {
   errors: string[];
 }
 
+export interface NormalizedAcademicScorePreview {
+  rowNumber: number;
+  assessmentTitle: string;
+  sourceAssessmentDate: string;
+  rw: number | null;
+  math: number | null;
+  total: number | null;
+  warnings: string[];
+  errors: string[];
+}
+
 export const SAT_SCORE_PROFILE = {
   sectionMin: 200,
   sectionMax: 800,
@@ -261,7 +272,22 @@ export function normalizeAcademicRows(input: {
   rows: readonly NumberedSpreadsheetRow[];
   mappings: readonly AcademicColumnMapping[];
 }): NormalizedAcademicRow[] {
-  return input.rows.map((sourceRow) => {
+  return input.rows.map((sourceRow) => normalizeAcademicSourceRow(sourceRow, input.mappings).row);
+}
+
+export function normalizeAcademicScorePreviews(input: {
+  rows: readonly NumberedSpreadsheetRow[];
+  mappings: readonly AcademicColumnMapping[];
+}): NormalizedAcademicScorePreview[] {
+  return input.rows.flatMap(
+    (sourceRow) => normalizeAcademicSourceRow(sourceRow, input.mappings).scorePreviews,
+  );
+}
+
+function normalizeAcademicSourceRow(
+  sourceRow: NumberedSpreadsheetRow,
+  mappings: readonly AcademicColumnMapping[],
+): { row: NormalizedAcademicRow; scorePreviews: NormalizedAcademicScorePreview[] } {
     const row: NormalizedAcademicRow = {
       rowNumber: sourceRow.rowNumber,
       studentName: "",
@@ -271,6 +297,7 @@ export function normalizeAcademicRows(input: {
       scores: [],
       errors: [],
     };
+    const scorePreviews: NormalizedAcademicScorePreview[] = [];
     const scoreGroups = new Map<string, Partial<Record<ScoreComponent, unknown>>>();
     let rowAssessmentTitle = "";
     let rowAssessmentDate = "";
@@ -279,7 +306,10 @@ export function normalizeAcademicRows(input: {
     let invalidAssessmentTitle = false;
     let invalidAssessmentDate = false;
 
-    for (const mapping of input.mappings) {
+    let assessmentTitleError = "";
+    let assessmentDateError = "";
+
+    for (const mapping of mappings) {
       const cell = sourceRow.cells[mapping.columnIndex];
       if (mapping.kind === "ignore") continue;
       if (mapping.kind === "score") {
@@ -294,7 +324,8 @@ export function normalizeAcademicRows(input: {
         const date = normalizeSourceDate(cell);
         if (date === null) {
           invalidAssessmentDate = true;
-          row.errors.push(`${mapping.sourceHeader} must be a valid date.`);
+          assessmentDateError = `${mapping.sourceHeader} must be a valid date.`;
+          row.errors.push(assessmentDateError);
         } else {
           rowAssessmentDate = date;
         }
@@ -303,8 +334,12 @@ export function normalizeAcademicRows(input: {
 
       const value = cellText(cell);
       if (value.length > MAX_TEXT_LENGTH) {
-        if (mapping.kind === "assessment-title") invalidAssessmentTitle = true;
-        row.errors.push(`${mapping.sourceHeader} must be ${MAX_TEXT_LENGTH} characters or fewer.`);
+        const error = `${mapping.sourceHeader} must be ${MAX_TEXT_LENGTH} characters or fewer.`;
+        if (mapping.kind === "assessment-title") {
+          invalidAssessmentTitle = true;
+          assessmentTitleError = error;
+        }
+        row.errors.push(error);
         continue;
       }
       if (mapping.kind === "student-name") row.studentName = value;
@@ -325,35 +360,101 @@ export function normalizeAcademicRows(input: {
       }
       const usesRowAssessment = assessmentTitle === "";
       const resolvedTitle = usesRowAssessment ? rowAssessmentTitle : assessmentTitle;
+      const preview = previewScoreGroup({
+        rowNumber: sourceRow.rowNumber,
+        assessmentTitle: resolvedTitle,
+        sourceAssessmentDate: usesRowAssessment ? rowAssessmentDate : "",
+        group,
+      });
       if (usesRowAssessment && !resolvedTitle) {
-        if (!invalidAssessmentTitle) row.errors.push("Test Name is required.");
+        const error = assessmentTitleError || "Test Name is required.";
+        if (!invalidAssessmentTitle) row.errors.push(error);
+        preview.errors.push(error);
+        scorePreviews.push(preview);
         continue;
       }
       if (usesRowAssessment && !hasAssessmentTitleMapping) {
-        row.errors.push("Test Name is required.");
+        const error = "Test Name is required.";
+        row.errors.push(error);
+        preview.errors.push(error);
+        scorePreviews.push(preview);
         continue;
       }
       if (usesRowAssessment && !hasAssessmentDateMapping) {
-        row.errors.push("Test Date is required.");
+        const error = "Test Date is required.";
+        row.errors.push(error);
+        preview.errors.push(error);
+        scorePreviews.push(preview);
         continue;
       }
-      if (usesRowAssessment && (invalidAssessmentTitle || invalidAssessmentDate)) continue;
+      if (usesRowAssessment && (invalidAssessmentTitle || invalidAssessmentDate)) {
+        const error = assessmentTitleError || assessmentDateError;
+        if (error && !preview.errors.includes(error)) preview.errors.push(error);
+        scorePreviews.push(preview);
+        continue;
+      }
       try {
-        row.scores.push({
+        const score = {
           assessmentTitle: resolvedTitle,
           assessmentDate: usesRowAssessment ? rowAssessmentDate : "",
           ...normalizeScoreGroup({
-          rw: group.rw,
-          math: group.math,
-          total: group.total,
+            rw: group.rw,
+            math: group.math,
+            total: group.total,
           }),
+        };
+        row.scores.push(score);
+        scorePreviews.push({
+          ...preview,
+          rw: score.rw,
+          math: score.math,
+          total: score.total,
+          warnings: [...score.warnings],
         });
       } catch (error) {
-        row.errors.push(`${resolvedTitle}: ${error instanceof Error ? error.message : "Invalid scores."}`);
+        const message = `${resolvedTitle}: ${error instanceof Error ? error.message : "Invalid scores."}`;
+        row.errors.push(message);
+        preview.errors.push(message);
+        scorePreviews.push(preview);
       }
     }
-    return row;
-  });
+    return { row, scorePreviews };
+}
+
+function previewScoreGroup(input: {
+  rowNumber: number;
+  assessmentTitle: string;
+  sourceAssessmentDate: string;
+  group: Partial<Record<ScoreComponent, unknown>>;
+}): NormalizedAcademicScorePreview {
+  const rw = previewScoreValue(input.group.rw, "RW", SAT_SCORE_PROFILE.sectionMin, SAT_SCORE_PROFILE.sectionMax);
+  const math = previewScoreValue(input.group.math, "Math", SAT_SCORE_PROFILE.sectionMin, SAT_SCORE_PROFILE.sectionMax);
+  const providedTotal = previewScoreValue(input.group.total, "Total", SAT_SCORE_PROFILE.totalMin, SAT_SCORE_PROFILE.totalMax);
+  const totalMissing = input.group.total === null || input.group.total === undefined ||
+    (typeof input.group.total === "string" && input.group.total.trim() === "");
+  return {
+    rowNumber: input.rowNumber,
+    assessmentTitle: input.assessmentTitle,
+    sourceAssessmentDate: input.sourceAssessmentDate,
+    rw,
+    math,
+    total: totalMissing && rw !== null && math !== null ? rw + math : providedTotal,
+    warnings: [],
+    errors: [],
+  };
+}
+
+function previewScoreValue(
+  value: unknown,
+  label: string,
+  min: number,
+  max: number,
+): number | null {
+  try {
+    return optionalScore(value, label, min, max);
+  } catch {
+    return null;
+  }
 }
 
 export function parseStudentWorkbookMappings(

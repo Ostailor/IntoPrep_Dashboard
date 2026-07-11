@@ -342,6 +342,7 @@ describe("student import preview and commit operations", () => {
         [null, null, null, null, "RW", "Math", "Total"],
         ["Maya Demo", "MWF", "G4", "201", 720, 760, 1480],
         ["Rohan Demo", "TTHS", "G5", "202", 710, 750, 1460],
+        ["Invalid Demo", "MWF", "G4", "201", "bad", 750, 1470],
       ],
     }]);
     const repository = makeRepository();
@@ -379,21 +380,38 @@ describe("student import preview and commit operations", () => {
         cohortName: "MWF",
         sessionTitle: "G4",
         roomLabel: "201",
-        scores: [{
-          assessmentTitle: "HW1 – PSAT",
-          assessmentDate: "",
-          rw: 720,
-          math: 760,
-          total: 1480,
-          warnings: [],
-        }],
-        errors: [],
+        assessmentTitle: "HW1 – PSAT",
+        sourceAssessmentDate: "",
+        rw: 720,
+        math: 760,
+        total: 1480,
+        action: "Blocked",
+        warnings: [],
+        errors: ['Cohort setup is required for source Class "MWF".'],
       },
       expect.objectContaining({
         sheetName: "Camp Scores",
         rowNumber: 6,
         studentName: "Rohan Demo",
         cohortName: "TTHS",
+        assessmentTitle: "HW1 – PSAT",
+        rw: 710,
+        math: 750,
+        total: 1460,
+      }),
+      expect.objectContaining({
+        sheetName: "Camp Scores",
+        rowNumber: 7,
+        studentName: "Invalid Demo",
+        assessmentTitle: "HW1 – PSAT",
+        rw: null,
+        math: 750,
+        total: 1470,
+        action: "Blocked",
+        errors: [
+          "HW1 – PSAT: RW must be a number.",
+          'Cohort setup is required for source Class "MWF".',
+        ],
       }),
     ]);
   });
@@ -440,13 +458,11 @@ describe("student import preview and commit operations", () => {
         cohortName: "MWF",
         sessionTitle: "G4",
         roomLabel: "201",
-        scores: [expect.objectContaining({
-          assessmentTitle: "HW1 – PSAT",
-          assessmentDate: "2026-07-10",
-          rw: 720,
-          math: 760,
-          total: 1480,
-        })],
+        assessmentTitle: "HW1 – PSAT",
+        sourceAssessmentDate: "2026-07-10",
+        rw: 720,
+        math: 760,
+        total: 1480,
       }),
     ]);
     expect(preview.sheetNames).toEqual(["Student Information", "Scores"]);
@@ -605,6 +621,10 @@ describe("student import preview and commit operations", () => {
       cohortId: existingMwfCohort.id,
       actions: ["Reuse active cohort enrollment.", "Update assessment result."],
       errors: [],
+    });
+    expect(preview.academicSourceRows[0]).toMatchObject({
+      assessmentTitle: "HW1 – PSAT",
+      action: "Update assessment result.",
     });
   });
 

@@ -240,7 +240,7 @@ function TabPanel({ id, active, children }: { id: TabId; active: TabId; children
       role="tabpanel"
       aria-labelledby={`student-import-tab-${id}`}
       hidden={active !== id}
-      tabIndex={0}
+      tabIndex={tabPanelTabIndex(active, id)}
       className="pt-4"
     >
       {children}
@@ -352,38 +352,34 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <p className="rounded-lg bg-stone-50 p-3 text-sm text-[color:var(--muted)]">{children}</p>;
 }
 
-function buildScoreRows(preview: StudentWorkbookPreview) {
-  return preview.academicSourceRows.flatMap((sourceRow) => {
-    const planRow = preview.academic.rows.find((row) => row.rowNumber === sourceRow.rowNumber);
-    const scores = sourceRow.scores.length > 0 ? sourceRow.scores : [null];
-    return scores.map((score, scoreIndex) => {
-      const reviewedDate = score ? preview.setup.assessmentDates.find((entry) =>
-        normalized(entry.sourceClass) === normalized(sourceRow.cohortName) &&
-        normalized(entry.assessmentTitle) === normalized(score.assessmentTitle),
-      ) : null;
-      const date = reviewedDate?.date || (score?.assessmentDate
-        ? `${score.assessmentDate} (source suggestion)`
-        : "—");
-      const warnings = uniqueMessages([
-        ...(score?.warnings ?? []),
-        ...(planRow?.warnings ?? []),
-      ]);
-      return {
-        reference: { sheetName: sourceRow.sheetName, rowNumber: sourceRow.rowNumber },
-        assessmentId: score ? `${score.assessmentTitle}:${scoreIndex}` : `invalid:${scoreIndex}`,
-        student: sourceRow.studentName || "Unnamed student",
-        cohort: sourceRow.cohortName || "Unmapped cohort",
-        assessmentTitle: score?.assessmentTitle || "Invalid score row",
-        date,
-        rw: score?.rw ?? "—",
-        math: score?.math ?? "—",
-        total: score?.total ?? "—",
-        calculated: warnings.some((warning) => warning.includes("Total calculated")),
-        action: planRow?.actions.join(" ") || (planRow?.errors.length ? "Blocked" : "Review score"),
-        errors: uniqueMessages([...sourceRow.errors, ...(planRow?.errors ?? [])]),
-        warnings,
-      };
-    });
+export function tabPanelTabIndex(active: string, id: string) {
+  return active === id ? 0 : -1;
+}
+
+export function buildScoreRows(preview: Pick<StudentWorkbookPreview, "academicSourceRows" | "setup">) {
+  return preview.academicSourceRows.map((sourceRow, scoreIndex) => {
+    const reviewedDate = preview.setup.assessmentDates.find((entry) =>
+      normalized(entry.sourceClass) === normalized(sourceRow.cohortName) &&
+      normalized(entry.assessmentTitle) === normalized(sourceRow.assessmentTitle),
+    );
+    const date = reviewedDate?.date || (sourceRow.sourceAssessmentDate
+      ? `${sourceRow.sourceAssessmentDate} (source suggestion)`
+      : "—");
+    return {
+      reference: { sheetName: sourceRow.sheetName, rowNumber: sourceRow.rowNumber },
+      assessmentId: `${sourceRow.assessmentTitle || "invalid"}:${scoreIndex}`,
+      student: sourceRow.studentName || "Unnamed student",
+      cohort: sourceRow.cohortName || "Unmapped cohort",
+      assessmentTitle: sourceRow.assessmentTitle || "Invalid score row",
+      date,
+      rw: sourceRow.rw ?? "—",
+      math: sourceRow.math ?? "—",
+      total: sourceRow.total ?? "—",
+      calculated: sourceRow.warnings.some((warning) => warning.includes("Total calculated")),
+      action: sourceRow.action,
+      errors: [...sourceRow.errors],
+      warnings: [...sourceRow.warnings],
+    };
   });
 }
 
@@ -411,8 +407,4 @@ function formatValue(value: unknown) {
 
 function normalized(value: string) {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
-}
-
-function uniqueMessages(values: string[]) {
-  return [...new Set(values)];
 }

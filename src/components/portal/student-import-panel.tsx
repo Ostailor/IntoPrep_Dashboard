@@ -55,6 +55,8 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
   const dialogRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const previewRequestIdRef = useRef(0);
+  const selectedFileRef = useRef<File | null>(null);
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [targetDemo, setTargetDemo] = useState<boolean | undefined>(undefined);
@@ -80,6 +82,8 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
   }, [excludedRows, mappingPlan, preview, setup, snapshot, snapshotExcludedRows, targetDemo]);
 
   const reset = useCallback(() => {
+    previewRequestIdRef.current += 1;
+    selectedFileRef.current = null;
     setFile(null);
     setTargetDemo(undefined);
     setPreview(null);
@@ -127,7 +131,7 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
       if (event.key !== "Tab") return;
       const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ));
+      )).filter(isVisibleDialogControl);
       if (controls.length === 0) {
         event.preventDefault();
         dialog.focus();
@@ -165,6 +169,8 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
     const submittedMappingPlan = options?.mappingPlan;
     const submittedSetup = options?.setup;
     const submittedExcludedRows = options?.excludedRows ?? [];
+    const requestedFile = file;
+    const requestId = ++previewRequestIdRef.current;
     setPending("preview");
     setError(null);
     try {
@@ -178,6 +184,12 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
 
       const response = await fetch("/api/students/import/preview", { method: "POST", body: form });
       const body = await readJson(response);
+      if (!isCurrentPreviewRequest(
+        requestId,
+        previewRequestIdRef.current,
+        requestedFile,
+        selectedFileRef.current,
+      )) return;
       if (!response.ok) throw new Error(getResponseError(body, "Student import preview failed."));
       if (!isStudentImportPreviewResponse(body)) {
         throw new Error("Student import preview returned an invalid response.");
@@ -195,9 +207,21 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
       setSnapshotExcludedRows(submittedExcludedRows);
       setConfirmation("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Student import preview failed.");
+      if (isCurrentPreviewRequest(
+        requestId,
+        previewRequestIdRef.current,
+        requestedFile,
+        selectedFileRef.current,
+      )) {
+        setError(nextError instanceof Error ? nextError.message : "Student import preview failed.");
+      }
     } finally {
-      setPending(null);
+      if (isCurrentPreviewRequest(
+        requestId,
+        previewRequestIdRef.current,
+        requestedFile,
+        selectedFileRef.current,
+      )) setPending(null);
     }
   };
 
@@ -382,9 +406,14 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
                   <input
                     ref={fileInputRef}
                     type="file"
+                    disabled={pending !== null}
                     accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                     onChange={(event) => {
-                      setFile(event.target.files?.[0] ?? null);
+                      const nextFile = event.target.files?.[0] ?? null;
+                      previewRequestIdRef.current += 1;
+                      selectedFileRef.current = nextFile;
+                      setFile(nextFile);
+                      setPending(null);
                       setPreview(null);
                       setMappingPlan(null);
                       setSetup({ cohorts: [], assessmentDates: [] });
@@ -405,6 +434,7 @@ export function StudentImportPanel({ role, onImported }: StudentImportPanelProps
                         <label key={String(demo)} className="flex items-center gap-2 text-sm">
                           <input
                             type="radio"
+                            disabled={pending !== null}
                             name="student-import-target"
                             checked={targetDemo === demo}
                             onChange={() => {
@@ -761,6 +791,21 @@ export function isPreviewSnapshotCurrent(
     JSON.stringify(snapshot.setup) === JSON.stringify(current.setup);
 }
 
+export function isCurrentPreviewRequest<T extends object>(
+  requestId: number,
+  currentRequestId: number,
+  requestedFile: T,
+  currentFile: T | null,
+): boolean {
+  return requestId === currentRequestId && requestedFile === currentFile;
+}
+
+export function isVisibleDialogControl(
+  control: Pick<HTMLElement, "hidden" | "closest">,
+): boolean {
+  return !control.hidden && control.closest('[hidden], [aria-hidden="true"]') === null;
+}
+
 function isWorkbookMappingPlan(
   value: unknown,
   profile: StudentWorkbookPreview["profile"],
@@ -817,7 +862,11 @@ function isAcademicPlan(value: unknown): value is StudentWorkbookPreview["academ
   return value.rows.every((row) => isRecord(row) && Number.isInteger(row.rowNumber) &&
     (row.studentId === null || typeof row.studentId === "string") &&
     (row.cohortId === null || typeof row.cohortId === "string") &&
-    isStringArray(row.actions) && isStringArray(row.warnings) && isStringArray(row.errors)) &&
+    isStringArray(row.actions) && Array.isArray(row.scoreActions) && row.scoreActions.every((entry) =>
+      isRecord(entry) && typeof entry.assessmentTitle === "string" &&
+      typeof entry.assessmentDate === "string" && isIsoDate(entry.assessmentDate) &&
+      ["Create assessment result.", "Update assessment result."].includes(String(entry.action))) &&
+    isStringArray(row.warnings) && isStringArray(row.errors)) &&
     [
       value.summary.cohorts, value.summary.sessions, value.summary.enrollments,
       value.summary.assessments, value.summary.resultCreates, value.summary.resultUpdates,
@@ -836,14 +885,12 @@ function isAcademicSourceRow(value: unknown): boolean {
     Number.isInteger(value.rowNumber) && (value.rowNumber as number) >= 2 &&
     typeof value.studentName === "string" && typeof value.cohortName === "string" &&
     typeof value.sessionTitle === "string" && typeof value.roomLabel === "string" &&
-    Array.isArray(value.scores) && value.scores.every((score) => isRecord(score) &&
-      typeof score.assessmentTitle === "string" &&
-      typeof score.assessmentDate === "string" && (score.assessmentDate === "" || isIsoDate(score.assessmentDate)) &&
-      Number.isInteger(score.rw) && (score.rw as number) >= 200 && (score.rw as number) <= 800 &&
-      Number.isInteger(score.math) && (score.math as number) >= 200 && (score.math as number) <= 800 &&
-      Number.isInteger(score.total) && (score.total as number) >= 400 && (score.total as number) <= 1_600 &&
-      score.total === (score.rw as number) + (score.math as number) && isStringArray(score.warnings)) &&
-    isStringArray(value.errors);
+    typeof value.assessmentTitle === "string" && typeof value.sourceAssessmentDate === "string" &&
+    (value.sourceAssessmentDate === "" || isIsoDate(value.sourceAssessmentDate)) &&
+    isNullableBoundedScore(value.rw, 200, 800) && isNullableBoundedScore(value.math, 200, 800) &&
+    isNullableBoundedScore(value.total, 400, 1_600) &&
+    ["Create assessment result.", "Update assessment result.", "Blocked", "Review score"].includes(String(value.action)) &&
+    isStringArray(value.warnings) && isStringArray(value.errors);
 }
 
 function isWorkbookOptions(value: unknown): value is StudentWorkbookPreview["options"] {
@@ -897,6 +944,10 @@ function rowKey(reference: StudentWorkbookExcludedRowReference) {
 
 function isNonNegativeInteger(value: unknown): boolean {
   return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function isNullableBoundedScore(value: unknown, min: number, max: number) {
+  return value === null || (Number.isInteger(value) && (value as number) >= min && (value as number) <= max);
 }
 
 function isIsoDate(value: string) {

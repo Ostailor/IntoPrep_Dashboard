@@ -12,19 +12,16 @@ export interface StudentImportAcademicSetupProps {
   onRefreshPreview: () => void;
 }
 
-export function StudentImportAcademicSetup({
-  requirements,
-  options,
-  value,
-  disabled,
-  onChange,
-  onRefreshPreview,
-}: StudentImportAcademicSetupProps) {
+export function getAcademicSetupClasses(
+  requirements: StudentWorkbookPreview["academic"]["requirements"],
+  options: StudentWorkbookPreview["options"],
+  value: StudentWorkbookSetup,
+) {
   const dateSourceClasses = new Set([
     ...requirements.assessmentDates.map((entry) => normalized(entry.sourceClass)),
     ...value.assessmentDates.map((entry) => normalized(entry.sourceClass)),
   ]);
-  const setupClasses = uniqueByNormalized([
+  return uniqueByNormalized([
     ...requirements.cohorts,
     ...value.cohorts.map((entry) => entry.sourceClass),
     ...options.cohorts
@@ -36,6 +33,17 @@ export function StudentImportAcademicSetup({
       matches.length > 1 ||
       value.cohorts.some((entry) => normalized(entry.sourceClass) === normalized(sourceClass));
   });
+}
+
+export function StudentImportAcademicSetup({
+  requirements,
+  options,
+  value,
+  disabled,
+  onChange,
+  onRefreshPreview,
+}: StudentImportAcademicSetupProps) {
+  const setupClasses = getAcademicSetupClasses(requirements, options, value);
   const assessmentDates = uniqueAssessmentDates([
     ...requirements.assessmentDates,
     ...value.assessmentDates,
@@ -254,7 +262,12 @@ function labelFor(options: Array<{ id: string; name: string }>, id: string) {
 }
 
 function uniqueByNormalized(values: string[]) {
-  return [...new Map(values.filter(Boolean).map((value) => [normalized(value), value.trim()])).values()];
+  const unique = new Map<string, string>();
+  values.filter(Boolean).forEach((value) => {
+    const key = normalized(value);
+    if (!unique.has(key)) unique.set(key, value.trim());
+  });
+  return [...unique.values()];
 }
 
 function uniqueAssessmentDates(

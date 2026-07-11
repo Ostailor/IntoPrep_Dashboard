@@ -20,9 +20,11 @@ import {
 import {
   inferStudentWorkbookMappings,
   normalizeAcademicRows,
+  normalizeAcademicScorePreviews,
   parseStudentWorkbookMappings,
   parseStudentWorkbookSetup,
   type NormalizedAcademicRow,
+  type NormalizedAcademicScorePreview,
   type StudentWorkbookMappingPlan,
   type StudentWorkbookSetup,
 } from "@/lib/student-workbook-schema";
@@ -240,7 +242,13 @@ export interface StudentWorkbookAcademicSourceRow {
   cohortName: string;
   sessionTitle: string;
   roomLabel: string;
-  scores: NormalizedAcademicRow["scores"];
+  assessmentTitle: string;
+  sourceAssessmentDate: string;
+  rw: number | null;
+  math: number | null;
+  total: number | null;
+  action: "Create assessment result." | "Update assessment result." | "Blocked" | "Review score";
+  warnings: string[];
   errors: string[];
 }
 
@@ -608,12 +616,21 @@ async function prepareStudentImport(
       row.rowNumber,
     )))
     .map((row) => normalizeMappedStudentRow(row, mappings, data.fieldDefinitions));
+  const includedAcademicRows = mappingPlan.academic
+    ? academicRows.filter((row) => !excludedRowKeys.has(rowReferenceKey(
+        mappingPlan.academic!.sheetName,
+        row.rowNumber,
+      )))
+    : [];
   const normalizedAcademicRows = mappingPlan.academic
     ? normalizeAcademicRows({
-        rows: academicRows.filter((row) => !excludedRowKeys.has(rowReferenceKey(
-          mappingPlan.academic!.sheetName,
-          row.rowNumber,
-        ))),
+        rows: includedAcademicRows,
+        mappings: mappingPlan.academic.columns,
+      })
+    : [];
+  const normalizedAcademicScorePreviews = mappingPlan.academic
+    ? normalizeAcademicScorePreviews({
+        rows: includedAcademicRows,
         mappings: mappingPlan.academic.columns,
       })
     : [];
@@ -654,7 +671,12 @@ async function prepareStudentImport(
       )
     : [];
   const academicSourceRows = mappingPlan.academic
-    ? buildAcademicSourceRows(mappingPlan.academic.sheetName, normalizedAcademicRows)
+    ? buildAcademicSourceRows({
+        sheetName: mappingPlan.academic.sheetName,
+        rows: normalizedAcademicRows,
+        scorePreviews: normalizedAcademicScorePreviews,
+        planRows: academic.rows,
+      })
     : [];
   const normalizedByRow = new Map(normalizedRows.map((row) => [row.rowNumber, row]));
   const blocking = plan.rows.some((row) => row.errors.length > 0) ||
@@ -702,23 +724,53 @@ async function prepareStudentImport(
   };
 }
 
-function buildAcademicSourceRows(
+function buildAcademicSourceRows(input: {
   sheetName: string,
   rows: readonly NormalizedAcademicRow[],
-): StudentWorkbookAcademicSourceRow[] {
-  return rows.slice(0, STUDENT_IMPORT_MAX_ROWS).map((row) => ({
-    sheetName,
-    rowNumber: row.rowNumber,
-    studentName: row.studentName,
-    cohortName: row.cohortName,
-    sessionTitle: row.sessionTitle,
-    roomLabel: row.roomLabel,
-    scores: row.scores.map((score) => ({
-      ...score,
+  scorePreviews: readonly NormalizedAcademicScorePreview[],
+  planRows: ReadonlyArray<StudentAcademicImportPlan["rows"][number]>,
+}): StudentWorkbookAcademicSourceRow[] {
+  const rowsByNumber = new Map(input.rows.map((row) => [row.rowNumber, row]));
+  const planRowsByNumber = new Map(input.planRows.map((row) => [row.rowNumber, row]));
+  const scoreErrorsByRow = new Map<number, Set<string>>();
+  for (const preview of input.scorePreviews) {
+    const errors = scoreErrorsByRow.get(preview.rowNumber) ?? new Set<string>();
+    preview.errors.forEach((error) => errors.add(error));
+    scoreErrorsByRow.set(preview.rowNumber, errors);
+  }
+
+  return input.scorePreviews.slice(0, STUDENT_IMPORT_MAX_ROWS).map((score) => {
+    const row = rowsByNumber.get(score.rowNumber);
+    const planRow = planRowsByNumber.get(score.rowNumber);
+    const action = planRow?.scoreActions.find(
+      (entry) => normalizedAcademicIdentity(entry.assessmentTitle) ===
+        normalizedAcademicIdentity(score.assessmentTitle),
+    )?.action;
+    const scoreErrors = scoreErrorsByRow.get(score.rowNumber) ?? new Set<string>();
+    const contextualErrors = planRow?.errors.filter((error) => !scoreErrors.has(error)) ?? [];
+    return {
+      sheetName: input.sheetName,
+      rowNumber: score.rowNumber,
+      studentName: row?.studentName ?? "",
+      cohortName: row?.cohortName ?? "",
+      sessionTitle: row?.sessionTitle ?? "",
+      roomLabel: row?.roomLabel ?? "",
+      assessmentTitle: score.assessmentTitle,
+      sourceAssessmentDate: score.sourceAssessmentDate,
+      rw: score.rw,
+      math: score.math,
+      total: score.total,
+      action: action ?? (score.errors.length > 0 || (planRow?.errors.length ?? 0) > 0
+        ? "Blocked"
+        : "Review score"),
       warnings: [...score.warnings],
-    })),
-    errors: [...row.errors],
-  }));
+      errors: [...new Set([...score.errors, ...contextualErrors])],
+    };
+  });
+}
+
+function normalizedAcademicIdentity(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 }
 
 function collectSourceAssessmentDateSuggestions(
