@@ -1,4 +1,5 @@
-import type { User, UserRole } from "@/lib/domain";
+import type { User } from "@/lib/domain";
+import { canRunStudentImports } from "@/lib/permissions";
 import { createXlsxWorkbook, type XlsxCell, type XlsxSheet } from "@/lib/xlsx-workbook";
 
 export type StudentWorkbookExportScope = "students" | "scores" | "all";
@@ -78,7 +79,34 @@ export interface StudentWorkbookExportPartitionData {
 }
 
 export interface StudentWorkbookExportRepository {
-  loadPartition(targetDemo: boolean): Promise<StudentWorkbookExportPartitionData>;
+  loadPartition(
+    targetDemo: boolean,
+    scope: StudentWorkbookExportScope,
+  ): Promise<StudentWorkbookExportPartitionData>;
+}
+
+export type StudentWorkbookExportCollection = keyof StudentWorkbookExportPartitionData;
+
+export interface StudentWorkbookExportDataSource {
+  loadPage(input: {
+    collection: StudentWorkbookExportCollection;
+    targetDemo: boolean;
+    includeArchivedCohorts: boolean;
+    studentProjection: "directory" | "score";
+    from: number;
+    to: number;
+  }): PromiseLike<{
+    data: unknown[] | null;
+    error: { message: string } | null;
+  }>;
+}
+
+export interface StudentWorkbookExportLimits {
+  pageSize: number;
+  collectionRows: Record<StudentWorkbookExportCollection, number>;
+  projectedStudentRows: number;
+  projectedScoreRows: number;
+  projectedCells: number;
 }
 
 export interface StudentInformationExportRow {
@@ -125,9 +153,28 @@ export interface StudentWorkbookExportResult {
 
 export class StudentWorkbookExportPermissionError extends Error {}
 
-export function canExportStudentWorkbooks(role: UserRole) {
-  return role === "engineer" || role === "admin" || role === "staff";
+export class StudentWorkbookExportLimitError extends Error {
+  constructor() {
+    super("Student export exceeds the safe size limit.");
+  }
 }
+
+export const STUDENT_WORKBOOK_EXPORT_LIMITS: StudentWorkbookExportLimits = {
+  pageSize: 500,
+  collectionRows: {
+    families: 10_000,
+    students: 10_000,
+    fieldDefinitions: 200,
+    enrollments: 50_000,
+    cohorts: 10_000,
+    sessions: 50_000,
+    assessments: 25_000,
+    results: 25_000,
+  },
+  projectedStudentRows: 10_000,
+  projectedScoreRows: 25_000,
+  projectedCells: 500_000,
+};
 
 const STUDENT_HEADERS = [
   "First Name", "Last Name", "Student Email", "Student Phone",
@@ -154,19 +201,23 @@ export async function exportStudentWorkbook({
   scope,
   requestedTarget,
   repository = createProductionStudentWorkbookExportRepository(),
+  limits = STUDENT_WORKBOOK_EXPORT_LIMITS,
 }: {
   viewer: Pick<User, "role" | "demo">;
   scope: StudentWorkbookExportScope;
   requestedTarget?: boolean;
   repository?: StudentWorkbookExportRepository;
+  limits?: StudentWorkbookExportLimits;
 }): Promise<StudentWorkbookExportResult> {
   const targetDemo = resolveExportTarget(viewer, requestedTarget);
-  const data = await repository.loadPartition(targetDemo);
+  const data = await repository.loadPartition(targetDemo, scope);
+  assertCollectionLimits(data, scope, limits);
   const fieldDefinitions = data.fieldDefinitions
     .filter((definition) => definition.demo === targetDemo && definition.archived_at === null)
     .sort((left, right) => left.sort_order - right.sort_order || left.key.localeCompare(right.key));
   const studentRows = scope === "scores" ? [] : projectStudentRows(data, targetDemo);
   const scoreRows = scope === "students" ? [] : projectScoreRows(data, targetDemo);
+  assertProjectionLimits(studentRows, scoreRows, fieldDefinitions.length, limits);
   const sheets: XlsxSheet[] = [];
 
   if (scope === "students" || scope === "all") {
@@ -197,7 +248,7 @@ function resolveExportTarget(
   viewer: Pick<User, "role" | "demo">,
   requestedTarget: boolean | undefined,
 ) {
-  if (!canExportStudentWorkbooks(viewer.role)) {
+  if (!canRunStudentImports(viewer.role)) {
     throw new StudentWorkbookExportPermissionError("You cannot export students.");
   }
   if (viewer.role === "engineer") {
@@ -289,7 +340,7 @@ function projectScoreRows(
   );
   const cohorts = new Map(
     data.cohorts
-      .filter((cohort) => cohort.demo === targetDemo && !cohort.is_archived)
+      .filter((cohort) => cohort.demo === targetDemo)
       .map((cohort) => [cohort.id, cohort]),
   );
   const assessments = new Map(
@@ -448,59 +499,173 @@ function groupBy<T>(rows: T[], key: (row: T) => string) {
   return grouped;
 }
 
-export function createProductionStudentWorkbookExportRepository(): StudentWorkbookExportRepository {
-  return {
-    async loadPartition(targetDemo) {
-      const { createSupabaseServiceClient } = await import("@/lib/supabase/service");
-      const serviceClient = createSupabaseServiceClient();
-      const [families, students, fieldDefinitions, enrollments, cohorts, sessions, assessments, results] =
-        await Promise.all([
-          loadAllPages((from, to) => serviceClient.from("families")
-            .select("id,guardian_names,parent1_name,parent1_email,parent1_phone,parent2_name,parent2_email,parent2_phone,email,phone,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("students")
-            .select("id,family_id,first_name,last_name,email,phone,grade_level,school,target_test,focus,custom_fields,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("student_field_definitions")
-            .select("key,label,data_type,sort_order,archived_at,demo")
-            .eq("demo", targetDemo).is("archived_at", null)
-            .order("sort_order", { ascending: true }).order("key", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("enrollments")
-            .select("student_id,cohort_id,status,registered_at,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("cohorts")
-            .select("id,name,is_archived,demo")
-            .eq("demo", targetDemo).eq("is_archived", false)
-            .order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("sessions")
-            .select("cohort_id,title,start_at,room_label,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("assessments")
-            .select("id,cohort_id,title,date,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-          loadAllPages((from, to) => serviceClient.from("assessment_results")
-            .select("assessment_id,student_id,total_score,section_scores,demo")
-            .eq("demo", targetDemo).order("id", { ascending: true }).range(from, to)),
-        ]);
+function collectionsForScope(scope: StudentWorkbookExportScope): StudentWorkbookExportCollection[] {
+  if (scope === "students") {
+    return ["families", "students", "fieldDefinitions", "enrollments", "cohorts"];
+  }
+  if (scope === "scores") {
+    return ["students", "cohorts", "sessions", "assessments", "results"];
+  }
+  return [
+    "families", "students", "fieldDefinitions", "enrollments",
+    "cohorts", "sessions", "assessments", "results",
+  ];
+}
 
-      return { families, students, fieldDefinitions, enrollments, cohorts, sessions, assessments, results };
+function assertCollectionLimits(
+  data: StudentWorkbookExportPartitionData,
+  scope: StudentWorkbookExportScope,
+  limits: StudentWorkbookExportLimits,
+) {
+  for (const collection of collectionsForScope(scope)) {
+    if (data[collection].length > limits.collectionRows[collection]) {
+      throw new StudentWorkbookExportLimitError();
+    }
+  }
+}
+
+function assertProjectionLimits(
+  studentRows: StudentInformationExportRow[],
+  scoreRows: ScoreExportRow[],
+  customFieldCount: number,
+  limits: StudentWorkbookExportLimits,
+) {
+  const projectedCells = studentRows.length * (STUDENT_HEADERS.length + customFieldCount) +
+    scoreRows.length * SCORE_HEADERS.length;
+  if (
+    studentRows.length > limits.projectedStudentRows ||
+    scoreRows.length > limits.projectedScoreRows ||
+    projectedCells > limits.projectedCells
+  ) {
+    throw new StudentWorkbookExportLimitError();
+  }
+}
+
+export function createStudentWorkbookExportRepository(
+  dataSource: StudentWorkbookExportDataSource,
+  limits: StudentWorkbookExportLimits = STUDENT_WORKBOOK_EXPORT_LIMITS,
+): StudentWorkbookExportRepository {
+  return {
+    async loadPartition(targetDemo, scope) {
+      const collections = collectionsForScope(scope);
+      const loaded = await Promise.all(collections.map(async (collection) => [
+        collection,
+        await loadBoundedPages({
+          getPage: (from, to) => dataSource.loadPage({
+            collection,
+            targetDemo,
+            includeArchivedCohorts: collection === "cohorts" && scope !== "students",
+            studentProjection: scope === "scores" ? "score" : "directory",
+            from,
+            to,
+          }),
+          pageSize: limits.pageSize,
+          maxRows: limits.collectionRows[collection],
+        }),
+      ] as const));
+      const rows = new Map<StudentWorkbookExportCollection, unknown[]>(loaded);
+
+      return {
+        families: (rows.get("families") ?? []) as StudentWorkbookExportPartitionData["families"],
+        students: (rows.get("students") ?? []) as StudentWorkbookExportPartitionData["students"],
+        fieldDefinitions:
+          (rows.get("fieldDefinitions") ?? []) as StudentWorkbookExportPartitionData["fieldDefinitions"],
+        enrollments:
+          (rows.get("enrollments") ?? []) as StudentWorkbookExportPartitionData["enrollments"],
+        cohorts: (rows.get("cohorts") ?? []) as StudentWorkbookExportPartitionData["cohorts"],
+        sessions: (rows.get("sessions") ?? []) as StudentWorkbookExportPartitionData["sessions"],
+        assessments:
+          (rows.get("assessments") ?? []) as StudentWorkbookExportPartitionData["assessments"],
+        results: (rows.get("results") ?? []) as StudentWorkbookExportPartitionData["results"],
+      };
     },
   };
 }
 
-async function loadAllPages<T>(
+export function createProductionStudentWorkbookExportRepository(): StudentWorkbookExportRepository {
+  return {
+    async loadPartition(targetDemo, scope) {
+      const { createSupabaseServiceClient } = await import("@/lib/supabase/service");
+      const serviceClient = createSupabaseServiceClient();
+      const repository = createStudentWorkbookExportRepository({
+        async loadPage(input) {
+          const { from, to } = input;
+          switch (input.collection) {
+            case "families":
+              return serviceClient.from("families")
+                .select("id,guardian_names,parent1_name,parent1_email,parent1_phone,parent2_name,parent2_email,parent2_phone,email,phone,demo")
+                .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+            case "students":
+              return input.studentProjection === "score"
+                ? serviceClient.from("students")
+                    .select("id,first_name,last_name,demo")
+                    .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to)
+                : serviceClient.from("students")
+                    .select("id,family_id,first_name,last_name,email,phone,grade_level,school,target_test,focus,custom_fields,demo")
+                    .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+            case "fieldDefinitions":
+              return serviceClient.from("student_field_definitions")
+                .select("key,label,data_type,sort_order,archived_at,demo")
+                .eq("demo", input.targetDemo).is("archived_at", null)
+                .order("sort_order", { ascending: true }).order("key", { ascending: true }).range(from, to);
+            case "enrollments":
+              return serviceClient.from("enrollments")
+                .select("student_id,cohort_id,status,registered_at,demo")
+                .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+            case "cohorts": {
+              const query = serviceClient.from("cohorts")
+                .select("id,name,is_archived,demo")
+                .eq("demo", input.targetDemo);
+              const scopedQuery = input.includeArchivedCohorts
+                ? query
+                : query.eq("is_archived", false);
+              return scopedQuery.order("id", { ascending: true }).range(from, to);
+            }
+            case "sessions":
+              return serviceClient.from("sessions")
+                .select("cohort_id,title,start_at,room_label,demo")
+                .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+            case "assessments":
+              return serviceClient.from("assessments")
+                .select("id,cohort_id,title,date,demo")
+                .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+            case "results":
+              return serviceClient.from("assessment_results")
+                .select("assessment_id,student_id,total_score,section_scores,demo")
+                .eq("demo", input.targetDemo).order("id", { ascending: true }).range(from, to);
+          }
+        },
+      });
+      return repository.loadPartition(targetDemo, scope);
+    },
+  };
+}
+
+async function loadBoundedPages({
+  getPage,
+  pageSize,
+  maxRows,
+}: {
   getPage: (from: number, to: number) => PromiseLike<{
-    data: T[] | null;
+    data: unknown[] | null;
     error: { message: string } | null;
-  }>,
-) {
-  const rows: T[] = [];
-  const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const result = await getPage(from, from + pageSize - 1);
+  }>;
+  pageSize: number;
+  maxRows: number;
+}) {
+  const rows: unknown[] = [];
+  while (rows.length < maxRows) {
+    const requestSize = Math.min(pageSize, maxRows - rows.length);
+    const result = await getPage(rows.length, rows.length + requestSize - 1);
     if (result.error) throw new Error(result.error.message);
     const page = result.data ?? [];
+    if (page.length > requestSize) throw new StudentWorkbookExportLimitError();
     rows.push(...page);
-    if (page.length < pageSize) return rows;
+    if (page.length < requestSize) return rows;
   }
+
+  const overflow = await getPage(maxRows, maxRows);
+  if (overflow.error) throw new Error(overflow.error.message);
+  if ((overflow.data?.length ?? 0) > 0) throw new StudentWorkbookExportLimitError();
+  return rows;
 }

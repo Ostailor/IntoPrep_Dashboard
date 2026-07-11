@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedViewerForRequest } from "@/lib/auth";
+import { canRunStudentImports } from "@/lib/permissions";
 import {
-  canExportStudentWorkbooks,
   exportStudentWorkbook,
   StudentWorkbookExportPermissionError,
   type StudentWorkbookExportScope,
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     viewer.mode !== "live" ||
     viewer.accountStatus === "suspended" ||
     viewer.mustChangePassword === true ||
-    !canExportStudentWorkbooks(viewer.user.role)
+    !canRunStudentImports(viewer.user.role)
   ) {
     return NextResponse.json({ error: "You cannot export students." }, { status: 403 });
   }

@@ -7,7 +7,12 @@ import {
   StudentWorkbookExportActions,
 } from "@/components/portal/student-workbook-export-actions";
 import {
+  createStudentWorkbookExportRepository,
   exportStudentWorkbook,
+  STUDENT_WORKBOOK_EXPORT_LIMITS,
+  StudentWorkbookExportLimitError,
+  type StudentWorkbookExportDataSource,
+  type StudentWorkbookExportLimits,
   type StudentWorkbookExportPartitionData,
   type StudentWorkbookExportRepository,
 } from "@/lib/student-workbook-export";
@@ -175,6 +180,13 @@ function partitionData(): StudentWorkbookExportPartitionData {
         demo: true,
       },
       {
+        cohort_id: "cohort-demo-archived",
+        title: "Historical G3",
+        start_at: "2026-07-20T13:00:00.000Z",
+        room_label: "Archive Room",
+        demo: true,
+      },
+      {
         cohort_id: "cohort-main",
         title: "Main Class",
         start_at: "2026-07-10T13:00:00.000Z",
@@ -188,6 +200,13 @@ function partitionData(): StudentWorkbookExportPartitionData {
         cohort_id: "cohort-demo",
         title: "HW1 – PSAT",
         date: "2026-07-10",
+        demo: true,
+      },
+      {
+        id: "assessment-demo-archived",
+        cohort_id: "cohort-demo-archived",
+        title: "Historical PSAT",
+        date: "2026-07-20",
         demo: true,
       },
       {
@@ -206,6 +225,16 @@ function partitionData(): StudentWorkbookExportPartitionData {
         section_scores: [
           { label: "R&W", score: 720 },
           { label: "Mathematics", score: 760 },
+        ],
+        demo: true,
+      },
+      {
+        assessment_id: "assessment-demo-archived",
+        student_id: "student-demo",
+        total_score: 1420,
+        section_scores: [
+          { label: "RW", score: 700 },
+          { label: "Math", score: 720 },
         ],
         demo: true,
       },
@@ -239,7 +268,7 @@ describe("exportStudentWorkbook", () => {
       repository: exportRepository,
     });
 
-    expect(exportRepository.loadPartition).toHaveBeenCalledWith(true);
+    expect(exportRepository.loadPartition).toHaveBeenCalledWith(true, "all");
     expect(workbook.filename).toMatch(/^intoprep-demo-export-\d{4}-\d{2}-\d{2}\.xlsx$/);
     expect(workbook.sheetNames).toEqual(["Student Information", "Scores"]);
     expect(workbook.rows.students).toHaveLength(1);
@@ -249,6 +278,9 @@ describe("exportStudentWorkbook", () => {
       cohorts: "MWF; SAT Intensive",
       customFields: { counselor: "Dr. Chen", graduation_year: 2027 },
     });
+    expect(workbook.rows.students[0]?.registrationDate?.toISOString()).toBe(
+      "2026-06-01T00:00:00.000Z",
+    );
     expect(workbook.rows.scores[0]).toMatchObject({
       studentName: "Ada Demo",
       cohort: "MWF",
@@ -258,6 +290,14 @@ describe("exportStudentWorkbook", () => {
       rw: 720,
       math: 760,
       total: 1480,
+    });
+    expect(workbook.rows.scores.find((row) => row.testName === "Historical PSAT")).toMatchObject({
+      cohort: "Archived",
+      className: "Historical G3",
+      room: "Archive Room",
+      rw: 700,
+      math: 720,
+      total: 1420,
     });
     expect(workbook.bytes.includes(Buffer.from("Main Student"))).toBe(false);
     expect(workbook.bytes.includes(Buffer.from("main-student@example.test"))).toBe(false);
@@ -305,7 +345,7 @@ describe("exportStudentWorkbook", () => {
         repository: exportRepository,
       });
 
-      expect(exportRepository.loadPartition).toHaveBeenCalledWith(true);
+      expect(exportRepository.loadPartition).toHaveBeenCalledWith(true, "students");
     },
   );
 
@@ -326,7 +366,7 @@ describe("exportStudentWorkbook", () => {
       repository: exportRepository,
     });
 
-    expect(exportRepository.loadPartition).toHaveBeenCalledWith(false);
+    expect(exportRepository.loadPartition).toHaveBeenCalledWith(false, "all");
     expect(workbook.filename).toMatch(/^intoprep-main-export-/);
     expect(workbook.rows.students.map((student) => student.firstName)).toEqual(["Main"]);
   });
@@ -417,6 +457,102 @@ describe("exportStudentWorkbook", () => {
       room: "",
     });
   });
+
+  it("rejects injected projections above the practical row ceiling", async () => {
+    const data = partitionData();
+    data.results.push({
+      assessment_id: "assessment-demo",
+      student_id: "student-demo",
+      total_score: 1500,
+      section_scores: [{ label: "RW", score: 740 }, { label: "Math", score: 760 }],
+      demo: true,
+    });
+    const limits: StudentWorkbookExportLimits = {
+      ...STUDENT_WORKBOOK_EXPORT_LIMITS,
+      projectedScoreRows: 1,
+    };
+
+    await expect(exportStudentWorkbook({
+      viewer: demoAdmin,
+      scope: "scores",
+      repository: repository(data),
+      limits,
+    })).rejects.toBeInstanceOf(StudentWorkbookExportLimitError);
+  });
+});
+
+describe("student workbook export repository", () => {
+  function dataSource(rows: Partial<Record<keyof StudentWorkbookExportPartitionData, unknown[]>> = {}) {
+    return {
+      loadPage: vi.fn(async ({ collection, from, to }:
+        Parameters<StudentWorkbookExportDataSource["loadPage"]>[0]) => ({
+        data: (rows[collection] ?? []).slice(from, to + 1),
+        error: null,
+      })),
+    } satisfies StudentWorkbookExportDataSource;
+  }
+
+  const smallLimits: StudentWorkbookExportLimits = {
+    ...STUDENT_WORKBOOK_EXPORT_LIMITS,
+    pageSize: 2,
+    collectionRows: {
+      ...STUDENT_WORKBOOK_EXPORT_LIMITS.collectionRows,
+      students: 4,
+    },
+  };
+
+  it("loads only directory collections for students scope", async () => {
+    const source = dataSource();
+    const repository = createStudentWorkbookExportRepository(source, smallLimits);
+
+    await repository.loadPartition(true, "students");
+
+    expect(source.loadPage.mock.calls.map(([input]) => input.collection)).toEqual([
+      "families", "students", "fieldDefinitions", "enrollments", "cohorts",
+    ]);
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "cohorts")?.[0])
+      .toMatchObject({ includeArchivedCohorts: false });
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "students")?.[0])
+      .toMatchObject({ studentProjection: "directory" });
+  });
+
+  it("loads only score collections and retains archived cohorts for scores scope", async () => {
+    const source = dataSource();
+    const repository = createStudentWorkbookExportRepository(source, smallLimits);
+
+    await repository.loadPartition(false, "scores");
+
+    expect(source.loadPage.mock.calls.map(([input]) => input.collection)).toEqual([
+      "students", "cohorts", "sessions", "assessments", "results",
+    ]);
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "cohorts")?.[0])
+      .toMatchObject({ includeArchivedCohorts: true });
+    expect(source.loadPage.mock.calls.find(([input]) => input.collection === "students")?.[0])
+      .toMatchObject({ studentProjection: "score" });
+  });
+
+  it("accepts an exact page boundary after a one-row overflow probe", async () => {
+    const source = dataSource({ students: [1, 2, 3, 4] });
+    const repository = createStudentWorkbookExportRepository(source, smallLimits);
+
+    await expect(repository.loadPartition(true, "scores")).resolves.toMatchObject({
+      students: [1, 2, 3, 4],
+    });
+    expect(source.loadPage.mock.calls
+      .filter(([input]) => input.collection === "students")
+      .map(([input]) => [input.from, input.to])).toEqual([[0, 1], [2, 3], [4, 4]]);
+  });
+
+  it("rejects one row over the collection limit without accumulating it", async () => {
+    const source = dataSource({ students: [1, 2, 3, 4, 5] });
+    const repository = createStudentWorkbookExportRepository(source, smallLimits);
+
+    await expect(repository.loadPartition(true, "scores"))
+      .rejects.toBeInstanceOf(StudentWorkbookExportLimitError);
+    expect(source.loadPage.mock.calls
+      .filter(([input]) => input.collection === "students")
+      .at(-1)?.[0]).toMatchObject({ from: 4, to: 4 });
+  });
 });
 
 describe("StudentWorkbookExportActions", () => {
@@ -449,5 +585,16 @@ describe("StudentWorkbookExportActions", () => {
     expect(buildStudentWorkbookExportHref("all", false)).toBe(
       "/api/students/export?scope=all&targetDemo=false",
     );
+  });
+
+  it("renders staff downloads without a target selector", () => {
+    const markup = renderToStaticMarkup(createElement(StudentWorkbookExportActions, {
+      role: "staff",
+    }));
+
+    expect(markup).toContain('href="/api/students/export?scope=students"');
+    expect(markup).toContain('href="/api/students/export?scope=scores"');
+    expect(markup).toContain('href="/api/students/export?scope=all"');
+    expect(markup).not.toContain("Export data partition");
   });
 });
