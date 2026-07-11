@@ -928,7 +928,7 @@ function filterDemoScopedRows<T extends DemoScopedRow>(
     : rows.filter((row) => isSameDemoPartition(viewer, row));
 }
 
-export function scopeArchivedProgramQuery<Query>(
+export function scopeLiveCatalogQuery<Query>(
   query: Query,
   viewer: Pick<User, "role" | "demo">,
 ): Query {
@@ -2114,13 +2114,22 @@ async function loadLivePortalBundle(
             .in("cohort_id", cohortIds)
         : Promise.resolve({ data: [] }),
       programIds.length > 0
-        ? serviceClient.from("programs").select("*").eq("is_archived", false).in("id", programIds)
+        ? scopeLiveCatalogQuery(
+            serviceClient.from("programs").select("*").eq("is_archived", false).in("id", programIds),
+            viewer,
+          )
         : Promise.resolve({ data: [] }),
       campusIds.length > 0
-        ? serviceClient.from("campuses").select("*").in("id", campusIds)
+        ? scopeLiveCatalogQuery(
+            serviceClient.from("campuses").select("*").in("id", campusIds),
+            viewer,
+          )
         : Promise.resolve({ data: [] }),
       termIds.length > 0
-        ? serviceClient.from("terms").select("*").in("id", termIds)
+        ? scopeLiveCatalogQuery(
+            serviceClient.from("terms").select("*").in("id", termIds),
+            viewer,
+          )
         : Promise.resolve({ data: [] }),
       loadPlan.archivedCohorts
         ? serviceClient
@@ -2130,7 +2139,7 @@ async function loadLivePortalBundle(
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),
       loadPlan.archivedPrograms
-        ? scopeArchivedProgramQuery(
+        ? scopeLiveCatalogQuery(
             serviceClient.from("programs").select("*").eq("is_archived", true),
             viewer,
           )

@@ -267,11 +267,12 @@ function getAssessmentLabels(assessment: AssessmentRow) {
     : [];
 }
 
-async function getDefaultCampusId() {
+async function getDefaultCampusId(demo: boolean) {
   const serviceClient = createSupabaseServiceClient();
   const { data, error } = await serviceClient
     .from("campuses")
     .select("*")
+    .eq("demo", demo)
     .order("name", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -424,7 +425,7 @@ export async function upsertStudentDirectoryRecord({
   }
 
   if (!existingStudent) {
-    const defaultCampusId = await getDefaultCampusId();
+    const defaultCampusId = await getDefaultCampusId(demo);
     const { error: familyInsertError } = await serviceClient.from("families").insert({
       id: familyId,
       family_name: `${normalizedStudent.lastName} family`,

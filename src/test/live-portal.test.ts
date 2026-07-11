@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { mapLiveCatalogRows, scopeArchivedProgramQuery } from "@/lib/live-portal";
+import {
+  mapLiveCatalogRows,
+  scopeLiveCatalogQuery,
+} from "@/lib/live-portal";
 
 vi.mock("server-only", () => ({}));
 
@@ -52,7 +55,7 @@ describe("live portal catalog mapping", () => {
     const query = { eq: vi.fn() };
     query.eq.mockReturnValue(query);
 
-    expect(scopeArchivedProgramQuery(query, { role: "admin", demo })).toBe(query);
+    expect(scopeLiveCatalogQuery(query, { role: "admin", demo })).toBe(query);
     expect(query.eq).toHaveBeenCalledExactlyOnceWith("demo", demo);
   });
 
@@ -60,7 +63,26 @@ describe("live portal catalog mapping", () => {
     const query = { eq: vi.fn() };
     query.eq.mockReturnValue(query);
 
-    expect(scopeArchivedProgramQuery(query, { role: "engineer", demo: false })).toBe(query);
+    expect(scopeLiveCatalogQuery(query, { role: "engineer", demo: false })).toBe(query);
+    expect(query.eq).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "Demo", demo: true },
+    { label: "Main", demo: false },
+  ])("scopes active live catalog service queries to the $label partition", ({ demo }) => {
+    const query = { eq: vi.fn() };
+    query.eq.mockReturnValue(query);
+
+    expect(scopeLiveCatalogQuery(query, { role: "admin", demo })).toBe(query);
+    expect(query.eq).toHaveBeenCalledExactlyOnceWith("demo", demo);
+  });
+
+  it("preserves engineer dual-partition access for live catalogs", () => {
+    const query = { eq: vi.fn() };
+    query.eq.mockReturnValue(query);
+
+    expect(scopeLiveCatalogQuery(query, { role: "engineer", demo: false })).toBe(query);
     expect(query.eq).not.toHaveBeenCalled();
   });
 });

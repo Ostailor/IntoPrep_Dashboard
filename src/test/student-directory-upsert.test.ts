@@ -42,14 +42,16 @@ function makeQuery(result: QueryResult) {
     },
   };
 
-  for (const method of ["eq", "is", "order", "select", "update"] as const) {
+  for (const method of ["eq", "insert", "is", "limit", "order", "select", "update"] as const) {
     query[method] = vi.fn(() => query);
   }
   query.maybeSingle = vi.fn(async () => result);
 
   return query as typeof query & {
     eq: ReturnType<typeof vi.fn>;
+    insert: ReturnType<typeof vi.fn>;
     is: ReturnType<typeof vi.fn>;
+    limit: ReturnType<typeof vi.fn>;
     order: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -232,4 +234,55 @@ describe("student directory partitioned updates", () => {
     expect(fixture.familyUpdate.update).not.toHaveBeenCalled();
     expect(fixture.studentUpdate.update).not.toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    "scopes the default Campus lookup before creating a demo=%s student",
+    async (demo) => {
+      const definitions = makeQuery({ data: [], error: null });
+      const campus = makeQuery({
+        data: {
+          id: demo ? "campus-demo" : "campus-main",
+          name: demo ? "Demo Campus" : "Main Campus",
+          location: "Wayne",
+          modality: "In person",
+          demo,
+        },
+        error: null,
+      });
+      const familyInsert = makeQuery({ data: null, error: null });
+      const studentInsert = makeQuery({ data: null, error: null });
+      const queues = {
+        student_field_definitions: [definitions],
+        campuses: [campus],
+        families: [familyInsert],
+        students: [studentInsert],
+      };
+      const client = {
+        from: vi.fn((table: keyof typeof queues) => queues[table].shift()),
+      };
+      mocks.createServiceClient.mockReturnValue(client);
+
+      await upsertStudentDirectoryRecord({
+        viewer: makeViewer(demo),
+        firstName: "Ada",
+        lastName: "Lovelace",
+        gradeLevel: "11",
+        school: "Great Valley",
+        targetTest: "SAT",
+        focus: "Reading timing",
+        parent1Name: "Jordan Lovelace",
+        parent1Email: "jordan@example.com",
+        parent1Phone: "555-0100",
+        guardianName: undefined,
+        familyEmail: undefined,
+        familyPhone: undefined,
+      });
+
+      expect(campus.eq).toHaveBeenCalledWith("demo", demo);
+      expect(familyInsert.insert).toHaveBeenCalledWith(expect.objectContaining({
+        preferred_campus_id: demo ? "campus-demo" : "campus-main",
+        demo,
+      }));
+    },
+  );
 });

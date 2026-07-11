@@ -532,8 +532,8 @@ export async function importIntakeCsv({
       serviceClient.from("leads").select("*").eq("demo", demo),
       serviceClient.from("enrollments").select("*").eq("demo", demo),
       serviceClient.from("cohorts").select("*").eq("demo", demo),
-      serviceClient.from("programs").select("*"),
-      serviceClient.from("campuses").select("*"),
+      serviceClient.from("programs").select("*").eq("demo", demo),
+      serviceClient.from("campuses").select("*").eq("demo", demo),
     ]);
 
     const existingFamilies = (familiesResult.data ?? []) as FamilyRow[];
