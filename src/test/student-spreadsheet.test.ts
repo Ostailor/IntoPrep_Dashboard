@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { inflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 
 const xlsxFixtures = vi.hoisted(() => new Map<string, Array<{
@@ -26,6 +27,48 @@ import {
   readStudentSpreadsheet,
 } from "@/lib/student-spreadsheet";
 import { detectStudentWorkbook } from "@/lib/student-workbook-profile";
+
+function readZipEntry(archive: Buffer, entryName: string) {
+  const endSignature = 0x06054b50;
+  const centralSignature = 0x02014b50;
+  const localSignature = 0x04034b50;
+  let endOffset = archive.length - 22;
+  while (endOffset >= 0 && archive.readUInt32LE(endOffset) !== endSignature) {
+    endOffset -= 1;
+  }
+  if (endOffset < 0) throw new Error("ZIP end record was not found.");
+
+  const entryCount = archive.readUInt16LE(endOffset + 10);
+  let offset = archive.readUInt32LE(endOffset + 16);
+  for (let index = 0; index < entryCount; index += 1) {
+    if (archive.readUInt32LE(offset) !== centralSignature) {
+      throw new Error("ZIP central directory is invalid.");
+    }
+    const compression = archive.readUInt16LE(offset + 10);
+    const compressedSize = archive.readUInt32LE(offset + 20);
+    const filenameLength = archive.readUInt16LE(offset + 28);
+    const extraLength = archive.readUInt16LE(offset + 30);
+    const commentLength = archive.readUInt16LE(offset + 32);
+    const localOffset = archive.readUInt32LE(offset + 42);
+    const filename = archive.subarray(offset + 46, offset + 46 + filenameLength).toString("utf8");
+
+    if (filename === entryName) {
+      if (archive.readUInt32LE(localOffset) !== localSignature) {
+        throw new Error("ZIP local file header is invalid.");
+      }
+      const localFilenameLength = archive.readUInt16LE(localOffset + 26);
+      const localExtraLength = archive.readUInt16LE(localOffset + 28);
+      const dataOffset = localOffset + 30 + localFilenameLength + localExtraLength;
+      const compressed = archive.subarray(dataOffset, dataOffset + compressedSize);
+      if (compression === 0) return compressed;
+      if (compression === 8) return inflateRawSync(compressed);
+      throw new Error(`Unsupported ZIP compression method ${compression}.`);
+    }
+
+    offset += 46 + filenameLength + extraLength + commentLength;
+  }
+  throw new Error(`ZIP entry ${entryName} was not found.`);
+}
 
 describe("student spreadsheet decoding", () => {
   it("decodes quoted CSV cells", async () => {
@@ -128,6 +171,20 @@ describe("student spreadsheet decoding", () => {
       "HW3 / BB08 / M",
       "HW3 / BB08 / Total",
     ]);
+  });
+
+  it("persists a real G5 freeze pane in the sanitized workbook XML", async () => {
+    const bytes = await readFile("src/test/fixtures/adaptive-score-import.xlsx");
+    const worksheetXml = readZipEntry(bytes, "xl/worksheets/sheet1.xml").toString("utf8");
+    const pane = worksheetXml.match(
+      /<(?:[A-Za-z_][\w.-]*:)?pane\b[^>]*\/?>(?:<\/(?:[A-Za-z_][\w.-]*:)?pane>)?/,
+    )?.[0];
+
+    expect(pane).toBeDefined();
+    expect(pane).toContain('xSplit="6"');
+    expect(pane).toContain('ySplit="4"');
+    expect(pane).toContain('topLeftCell="G5"');
+    expect(pane).toContain('state="frozen"');
   });
 
   it("rejects files larger than four megabytes", async () => {
